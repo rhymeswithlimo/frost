@@ -54,6 +54,7 @@ can read your files, not the storage provider and not the frost authors.`,
 func Execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	defer enableANSI()()
 	if err := NewRoot().ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, errStyle("error:"), err)
 		return 1

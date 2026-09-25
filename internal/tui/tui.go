@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -30,10 +31,21 @@ import (
 )
 
 //go:embed assets/frost-wordmark.txt
-var wordmark string
+var wordmarkRaw string
 
 //go:embed assets/icebreaker-wordmark.txt
-var gameWordmark string
+var gameWordmarkRaw string
+
+var (
+	wordmark     = unixLines(wordmarkRaw)
+	gameWordmark = unixLines(gameWordmarkRaw)
+)
+
+// unixLines turns CRLF line endings into LF. A Windows checkout with
+// core.autocrlf embeds the assets with CRLF, and a \r left in a frame sends
+// the cursor back to column 0 mid-row: the rest of that row is drawn over
+// its start, and whatever the previous screen left on the right stays there.
+func unixLines(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }
 
 //go:embed assets/sfx/*.wav
 var sfxFiles embed.FS
@@ -106,6 +118,11 @@ func Run(ctx context.Context, r *repo.Repo, cfg config.Config, st State) error {
 	if err == tea.ErrProgramKilled && ctx.Err() != nil {
 		return nil
 	}
+	if err != nil && runtime.GOOS == "windows" && strings.Contains(err.Error(), "console mode") {
+		// The console can't take VT sequences: the legacy console, or a
+		// Windows 10 older than 1607.
+		return fmt.Errorf("%w (this console can't draw the browser: turn off \"Use legacy console\" in its properties, or use Windows Terminal)", err)
+	}
 	return err
 }
 
@@ -138,10 +155,15 @@ type model struct {
 	sel     map[string]bool
 	trail   map[string]int // remembered cursor per folder
 
+	selFiles int   // files covered by sel, kept by countSel
+	selBytes int64 // and their total size
+
 	// diff screen
 	diffFrom, diffTo snapshot.Snapshot
 	changes          []snapshot.Change
 	diffTop          int
+	diffAdd, diffDel int // change counts, worked out once per diff
+	diffMod          int
 
 	// restore screen
 	rs restoreState
@@ -190,6 +212,8 @@ func (m model) Init() tea.Cmd {
 func (m model) loadSnaps() tea.Cmd {
 	return func() tea.Msg {
 		snaps, err := m.repo.Snapshots(m.ctx, m.st.Known)
+		// On error the list has empty slots for the headers that failed.
+		snaps = slices.DeleteFunc(snaps, func(s snapshot.Snapshot) bool { return s.ID == "" })
 		slices.SortFunc(snaps, func(a, b snapshot.Snapshot) int { return b.Time.Compare(a.Time) })
 		return snapsMsg{snaps, err}
 	}
@@ -231,6 +255,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
+		if !m.spinning() {
+			return m, nil // let the tick loop die; the next load starts a new one
+		}
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
@@ -238,6 +265,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapsMsg:
 		m.loading = ""
 		m.snaps, m.err = msg.snaps, msg.err
+		m.snapCur = max(min(m.snapCur, len(m.snaps)-1), 0) // a refresh can shrink the list
 		return m, nil
 
 	case treeMsg:
@@ -249,6 +277,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snap, m.tree = msg.snap, newTree(msg.snap, msg.tree)
 		m.dir, m.fileCur, m.fileTop = rootKey, 0, 0
 		m.sel, m.trail = map[string]bool{}, map[string]int{}
+		m.selFiles, m.selBytes = 0, 0
 		if len(m.tree.roots) == 1 {
 			m.dir = m.tree.roots[0] // skip a pointless one-item level
 		}
@@ -262,6 +291,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.diffFrom, m.diffTo, m.changes, m.diffTop = msg.from, msg.to, msg.changes, 0
+		m.diffAdd, m.diffDel, m.diffMod = 0, 0, 0
+		for _, c := range m.changes {
+			switch c.Kind {
+			case snapshot.Added:
+				m.diffAdd++
+			case snapshot.Removed:
+				m.diffDel++
+			case snapshot.Modified:
+				m.diffMod++
+			}
+		}
 		m.screen = scrDiff
 		return m, nil
 
@@ -357,11 +397,11 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			m.diffTop = max(m.diffTop-1, 0)
 		case "down", "j":
-			m.diffTop = min(m.diffTop+1, max(len(m.changes)-m.bodyH()+3, 0))
+			m.diffTop = min(m.diffTop+1, m.diffMaxTop())
 		case "pgup":
 			m.diffTop = max(m.diffTop-m.bodyH(), 0)
 		case "pgdown", " ":
-			m.diffTop = min(m.diffTop+m.bodyH(), max(len(m.changes)-m.bodyH()+3, 0))
+			m.diffTop = min(m.diffTop+m.bodyH(), m.diffMaxTop())
 		}
 	}
 	return m, nil
@@ -421,6 +461,7 @@ func (m model) snapshotsKey(key string) (tea.Model, tea.Cmd) {
 		m.loading = "Comparing snapshots"
 		return m, tea.Batch(m.spin.Tick, m.loadDiff(from, cur))
 	}
+	m.snapCur = max(m.snapCur, 0) // moving in an empty list
 	return m, nil
 }
 
@@ -502,7 +543,32 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 		m.rs = newRestoreState(m.snap, paths, m.tree)
 		m.screen = scrRestore
 	}
+	m.fileCur = max(m.fileCur, 0) // moving in an empty folder
+	switch key {
+	case " ", "x", "a", "c":
+		m.countSel()
+	}
 	return m, nil
+}
+
+// countSel works out selFiles and selBytes. It walks the whole tree, so it
+// runs when the selection changes, not on every frame.
+func (m *model) countSel() {
+	m.selFiles, m.selBytes = 0, 0
+	if len(m.sel) == 0 || m.tree == nil {
+		return
+	}
+	for p, f := range m.tree.files {
+		if f.Type == snapshot.TypeFile && covered(p, m.sel) {
+			m.selFiles++
+			m.selBytes += f.Size
+		}
+	}
+}
+
+// spinning reports whether anything on screen shows the spinner.
+func (m model) spinning() bool {
+	return m.loading != "" || (m.screen == scrRestore && m.rs.phase == phaseRunning)
 }
 
 func (m model) selectedPaths() []string {
@@ -524,6 +590,10 @@ func (m model) areaH() int { return max(m.h-2*theme.PadY-5, 5) }
 
 // bodyH is the content height of a bordered panel filling the area.
 func (m model) bodyH() int { return m.areaH() - 2 }
+
+// diffMaxTop is the furthest the diff list scrolls: the last change on the
+// last row. Two rows of the panel are taken by the summary and its rule.
+func (m model) diffMaxTop() int { return max(len(m.changes)-(m.bodyH()-2), 0) }
 
 func (m model) View() string {
 	if m.w == 0 {
@@ -669,7 +739,7 @@ func (m model) keyHint() string {
 
 func (m model) viewError() string {
 	box := theme.Box(true).BorderForeground(theme.Bad).Width(min(m.innerW(), 70)).Render(
-		theme.Error.Render("Something went wrong") + "\n\n" + theme.Text.Render(wrap(m.err.Error(), min(m.innerW(), 70)-4)))
+		theme.Error.Render("Something went wrong") + "\n\n" + theme.Text.Render(wrap(printable(m.err.Error()), min(m.innerW(), 70)-4)))
 	return m.center(box)
 }
 
@@ -774,15 +844,24 @@ func shortPath(p string, w int) string {
 	if p == rootKey {
 		return "/"
 	}
-	home, _ := os.UserHomeDir()
-	if home != "" && strings.HasPrefix(p, home) {
-		p = "~" + strings.TrimPrefix(p, home)
+	if home, _ := os.UserHomeDir(); home != "" {
+		// Snapshot paths use forward slashes, local ones may not.
+		for _, h := range []string{filepath.ToSlash(home), home} {
+			if n := len(h); len(p) >= n && samePath(p[:n], h) && (len(p) == n || p[n] == '/' || p[n] == filepath.Separator) {
+				p = "~" + p[n:]
+				break
+			}
+		}
 	}
-	w = max(w, 12)
-	if len(p) > w {
-		p = "..." + p[len(p)-w+3:]
+	return truncateLeft(p, max(w, 12))
+}
+
+// samePath compares paths the way the OS does: case-insensitively on Windows.
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
 	}
-	return p
+	return a == b
 }
 
 func humanBytes(n int64) string {

@@ -66,16 +66,18 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 
 	// Parents of included files must exist even if they weren't selected.
 	var dirs, links []snapshot.File
+	total := 0 // progress counts regular files only
 	for _, f := range files {
 		switch f.Type {
 		case snapshot.TypeDir:
 			dirs = append(dirs, f)
 		case snapshot.TypeSymlink:
 			links = append(links, f)
+		case snapshot.TypeFile:
+			total++
 		}
 	}
 
-	total := len(files)
 	done := 0
 	for _, f := range files {
 		if ctx.Err() != nil {

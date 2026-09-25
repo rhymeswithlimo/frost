@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -101,18 +102,18 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				}
 			}
 
-			live := isTerminal(os.Stdout)
+			live := liveOutput()
 			res, err := a.engine.Restore(cmd.Context(), snap.ID, engine.RestoreOptions{
 				Target:  target,
 				Include: include,
 				Progress: func(p string, done, total int) {
 					if live {
-						fmt.Fprintf(out, "\r\033[K  %d/%d  %s", done, total, dim(filepath.Base(p)))
+						statusLine(out, fmt.Sprintf("  %d/%d  %s", done, total, dim(printable(path.Base(p)))))
 					}
 				},
 			})
 			if live {
-				fmt.Fprint(out, "\r\033[K")
+				clearStatus(out)
 			}
 			if err != nil {
 				return err
