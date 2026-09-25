@@ -1,0 +1,35 @@
+# Secrets / local config
+.env
+.claude
+
+# Tooling
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Working notes
+CLAUDE.md
+
+# Build output (`go build ./cmd/frost` drops the binary in the repo root)
+/frost
+/frost.exe
+*.test
+dist/
+
+# Release builds from scripts/release.sh
+releases/
+
+# Test and dev leftovers
+*.out
+coverage.*
+*.ans
+frost-restore-*/
+
+# Photoshop files
+*.psd
+
+# Temporary
+README.md
