@@ -14,6 +14,7 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/crypto"
 	"github.com/rhymeswithlimo/frost/internal/manifest"
 	"github.com/rhymeswithlimo/frost/internal/repo"
+	"github.com/rhymeswithlimo/frost/internal/snapshot"
 	"github.com/rhymeswithlimo/frost/internal/storage/storagetest"
 )
 
@@ -108,7 +109,17 @@ func TestRoundTrip(t *testing.T) {
 	if !haveLink {
 		return
 	}
-	if l, err := os.Readlink(filepath.Join(root, "link")); err != nil || l != "docs/a.txt" {
+	tree, err := e.eng.Repo.LoadTree(context.Background(), res.Snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range tree.Files {
+		if f.Type == snapshot.TypeSymlink && f.Target != "docs/a.txt" {
+			t.Errorf("stored symlink target = %q, want docs/a.txt", f.Target)
+		}
+	}
+	// Windows returns the target with backslashes.
+	if l, err := os.Readlink(filepath.Join(root, "link")); err != nil || filepath.ToSlash(l) != "docs/a.txt" {
 		t.Errorf("symlink = %q, %v", l, err)
 	}
 }

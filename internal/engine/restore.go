@@ -109,7 +109,7 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 			return res, err
 		}
 		os.Remove(out)
-		if err := os.Symlink(f.Target, out); err != nil {
+		if err := os.Symlink(filepath.FromSlash(f.Target), out); err != nil {
 			return res, fmt.Errorf("creating symlink %s: %w", out, err)
 		}
 	}
