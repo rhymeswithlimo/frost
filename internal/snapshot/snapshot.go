@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -101,7 +102,10 @@ func SafeRel(p string) (string, error) {
 		p = p[:1] + p[2:] // "C:/x" -> "C/x", keeps drives apart
 	}
 	p = strings.TrimLeft(p, "/")
-	if slices.Contains(strings.Split(p, "/"), "..") {
+	// On Windows a backslash is a separator too, so "a/..\..\x" would climb
+	// out of the target there. Elsewhere it's an ordinary file name character.
+	sep := func(r rune) bool { return r == '/' || (r == '\\' && runtime.GOOS == "windows") }
+	if slices.Contains(strings.FieldsFunc(p, sep), "..") {
 		return "", fmt.Errorf("unsafe path %q", p)
 	}
 	clean := path.Clean(p)

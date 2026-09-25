@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
 	"github.com/rhymeswithlimo/frost/internal/theme"
@@ -187,7 +189,7 @@ func (m model) viewFiles() string {
 	kids := m.tree.children[m.dir]
 
 	// Summary line: where we are and what's selected.
-	selN, selB := m.selectionSize()
+	selN, selB := m.selFiles, m.selBytes
 	status := theme.Dim.Render(fmt.Sprintf("%d items", len(kids)))
 	if selN > 0 {
 		status += theme.Base.Render("   ") + theme.Bold.Render(fmt.Sprintf("%d files selected (%s)", selN, humanBytes(selB)))
@@ -241,38 +243,12 @@ func (m model) viewFiles() string {
 	return theme.Box(true).Width(w - 2).Height(h).Render(strings.Join(lines, "\n"))
 }
 
-// selectionSize counts the files covered by the current selection.
-func (m model) selectionSize() (int, int64) {
-	if len(m.sel) == 0 {
-		return 0, 0
-	}
-	var n int
-	var b int64
-	for p, f := range m.tree.files {
-		if f.Type == snapshot.TypeFile && covered(p, m.sel) {
-			n++
-			b += f.Size
-		}
-	}
-	return n, b
-}
-
 // ---- diff ----
 
 func (m model) viewDiff() string {
 	w, h := m.innerW(), m.bodyH()
 	inner := w - 4
-	var add, del, mod int
-	for _, c := range m.changes {
-		switch c.Kind {
-		case snapshot.Added:
-			add++
-		case snapshot.Removed:
-			del++
-		case snapshot.Modified:
-			mod++
-		}
-	}
+	add, del, mod := m.diffAdd, m.diffDel, m.diffMod
 	head := theme.Text.Render(fmt.Sprintf("%s (%s)  >  %s (%s)   ",
 		m.diffFrom.ID, m.diffFrom.Time.Local().Format("Jan 02 15:04"),
 		m.diffTo.ID, m.diffTo.Time.Local().Format("Jan 02 15:04"))) +
@@ -401,23 +377,45 @@ func relToRoot(p string, roots ...[]string) string {
 	return p
 }
 
+// truncateLeft fits s into w cells by cutting from the left.
 func truncateLeft(s string, w int) string {
-	r := []rune(s)
-	if len(r) <= w || w <= 3 {
+	s = printable(s)
+	sw := ansi.StringWidth(s)
+	if sw <= w || w <= 3 {
 		return s
 	}
-	return "..." + string(r[len(r)-w+3:])
+	tail := ansi.TruncateLeft(s, sw-w+3, "")
+	if ansi.StringWidth(tail) > w-3 { // the cut landed inside a wide character
+		tail = ansi.TruncateLeft(s, sw-w+4, "")
+	}
+	return "..." + tail
 }
 
+// truncate fits s into w cells by cutting from the right. Widths are in
+// cells, not runes, so wide characters (CJK, emoji) don't overflow a row.
 func truncate(s string, w int) string {
-	r := []rune(s)
-	if len(r) <= w {
+	s = printable(s)
+	if ansi.StringWidth(s) <= w {
 		return s
 	}
 	if w <= 3 {
-		return string(r[:max(w, 0)])
+		return ansi.Truncate(s, max(w, 0), "")
 	}
-	return string(r[:w-3]) + "..."
+	return ansi.Truncate(s, w, "...")
+}
+
+// printable replaces control characters, which file names can contain on
+// Unix, so a name can't move the cursor or restyle the screen.
+func printable(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 // truncate2 trims a styled string to w cells.

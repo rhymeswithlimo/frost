@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"runtime"
 	"testing"
 	"time"
 )
@@ -96,5 +97,23 @@ func TestDiff(t *testing.T) {
 		if got[i].Path != w.p || got[i].Kind != w.k {
 			t.Errorf("change %d = %s %s, want %s %s", i, got[i].Kind, got[i].Path, w.k, w.p)
 		}
+	}
+}
+
+func TestSafeRelBackslash(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		// Elsewhere a backslash is part of a name, and `..\b` is a legal file.
+		if _, err := SafeRel(`/home/a/..\b`); err != nil {
+			t.Errorf("SafeRel rejected a legal Unix name: %v", err)
+		}
+		return
+	}
+	for _, p := range []string{`C:/x/..\..\evil`, `/home/a/..\b`, `a\..\..\b`} {
+		if _, err := SafeRel(p); err == nil {
+			t.Errorf("SafeRel(%q) accepted a path that climbs out on Windows", p)
+		}
+	}
+	if got, err := SafeRel("C:/Users/me/notes..txt"); err != nil || got != "C/Users/me/notes..txt" {
+		t.Errorf("SafeRel rejected or changed a normal path: %q, %v", got, err)
 	}
 }

@@ -90,7 +90,7 @@ func (m model) restoreKey(key string) (tea.Model, tea.Cmd) {
 		case "q":
 			return m, tea.Quit
 		default:
-			m.sel = map[string]bool{}
+			m.sel, m.selFiles, m.selBytes = map[string]bool{}, 0, 0
 			m.screen = scrFiles
 		}
 	}
@@ -209,7 +209,7 @@ func (m model) viewRestore() string {
 
 	case phaseDone:
 		if rs.err != nil {
-			lines = append(lines, line(theme.Error.Render("Restore failed")), fill(w, 1), wrap(theme.Text.Render(rs.err.Error()), w))
+			lines = append(lines, line(theme.Error.Render("Restore failed")), fill(w, 1), wrap(theme.Text.Render(printable(rs.err.Error())), w))
 			break
 		}
 		where := "their original locations"

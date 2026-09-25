@@ -272,6 +272,26 @@ func TestRestoreInclude(t *testing.T) {
 	}
 }
 
+// Progress counts files only, so it ends at total even when folders are
+// part of the selection.
+func TestRestoreProgressReachesTotal(t *testing.T) {
+	e := newEnv(t)
+	e.write("docs/a", []byte("a"))
+	e.write("docs/deep/b", []byte("b"))
+	res := e.backup(BackupOptions{})
+	var done, total int
+	_, err := e.eng.Restore(context.Background(), res.Snapshot.ID, RestoreOptions{
+		Target:   t.TempDir(),
+		Progress: func(_ string, d, n int) { done, total = d, n },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done != 2 || total != 2 {
+		t.Fatalf("progress ended at %d of %d, want 2 of 2", done, total)
+	}
+}
+
 func TestLocked(t *testing.T) {
 	e := newEnv(t)
 	if _, err := manifest.Open(e.mpath); !errors.Is(err, manifest.ErrLocked) {

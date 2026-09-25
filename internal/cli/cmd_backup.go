@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
 	"github.com/rhymeswithlimo/frost/internal/engine"
@@ -55,14 +56,14 @@ last run is uploaded. Use flags to override the config for this run only.`,
 			if len(paths) > 0 {
 				opts.Paths = paths
 			}
-			live := !scheduled && isTerminal(os.Stdout)
+			live := !scheduled && liveOutput()
 			if live {
 				opts.Progress = progressPrinter(out)
 			}
 
 			res, err := a.engine.Backup(cmd.Context(), opts)
 			if live {
-				fmt.Fprint(out, "\r\033[K")
+				clearStatus(out)
 			}
 			if err != nil {
 				if errors.Is(err, fs.ErrPermission) && runtime.GOOS == "darwin" {
@@ -111,12 +112,12 @@ func progressPrinter(out io.Writer) func(engine.Progress) {
 			return
 		}
 		last = time.Now()
-		name := tildify(filepath.FromSlash(p.Path))
-		if len(name) > 40 {
-			name = "..." + name[len(name)-37:]
+		name := printable(tildify(filepath.FromSlash(p.Path)))
+		if w := ansi.StringWidth(name); w > 40 {
+			name = "..." + ansi.TruncateLeft(name, w-37, "")
 		}
-		fmt.Fprintf(out, "\r\033[K  %s files, %s scanned, %s new  %s",
-			humanCount(p.Files), humanBytes(p.Bytes), humanBytes(p.NewBytes), dim(name))
+		statusLine(out, fmt.Sprintf("  %s files, %s scanned, %s new  %s",
+			humanCount(p.Files), humanBytes(p.Bytes), humanBytes(p.NewBytes), dim(name)))
 	}
 }
 

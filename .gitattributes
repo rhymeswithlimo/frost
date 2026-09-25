@@ -1,0 +1,5 @@
+# Check text out with LF everywhere. The TUI embeds text assets, and a CRLF
+# checkout (core.autocrlf on Windows) put carriage returns into its frames.
+* text=auto eol=lf
+
+*.wav binary
