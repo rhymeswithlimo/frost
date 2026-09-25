@@ -161,10 +161,13 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 				snap.Stats.Dirs++
 			case d.Type()&fs.ModeSymlink != 0:
 				f.Type = snapshot.TypeSymlink
-				if f.Target, err = os.Readlink(p); err != nil {
+				target, err := os.Readlink(p)
+				if err != nil {
 					snap.Warnings = append(snap.Warnings, err.Error())
 					return nil
 				}
+				// Stored with forward slashes, like paths, so links restore on any OS.
+				f.Target = filepath.ToSlash(target)
 			case d.Type().IsRegular():
 				f.Type = snapshot.TypeFile
 				f.Size = info.Size()
