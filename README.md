@@ -1,12 +1,8 @@
-<div>
-<img alt="frost" src="public/repo/README_Banner_JPG_v1.1__frost.jpg" width="100%">
-</div>
+<h3 align="center">frost</h3>
 
-<h3>frost</h3>
+<p align="center">Backup your files. Encrypted, incrementally to storage you choose.</p>
 
-<p>Encrypted, incremental backups to storage you choose.</p>
-
-<p>
+<p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="docs/CLI.md">Docs</a> ·
@@ -14,7 +10,7 @@
   <a href="#license">License</a>
 </p>
 
-<p>
+<p align="center">
 <a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4" alt="Latest release"></a>
 <a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI" alt="CI"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4" alt="License: BSD 3-Clause"></a>
@@ -31,7 +27,7 @@ There's no account, no sign-up, no email and no password. Your key is generated 
 - **Client-side encryption**: XChaCha20-Poly1305 with a key that never leaves your machine.
 - **Only uploads what's changed**: content-defined chunking means an edit in the middle of a big file re-uploads a chunk or two, not the whole file.
 - **Readable snapshots**: every run gets an ID like `maple-otter-3f1c`. Restore by ID or by time (`3 days ago`, `yesterday`, `2026-09-20`).
-- **Terminal browser**: browse snapshots, diff them and pick files to restore in a TUI.
+- **Terminal browser**: browse snapshots, diff them and pick files to restore in frost's very own TUI.
 - **Checks itself**: after each backup, frost re-downloads a random sample of chunks and verifies them, so problems show up in `frost status` before you need a restore.
 - **Runs on a schedule**: launchd, systemd, cron or Task Scheduler, set up for you during `frost init`.
 
