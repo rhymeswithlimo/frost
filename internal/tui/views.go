@@ -21,18 +21,8 @@ func (m model) viewHome() string {
 	if m.loading != "" {
 		info = theme.Bold.Render(m.spin.View()) + theme.Text.Render(" "+m.loading+"...")
 	}
-	var logo string
-	mark := strings.TrimRight(wordmark, "\n")
-	if lipgloss.Width(mark) <= w && lipgloss.Height(mark)+4+lipgloss.Height(info) <= m.areaH() {
-		lines := strings.Split(mark, "\n")
-		for i, l := range lines {
-			lines[i] = theme.Wordmark.Render(l)
-		}
-		logo = strings.Join(lines, "\n")
-	} else {
-		logo = theme.Title.Render("FROST")
-	}
-	tagline := theme.Dim.Render("encrypted backups. only you hold the key.")
+	logo := logo(w, m.areaH()-4-lipgloss.Height(info))
+	tagline := theme.Dim.Render(tagline)
 
 	// Centre each piece on a full-width background first, so the join
 	// doesn't pad with uncoloured spaces.
@@ -41,6 +31,23 @@ func (m model) viewHome() string {
 	}
 	block := stack(row(logo), fill(w, 1), row(tagline), fill(w, 2), row(info))
 	return m.center(block)
+}
+
+// tagline goes under the wordmark.
+const tagline = "encrypted backups. only you hold the key."
+
+// logo is the wordmark if it fits in w by h cells, or the small inverted
+// title if it doesn't.
+func logo(w, h int) string {
+	mark := strings.TrimRight(wordmark, "\n")
+	if lipgloss.Width(mark) > w || lipgloss.Height(mark) > h {
+		return theme.Title.Render("FROST")
+	}
+	lines := strings.Split(mark, "\n")
+	for i, l := range lines {
+		lines[i] = theme.Wordmark.Render(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m model) summary() string {

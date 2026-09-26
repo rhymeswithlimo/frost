@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
-	"github.com/rhymeswithlimo/frost/internal/crypto"
 	"github.com/rhymeswithlimo/frost/internal/repo"
 )
 
@@ -60,11 +59,11 @@ func keyShow(cmd *cobra.Command) error {
 
 func keyVerify(cmd *cobra.Command) error {
 	p := newPrompter(cmd)
-	phrase, err := p.required(bold("Recovery phrase:"), "")
+	phrase, err := p.secret(bold("Recovery phrase:"), "")
 	if err != nil {
 		return err
 	}
-	k, err := crypto.KeyFromPhrase(phrase)
+	k, err := phraseKey(phrase)
 	if err != nil {
 		return err
 	}
@@ -104,11 +103,11 @@ func keyImport(cmd *cobra.Command) error {
 		fmt.Fprintln(p.out, caution("The existing key file is unreadable and will be replaced."))
 	}
 
-	phrase, err := p.required(bold("Recovery phrase:"), "")
+	phrase, err := p.secret(bold("Recovery phrase:"), "")
 	if err != nil {
 		return err
 	}
-	k, err := crypto.KeyFromPhrase(phrase)
+	k, err := phraseKey(phrase)
 	if err != nil {
 		return err
 	}

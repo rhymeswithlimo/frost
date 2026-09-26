@@ -107,9 +107,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, errors.New("storage.s3 needs an endpoint and a bucket"))
 		}
 	case "permafrost":
-		if c.Storage.Permafrost.URL == "" {
-			errs = append(errs, errors.New("storage.permafrost needs a url"))
-		}
+		// A blank url means the default server.
 	case "":
 		errs = append(errs, errors.New("storage.backend isn't set (s3 or permafrost)"))
 	default:
@@ -293,7 +291,7 @@ every = {{q .Schedule.Every}}
 sample = {{.Verify.Sample}}
 
 [storage]
-# "s3" for any S3-compatible bucket, or "permafrost" for hosted storage.
+# "permafrost", or "s3" for any S3-compatible bucket.
 backend = {{q .Storage.Backend}}
 
 [storage.s3]
@@ -308,6 +306,7 @@ secret_access_key = {{q .Storage.S3.SecretAccessKey}}
 insecure = {{.Storage.S3.Insecure}}
 
 [storage.permafrost]
+# Leave blank for the default server.
 url = {{q .Storage.Permafrost.URL}}
 # Can also come from FROST_PERMAFROST_TOKEN.
 token = {{q .Storage.Permafrost.Token}}

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,32 +18,120 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/repo"
 	"github.com/rhymeswithlimo/frost/internal/schedule"
 	"github.com/rhymeswithlimo/frost/internal/storage"
+	"github.com/rhymeswithlimo/frost/internal/tui"
 )
 
 func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Set up frost: what to back up, where, and how often",
-		Long: `Walks you through setup and writes config.toml. Run it again any time to
-change your answers. Your existing values are offered as defaults.
+		Long: `Walks you through setup and writes config.toml: where backups go, which
+folders, how often, and your recovery phrase. Run it again any time to review
+or change your settings.
 
-On a new repository it generates your encryption key and shows the recovery
-phrase once. On an existing repository it asks for the phrase instead.`,
+In a terminal it opens a full-screen setup. With piped input it asks plain
+questions, one per line.
+
+On new storage it generates your encryption key and shows the recovery phrase
+once. On storage that already has backups it asks for the phrase instead.`,
 		Args: cobra.NoArgs,
 		RunE: runInit,
 	}
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
-	out := cmd.OutOrStdout()
-	p := newPrompter(cmd)
-
 	cfg, err := config.LoadFile()
 	existing := err == nil
 	if err != nil && !errors.Is(err, config.ErrNoConfig) {
 		return err
 	}
+	local, err := loadKey()
+	if err != nil && !errors.Is(err, ErrNoKey) {
+		return err
+	}
+	in, inOK := cmd.InOrStdin().(*os.File)
+	out, outOK := cmd.OutOrStdout().(*os.File)
+	if inOK && outOK && isTerminal(in) && isTerminal(out) && ansiOK {
+		return runSetupScreens(cmd, cfg, existing, local)
+	}
+	return runInitPrompts(cmd, cfg, existing, local)
+}
+
+// runSetupScreens is init in a terminal: the full-screen wizard.
+func runSetupScreens(cmd *cobra.Command, cfg config.Config, existing bool, local *crypto.Key) error {
+	out := cmd.OutOrStdout()
+	deps := tui.SetupDeps{
+		LocalKey: local,
+		Connect: func(ctx context.Context, s config.Storage) (tui.RepoState, error) {
+			_, st, err := connect(ctx, s, local)
+			return st, err
+		},
+		NewKey:    newKey,
+		Unlock:    unlock,
+		Finish:    finishSetup,
+		PickWords: pickWords,
+		DirExists: func(p string) bool { return len(missingDirs([]string{p})) == 0 },
+		Scheduler: schedule.Kind(),
+	}
+	res, err := tui.Setup(cmd.Context(), deps, cfg, existing)
+	if err != nil {
+		return err
+	}
+	if !res.Saved {
+		fmt.Fprintln(out, dim("Setup closed. Nothing was changed."))
+		return nil
+	}
+	fmt.Fprintln(out, good("frost is set up."))
+	for _, r := range res.Rows {
+		fmt.Fprintln(out, kv(r[0], r[1]))
+	}
+	fmt.Fprintf(out, "\nPreview your first backup with %s, or start it with %s.\n",
+		bold("frost backup --dry-run"), bold("frost backup"))
+	return nil
+}
+
+// finishSetup creates the repository if it's new, then saves the config and
+// key and installs the schedule. It returns what it did, for display.
+func finishSetup(ctx context.Context, cfg config.Config, key *crypto.Key, newRepo bool) ([][2]string, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if newRepo {
+		b, err := newBackend(cfg.Storage)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := repo.Init(ctx, b, key); err != nil {
+			return nil, explainConnect(err)
+		}
+	}
+	if err := config.Save(cfg); err != nil {
+		return nil, err
+	}
+	if err := saveKey(key); err != nil {
+		return nil, err
+	}
+	rows := [][2]string{
+		{"config", tildify(config.Path())},
+		{"key", tildify(config.KeyPath()) + " (readable only by you)"},
+	}
+	switch err := syncSchedule(cfg); {
+	case err != nil:
+		rows = append(rows, [2]string{"schedule", "not installed: " + err.Error()})
+	case cfg.Schedule.Enabled:
+		rows = append(rows, [2]string{"schedule", cfg.Schedule.Every + " via " + schedule.Kind()})
+	default:
+		rows = append(rows, [2]string{"schedule", "off"})
+	}
+	return rows, nil
+}
+
+// runInitPrompts is init when input is piped or there's no terminal:
+// plain questions, one per line.
+func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local *crypto.Key) error {
+	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+	p := newPrompter(cmd)
 
 	fmt.Fprintln(out, heading("frost setup"))
 	if existing {
@@ -49,28 +139,82 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 	fmt.Fprintln(out)
 
-	// 1. What to back up.
-	def := cfg.Paths
-	if len(def) == 0 {
-		def = []string{"~/Documents"}
-	}
+	// 1. Where. It goes first because it's the step that can fail.
+	var b storage.Backend
+	var state tui.RepoState
 	for {
-		if cfg.Paths, err = p.list(bold("Directories to back up")+dim(" (comma separated)"), def); err != nil {
+		if err := askStorage(p, &cfg); err != nil {
 			return err
 		}
-		if missing := missingDirs(cfg.Paths); len(missing) > 0 {
-			fmt.Fprintln(out, caution("  not found: "+strings.Join(missing, ", ")))
+		fmt.Fprintf(out, "%s ... ", dim("Connecting"))
+		var err error
+		if b, state, err = connect(ctx, cfg.Storage, local); err == nil {
+			fmt.Fprintln(out, good("ok"))
+			break
+		}
+		fmt.Fprintln(out, errStyle("failed"))
+		fmt.Fprintln(out, caution("  "+err.Error()))
+		fmt.Fprintln(out)
+	}
+
+	// 2. What. No default: frost shouldn't back up anything you didn't pick.
+	fmt.Fprintln(out)
+	for {
+		list, err := p.list(bold("Folders to back up")+dim(" (full paths, comma separated)"), cfg.Paths)
+		if err != nil {
+			return err
+		}
+		var paths []string
+		problem := ""
+		for _, f := range list {
+			clean, inside, err := config.AddPath(f, paths)
+			if err != nil {
+				problem = f + ": " + err.Error()
+				break
+			}
+			var kept []string
+			for i, p := range paths {
+				if !slices.Contains(inside, i) {
+					kept = append(kept, p)
+				}
+			}
+			paths = append(kept, clean)
+		}
+		switch {
+		case problem != "":
+			fmt.Fprintln(out, caution("  "+problem))
+			continue
+		case len(paths) == 0:
+			fmt.Fprintln(out, dim("  add at least one folder"))
 			continue
 		}
-		if len(cfg.Paths) > 0 {
+		cfg.Paths = paths
+		missing := missingDirs(cfg.Paths)
+		if len(missing) == 0 {
+			break
+		}
+		fmt.Fprintln(out, caution("  not found: "+strings.Join(missing, ", ")))
+		ok, err := p.yesNo("  Add anyway? They're skipped until they exist.", false)
+		if err != nil {
+			return err
+		}
+		if ok {
 			break
 		}
 	}
-	if cfg.Exclude, err = p.list(bold("Skip files matching")+dim(" (comma separated, - for none)"), cfg.Exclude); err != nil {
-		return err
+	var err error
+	for {
+		if cfg.Exclude, err = p.list(bold("Skip files matching")+dim(" (comma separated, - for none)"), cfg.Exclude); err != nil {
+			return err
+		}
+		bad := slices.IndexFunc(cfg.Exclude, func(pat string) bool { _, err := path.Match(pat, ""); return err != nil })
+		if bad < 0 {
+			break
+		}
+		fmt.Fprintln(out, caution(fmt.Sprintf("  %q isn't a valid pattern, check its brackets", cfg.Exclude[bad])))
 	}
 
-	// 2. When.
+	// 3. When.
 	fmt.Fprintln(out)
 	if cfg.Schedule.Enabled, err = p.yesNo(bold("Back up automatically?"), cfg.Schedule.Enabled || !existing); err != nil {
 		return err
@@ -83,168 +227,118 @@ func runInit(cmd *cobra.Command, _ []string) error {
 			if _, err := config.Interval(cfg.Schedule.Every); err == nil {
 				break
 			}
+			fmt.Fprintln(out, dim("  pick one of: "+strings.Join(config.Intervals, ", ")))
 		}
-	}
-
-	// 3. Where.
-	fmt.Fprintln(out)
-	b, err := askStorage(p, &cfg)
-	if err != nil {
-		return err
 	}
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
-	// 4. Connect, and set up or import the key.
-	fmt.Fprintf(out, "\n%s %s ... ", dim("Connecting to"), b)
-	if err := probe(ctx, b); err != nil {
-		fmt.Fprintln(out, errStyle("failed"))
-		return fmt.Errorf("can't use %s: %w", b, err)
-	}
-	fmt.Fprintln(out, good("ok"))
-
-	key, err := setupKey(ctx, p, b)
+	// 4. The key.
+	key, newRepo, err := promptKey(ctx, p, b, state, local)
 	if err != nil {
 		return err
 	}
 
 	// 5. Save and schedule.
-	if err := config.Save(cfg); err != nil {
-		return err
-	}
-	if err := saveKey(key); err != nil {
+	rows, err := finishSetup(ctx, cfg, key, newRepo)
+	if err != nil {
 		return err
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, kv("config", tildify(config.Path())))
-	fmt.Fprintln(out, kv("key", tildify(config.KeyPath())+dim(" (readable only by you)")))
-
-	if err := syncSchedule(cfg); err != nil {
-		fmt.Fprintln(out, kv("schedule", errStyle("not installed: ")+err.Error()))
-	} else if cfg.Schedule.Enabled {
-		fmt.Fprintln(out, kv("schedule", cfg.Schedule.Every+dim(" via "+schedule.Kind())))
-	} else {
-		fmt.Fprintln(out, kv("schedule", "off"))
+	for _, r := range rows {
+		fmt.Fprintln(out, kv(r[0], r[1]))
 	}
-
 	fmt.Fprintf(out, "\n%s Preview your first backup with %s, or start it with %s.\n",
 		good("Done."), bold("frost backup --dry-run"), bold("frost backup"))
 	return nil
 }
 
-func askStorage(p *prompter, cfg *config.Config) (storage.Backend, error) {
+func askStorage(p *prompter, cfg *config.Config) error {
 	options := []string{
+		"Permafrost " + dim("(one access key, nothing else to set up)"),
 		"S3-compatible bucket " + dim("(AWS, Backblaze B2, Cloudflare R2, Wasabi, MinIO, ...)"),
-		"Permafrost " + dim("(hosted storage, see docs/PERMAFROST.md)"),
 	}
-	if cfg.Storage.Backend != "" {
-		fmt.Fprintln(p.out, dim("Currently using "+cfg.Storage.Backend+"."))
+	def := -1
+	switch cfg.Storage.Backend {
+	case "permafrost":
+		def = 0
+	case "s3":
+		def = 1
 	}
-	i, err := p.choose(bold("Where should backups go?"), options)
+	i, err := p.choose(bold("Where should backups go?"), options, def)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	s := &cfg.Storage
 	switch i {
 	case 0:
-		s.Backend = "s3"
-		if s.S3.Endpoint, err = p.required("  Endpoint (e.g. s3.us-east-1.amazonaws.com)", s.S3.Endpoint); err != nil {
-			return nil, err
-		}
-		if s.S3.Region, err = p.ask("  Region (blank if your provider doesn't use one)", s.S3.Region); err != nil {
-			return nil, err
-		}
-		if s.S3.Bucket, err = p.required("  Bucket", s.S3.Bucket); err != nil {
-			return nil, err
-		}
-		if s.S3.Prefix, err = p.ask("  Folder inside the bucket (optional)", s.S3.Prefix); err != nil {
-			return nil, err
-		}
-		if s.S3.AccessKeyID, err = p.required("  Access key ID", s.S3.AccessKeyID); err != nil {
-			return nil, err
-		}
-		if s.S3.SecretAccessKey, err = p.secret("  Secret access key", s.S3.SecretAccessKey); err != nil {
-			return nil, err
+		s.Backend = "permafrost"
+		if s.Permafrost.Token, err = p.secret("  Access key", s.Permafrost.Token); err != nil {
+			return err
 		}
 	case 1:
-		s.Backend = "permafrost"
-		if s.Permafrost.URL, err = p.required("  Permafrost URL", s.Permafrost.URL); err != nil {
-			return nil, err
+		s.Backend = "s3"
+		if s.S3.Endpoint, err = p.required("  Endpoint (e.g. s3.us-east-1.amazonaws.com)", s.S3.Endpoint); err != nil {
+			return err
 		}
-		if s.Permafrost.Token, err = p.secret("  API token", s.Permafrost.Token); err != nil {
-			return nil, err
+		if s.S3.Region, err = p.ask("  Region (blank if your provider doesn't use one)", s.S3.Region); err != nil {
+			return err
+		}
+		if s.S3.Bucket, err = p.required("  Bucket", s.S3.Bucket); err != nil {
+			return err
+		}
+		if s.S3.Prefix, err = p.ask("  Folder inside the bucket (optional)", s.S3.Prefix); err != nil {
+			return err
+		}
+		if s.S3.AccessKeyID, err = p.required("  Access key ID", s.S3.AccessKeyID); err != nil {
+			return err
+		}
+		if s.S3.SecretAccessKey, err = p.secret("  Secret access key", s.S3.SecretAccessKey); err != nil {
+			return err
 		}
 	}
-	return newBackend(cfg.Storage)
+	return nil
 }
 
-// probe checks the backend is reachable and writable.
-func probe(ctx context.Context, b storage.Backend) error {
-	const k = "frost.probe"
-	if err := b.Put(ctx, k, []byte("ok")); err != nil {
-		return err
-	}
-	if _, err := b.Get(ctx, k); err != nil {
-		return err
-	}
-	return b.Delete(ctx, k)
-}
-
-// setupKey returns the key to use with backend b, creating a repository and
-// a new key if there isn't one yet.
-func setupKey(ctx context.Context, p *prompter, b storage.Backend) (*crypto.Key, error) {
-	local, err := loadKey()
-	if err != nil && !errors.Is(err, ErrNoKey) {
-		return nil, err
-	}
-
-	// Existing repository: the key must match it.
-	if local != nil {
-		if _, err := repo.Open(ctx, b, local); err == nil {
-			fmt.Fprintln(p.out, good("Your key on this machine opens this repository."))
-			return local, nil
-		} else if !errors.Is(err, repo.ErrNotInitialized) {
-			if errors.Is(err, repo.ErrWrongKey) {
-				return nil, fmt.Errorf("%s already holds backups made with a different key; import that key with `frost key import`", b)
-			}
-			return nil, err
-		}
-	} else if exists, err := repo.Exists(ctx, b); err != nil {
-		return nil, err
-	} else if exists {
+// promptKey sorts out the key for backend b, given what connect found
+// there. newRepo says the repository still needs creating.
+func promptKey(ctx context.Context, p *prompter, b storage.Backend, state tui.RepoState, local *crypto.Key) (key *crypto.Key, newRepo bool, err error) {
+	switch state {
+	case tui.RepoLocalOK:
+		fmt.Fprintln(p.out, good("Your key on this machine opens this storage."))
+		return local, false, nil
+	case tui.RepoNeedsPhrase:
 		fmt.Fprintln(p.out, "\nThis storage already has frost backups. Enter the recovery phrase to connect.")
-		return askPhraseFor(ctx, p, b)
+		key, err = askPhraseFor(ctx, p, b)
+		return key, false, err
+	case tui.RepoLocalWrong:
+		fmt.Fprintln(p.out, "\nThis storage has backups made with a different key than the one on this machine.")
+		fmt.Fprintln(p.out, "Enter the recovery phrase for these backups, and frost will use that key here instead.")
+		key, err = askPhraseFor(ctx, p, b)
+		return key, false, err
 	}
-
-	// New repository.
-	key := local
-	if key == nil {
-		if key, err = newKey(); err != nil {
-			return nil, err
-		}
-		if err := showNewPhrase(p, key); err != nil {
-			return nil, err
-		}
+	if local != nil {
+		return local, true, nil
 	}
-	if _, err := repo.Init(ctx, b, key); err != nil {
-		return nil, err
+	if key, err = newKey(); err != nil {
+		return nil, false, err
 	}
-	return key, nil
+	return key, true, showNewPhrase(p, key)
 }
 
 func askPhraseFor(ctx context.Context, p *prompter, b storage.Backend) (*crypto.Key, error) {
 	for tries := 0; tries < 3; tries++ {
-		phrase, err := p.required(bold("Recovery phrase:"), "")
+		phrase, err := p.secret(bold("Recovery phrase:"), "")
 		if err != nil {
 			return nil, err
 		}
-		key, err := crypto.KeyFromPhrase(phrase)
+		key, err := phraseKey(phrase)
 		if err != nil {
 			fmt.Fprintln(p.out, errStyle("  "+err.Error()))
 			continue
 		}
-		if _, err := repo.Open(ctx, b, key); err != nil {
+		if err := opensRepo(ctx, b, key); err != nil {
 			fmt.Fprintln(p.out, errStyle("  "+err.Error()))
 			continue
 		}
@@ -282,8 +376,14 @@ func showNewPhrase(p *prompter, key *crypto.Key) error {
 			fmt.Fprintln(out, good("Correct."))
 			return nil
 		}
-		fmt.Fprintln(out, caution("That doesn't match. Here are the words again:"))
-		fmt.Fprint(out, phraseGrid(key.Phrase()))
+		fmt.Fprintln(out, caution("That doesn't match."))
+		again, err := p.yesNo("See the words again?", true)
+		if err != nil {
+			return err
+		}
+		if again {
+			fmt.Fprint(out, phraseGrid(key.Phrase()))
+		}
 	}
 }
 

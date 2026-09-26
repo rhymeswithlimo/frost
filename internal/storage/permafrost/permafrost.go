@@ -21,6 +21,10 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/storage"
 )
 
+// DefaultURL is the server used when storage.permafrost.url is blank.
+// Placeholder until the production host is decided.
+const DefaultURL = "https://permafrost.example.com"
+
 const (
 	maxAttempts  = 4
 	firstBackoff = 500 * time.Millisecond

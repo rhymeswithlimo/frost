@@ -1,9 +1,10 @@
-// Package tui is frost's full-screen snapshot browser.
+// Package tui is frost's full-screen snapshot browser, and the setup
+// screens `frost init` opens (setup*.go).
 //
-// Screens: home (wordmark and summary), snapshots (by date), files (the tree
-// as it was at that snapshot), diff (two snapshots compared), restore
-// (confirm and run), plus help and settings overlays. All styling comes from
-// internal/theme.
+// Browser screens: home (wordmark and summary), snapshots (by date), files
+// (the tree as it was at that snapshot), diff (two snapshots compared),
+// restore (confirm and run), plus help and settings overlays. All styling
+// comes from internal/theme.
 package tui
 
 import (
@@ -115,13 +116,18 @@ func StateFrom(e *engine.Engine) State {
 func Run(ctx context.Context, r *repo.Repo, cfg config.Config, st State) error {
 	m := newModel(ctx, r, cfg, st)
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	return programErr(ctx, err)
+}
+
+// programErr tidies up the error from a bubbletea program's Run.
+func programErr(ctx context.Context, err error) error {
 	if err == tea.ErrProgramKilled && ctx.Err() != nil {
 		return nil
 	}
 	if err != nil && runtime.GOOS == "windows" && strings.Contains(err.Error(), "console mode") {
 		// The console can't take VT sequences: the legacy console, or a
 		// Windows 10 older than 1607.
-		return fmt.Errorf("%w (this console can't draw the browser: turn off \"Use legacy console\" in its properties, or use Windows Terminal)", err)
+		return fmt.Errorf("%w (this console can't draw frost's screens: turn off \"Use legacy console\" in its properties, or use Windows Terminal)", err)
 	}
 	return err
 }

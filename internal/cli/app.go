@@ -32,7 +32,11 @@ func newBackend(c config.Storage) (storage.Backend, error) {
 			Insecure:        c.S3.Insecure,
 		})
 	case "permafrost":
-		return permafrost.New(c.Permafrost.URL, c.Permafrost.Token)
+		u := c.Permafrost.URL
+		if u == "" {
+			u = permafrost.DefaultURL
+		}
+		return permafrost.New(u, c.Permafrost.Token)
 	case "":
 		return nil, errors.New("no storage backend configured, run `frost init`")
 	}
