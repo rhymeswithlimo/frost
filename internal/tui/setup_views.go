@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/rhymeswithlimo/frost/internal/theme"
 )
@@ -45,12 +46,14 @@ func (m setupModel) View() string {
 		body = lipgloss.Place(w, bodyH, lipgloss.Center, lipgloss.Center,
 			theme.Bold.Render(m.spin.View())+theme.Text.Render(" "+m.busy+"..."),
 			lipgloss.WithWhitespaceBackground(theme.Bg))
+	case m.quit:
+		body = viewQuit(w, bodyH)
 	case m.step == stWelcome:
 		body = m.viewWelcome(w, bodyH)
 	case m.step == stDone:
 		body = m.viewDone(w, bodyH)
 	default:
-		body = m.render(m.page(w), w, bodyH)
+		body = m.render(m.page(w, bodyH), w, bodyH)
 	}
 	body = clip(body, w, bodyH)
 	body = lipgloss.Place(w, bodyH, lipgloss.Left, lipgloss.Top, body, lipgloss.WithWhitespaceBackground(theme.Bg))
@@ -92,6 +95,9 @@ func (m setupModel) setupHints() []string {
 	if m.busy != "" {
 		return []string{h("ctrl+c", "quit")}
 	}
+	if m.quit {
+		return nil // the choices are on the screen
+	}
 	quit, ctrlQuit := h("q", "quit"), h("ctrl+c", "quit")
 	switch m.step {
 	case stWelcome:
@@ -129,7 +135,18 @@ func (m setupModel) setupHints() []string {
 		}
 		return append(hints, h("esc", "back"), ctrlQuit)
 	case stSkip:
-		return []string{h("enter", "save"), h("esc", "back"), ctrlQuit}
+		if m.skipSel >= 0 {
+			return []string{h("x", "remove"), h("↑↓", "choose"), h("esc", "done"), quit}
+		}
+		enter := "continue"
+		if m.skipIn.values()[0] != "" {
+			enter = "add"
+		}
+		hints := []string{h("enter", enter)}
+		if len(m.cfg.Exclude) > 0 {
+			hints = append(hints, h("↑", "remove one"))
+		}
+		return append(hints, h("esc", "back"), ctrlQuit)
 	case stPhrase:
 		show := "show words"
 		if m.showWords {
@@ -153,7 +170,7 @@ func (m setupModel) setupHints() []string {
 		if m.showKey {
 			key = "hide key"
 		}
-		return []string{h("enter", "save"), h("e", "edit"), h("↑↓", "choose"), h("v", key), quit}
+		return []string{h("s", "save and finalise"), h("e", "edit"), h("↑↓", "choose"), h("v", key), quit}
 	case stDone:
 		return []string{h("enter", "exit")}
 	}
@@ -230,7 +247,7 @@ func (m setupModel) render(p page, w, h int) string {
 	return lipgloss.PlaceHorizontal(w, lipgloss.Center, stack(lines...), lipgloss.WithWhitespaceBackground(theme.Bg))
 }
 
-func (m setupModel) page(w int) page {
+func (m setupModel) page(w, h int) page {
 	cw := min(w, columnW)
 	switch m.step {
 	case stStorage:
@@ -240,7 +257,7 @@ func (m setupModel) page(w int) page {
 		}
 		return page{
 			question: "Where should backups go?",
-			sub:      "Everything is encrypted before it leaves this machine, so the storage only ever sees scrambled data.",
+			sub:      "Choose your storage provider below.",
 			body:     rows,
 		}
 
@@ -261,43 +278,10 @@ func (m setupModel) page(w int) page {
 		return pg
 
 	case stFolders:
-		var rows []string
-		missing := false
-		for i, p := range m.cfg.Paths {
-			note := ""
-			if m.deps.DirExists != nil && !m.deps.DirExists(p) {
-				note, missing = "  not found", true
-			}
-			if i == m.folderSel {
-				rows = append(rows, theme.Selected.Render(padPlain(truncate(" "+p+note, cw), cw)))
-			} else {
-				rows = append(rows, pad(theme.Text.Render(" "+truncate(p, cw-14))+theme.Caution.Render(note), cw))
-			}
-		}
-		if len(rows) > 0 {
-			rows = append(rows, blank(cw))
-		}
-		rows = append(rows, inputBox(m.folderIn.fields[0], false, m.folderSel < 0, cw))
-		pg := page{
-			question: "Which folders should frost back up?",
-			sub:      "Whole folders, with everything inside them.",
-			body:     rows,
-			help:     "Type a path and press enter to add it. Press enter on an empty box to move on.",
-		}
-		if len(m.cfg.Paths) == 0 {
-			pg.help = "Type a path and press enter to add it. Add as many as you like."
-		}
-		if missing {
-			pg.foot = "A folder that isn't there is skipped until it is, like a drive that isn't plugged in."
-		}
-		return pg
+		return m.fitList(w, h, m.foldersPage)
 
 	case stSkip:
-		return page{
-			question: "Which files should frost skip?",
-			sub:      "Names or patterns, comma separated. * matches anything.",
-			body:     []string{inputBox(m.skipIn.fields[0], false, true, cw)},
-		}
+		return m.fitList(w, h, m.skipPage)
 
 	case stSchedule:
 		var rows []string
@@ -306,26 +290,24 @@ func (m setupModel) page(w int) page {
 		}
 		pg := page{
 			question: "How often should frost back up?",
-			sub:      "Backups run in the background and only upload what changed.",
+			sub:      "Backups run automatically in the background, only uploading new or modified files.",
 			body:     rows,
 		}
-		if m.deps.Scheduler != "" {
-			pg.foot = "It's set up as a " + m.deps.Scheduler + " job. Change it any time by running frost init again."
-		}
+		pg.foot = "You can change this any time by running frost init again."
 		return pg
 
 	case stPhrase:
 		return page{
 			question: "Write down your recovery phrase.",
-			sub:      "It's the only way to get your files back if this machine is lost, and nobody can recover it for you.",
+			sub:      "It's the only way to get your files back if this machine is ever lost.",
 			body:     []string{m.phraseCard(cw)},
-			help:     "On paper, somewhere safe. Make sure nobody can see your screen.",
+			help:     "Consider writing it down on paper and placing it somewhere secure. Make sure nobody but you has access.",
 		}
 
 	case stCheck:
 		c := m.check
 		return page{
-			over:     fmt.Sprintf("Checking your copy  %d of 2", c.focus+1),
+			over:     fmt.Sprintf("Confirm you've saved your phrase - %d of 2", c.focus+1),
 			question: c.fields[c.focus].question,
 			body:     []string{inputBox(c.fields[c.focus], false, true, cw)},
 			help:     "Type it from what you wrote down.",
@@ -368,15 +350,110 @@ func (m setupModel) page(w int) page {
 			rows = append(rows, pad(theme.Dim.Render(" "+padPlain("key", 10))+shown+theme.Dim.Render("  "+from), cw))
 		}
 		return page{
-			question: "Ready to save?",
-			sub:      "Choose a line and press [e] to change it.",
+			question: "Review and finalise.",
+			sub:      "Adjust your preferences below. When you're ready, press [s] to finish.",
 			body:     rows,
 		}
 	}
 	return page{}
 }
 
+// fitList builds a list page with as many rows showing as fit in h.
+func (m setupModel) fitList(w, h int, build func(cw, n int) page) page {
+	cw := min(w, columnW)
+	for n := listMax; n > 1; n-- {
+		if pg := build(cw, n); lipgloss.Height(m.render(pg, w, h)) <= h {
+			return pg
+		}
+	}
+	return build(cw, 1)
+}
+
+func (m setupModel) foldersPage(cw, n int) page {
+	missing := false
+	rows := listRows(m.cfg.Paths, m.folderSel, n, cw, func(i int, on bool) string {
+		p, note := m.cfg.Paths[i], ""
+		if m.deps.DirExists != nil && !m.deps.DirExists(p) {
+			note, missing = "  not found", true
+		}
+		if on {
+			return theme.Selected.Render(padPlain(truncate(" "+p+note, cw), cw))
+		}
+		return pad(theme.Text.Render(" "+truncate(p, cw-14))+theme.Caution.Render(note), cw)
+	})
+	if len(rows) > 0 {
+		rows = append(rows, blank(cw))
+	}
+	rows = append(rows, inputBox(m.folderIn.fields[0], false, m.folderSel < 0, cw))
+	pg := page{
+		question: "Which folders should frost back up?",
+		sub:      "Whole folders, with everything inside them.",
+		body:     rows,
+		help:     "Type a path and press enter to add it. Press enter on an empty box to move on.",
+	}
+	if len(m.cfg.Paths) == 0 {
+		pg.help = "Type a path and press enter to add it. Add as many as you like."
+	}
+	if missing {
+		pg.foot = "A folder that isn't there is skipped until it is, like a drive that isn't plugged in."
+	}
+	return pg
+}
+
+func (m setupModel) skipPage(cw, n int) page {
+	rows := listRows(m.cfg.Exclude, m.skipSel, n, cw, func(i int, on bool) string {
+		if on {
+			return theme.Selected.Render(padPlain(truncate(" "+m.cfg.Exclude[i], cw), cw))
+		}
+		return pad(theme.Text.Render(" "+truncate(m.cfg.Exclude[i], cw-2)), cw)
+	})
+	if len(rows) > 0 {
+		rows = append(rows, blank(cw))
+	}
+	rows = append(rows, inputBox(m.skipIn.fields[0], false, m.skipSel < 0, cw))
+	help := "Type a name or pattern and press enter to add it. Press enter on an empty box to move on."
+	if len(m.cfg.Exclude) == 0 {
+		help = "Nothing is skipped yet. Type a name or pattern and press enter to add it."
+	}
+	return page{
+		question: "Which files should frost skip?",
+		sub:      "Names or patterns. * matches anything, like *.tmp.",
+		body:     rows,
+		help:     help,
+	}
+}
+
 // ---- building blocks ----
+
+// listMax is the most rows of a list that show at once.
+const listMax = 6
+
+// listRows is a list with one row selected (or none, at -1), in at most n
+// lines. When it's longer it scrolls to keep the selection in view, or the
+// end when there's none, with a line saying how many are hidden each way.
+func listRows(items []string, sel, n, w int, row func(i int, on bool) string) []string {
+	from, to := 0, len(items)
+	if len(items) > n {
+		show := max(n-2, 1) // room for the "more" lines
+		at := sel
+		if at < 0 {
+			at = len(items) - 1
+		}
+		from = min(max(at-show/2, 0), len(items)-show)
+		to = from + show
+	}
+	var out []string
+	if from > 0 {
+		out = append(out, pad(theme.Faded.Render(fmt.Sprintf(" ↑ %d more", from)), w))
+	}
+	for i := from; i < to; i++ {
+		out = append(out, row(i, i == sel))
+	}
+	if more := len(items) - to; more > 0 {
+		out = append(out, pad(theme.Faded.Render(fmt.Sprintf(" ↓ %d more", more)), w))
+	}
+	return out
+}
 
 // para wraps s to w cells in style st, on the background.
 func para(st lipgloss.Style, s string, w int) string {
@@ -401,21 +478,55 @@ func sentence(s string) string {
 // inputBox is the big answer box: a bordered line with a block cursor.
 func inputBox(f field, reveal, focused bool, w int) string {
 	inner := w - 4 // border and padding
-	val := printable(f.value)
-	if f.secret && !reveal {
-		val = strings.Repeat("•", min(len([]rune(f.value)), inner))
-	}
-	cursor := ""
-	if focused {
-		cursor = theme.Text.Render("█")
-	}
 	var content string
-	if val == "" {
-		content = cursor + theme.Faded.Render(truncate(f.placeholder, inner-1))
-	} else {
-		content = theme.Text.Render(truncateLeft(val, inner-1)) + cursor
+	switch {
+	case f.value == "" && focused:
+		content = theme.Text.Render("█") + theme.Faded.Render(truncate(f.placeholder, inner-1))
+	case f.value == "":
+		content = theme.Faded.Render(truncate(f.placeholder, inner))
+	default:
+		content = inputText(f, reveal, focused, inner)
 	}
 	return theme.Box(focused).Width(w - 2).Render(pad(content, inner))
+}
+
+// inputText is an answer with the cursor on it, scrolled so the cursor
+// stays in view. The character under the cursor is inverted, and at the
+// end the cursor is a block.
+func inputText(f field, reveal, focused bool, w int) string {
+	r := []rune(printable(f.value))
+	if f.secret && !reveal {
+		r = []rune(strings.Repeat("•", len(r)))
+	}
+	at := f.cursor()
+	if !focused {
+		return theme.Text.Render(truncateLeft(string(r), w))
+	}
+	// The cells in view, with the end-of-line cursor counting as one.
+	cells := func(from, to int) int {
+		n := ansi.StringWidth(string(r[from:to]))
+		if to == len(r) && at == len(r) {
+			n++
+		}
+		return n
+	}
+	from, to := 0, len(r)
+	for cells(from, to) > w && to > at+1 { // drop from the right, past the cursor
+		to--
+	}
+	for cells(from, to) > w && from < at { // then from the left, up to it
+		from++
+	}
+	var b strings.Builder
+	b.WriteString(theme.Text.Render(string(r[from:at])))
+	if at < len(r) {
+		b.WriteString(theme.Selected.Render(string(r[at])))
+		b.WriteString(theme.Text.Render(string(r[at+1 : to])))
+	}
+	if to == len(r) && at == len(r) {
+		b.WriteString(theme.Text.Render("█"))
+	}
+	return b.String()
 }
 
 // choice is one row of a pick-one list: an inverted bar when chosen.
@@ -471,7 +582,9 @@ func (m setupModel) viewWelcome(w, h int) string {
 		}
 	} else {
 		text = append(text,
-			center(theme.Text, "frost backs up your folders, encrypted on this machine before anything leaves it.", tw),
+			center(theme.Text, "frost backs up your files.", tw),
+			fill(w, 2),
+			row(theme.Text.Render("learn more at ")+theme.Text.Bold(true).Underline(true).Render(projectLink)),
 			blank(w),
 			center(theme.Dim, "Setup takes about two minutes.", tw),
 		)
@@ -484,7 +597,24 @@ func (m setupModel) viewWelcome(w, h int) string {
 		gap = 1
 	}
 	mark := logo(w, h-lipgloss.Height(rest)-gap-2)
-	block := stack(row(theme.Text.Render("Welcome to")), blank(w), row(mark), fill(w, gap), rest)
+	block := stack(row(theme.Dim.Render("Welcome to")), blank(w), row(mark), fill(w, gap), rest)
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, block, lipgloss.WithWhitespaceBackground(theme.Bg))
+}
+
+// viewQuit asks before quitting, in the middle of the card.
+func viewQuit(w, h int) string {
+	row := func(s string) string {
+		return lipgloss.PlaceHorizontal(w, lipgloss.Center, s, lipgloss.WithWhitespaceBackground(theme.Bg))
+	}
+	keys := theme.Key.Render("[y]") + theme.Text.Render(" yes") + theme.Base.Render("     ") +
+		theme.Key.Render("[n]") + theme.Text.Render(" no")
+	block := stack(
+		row(theme.Bold.Render("Are you sure you want to quit?")),
+		blank(w),
+		row(theme.Dim.Render("Nothing is saved until you finish setup.")),
+		fill(w, 2),
+		row(keys),
+	)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, block, lipgloss.WithWhitespaceBackground(theme.Bg))
 }
 

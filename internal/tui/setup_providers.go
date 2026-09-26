@@ -25,6 +25,9 @@ type provider struct {
 // permafrostLink is where to send someone who doesn't have a key yet.
 const permafrostLink = "getfro.st/perma"
 
+// projectLink is on the welcome screen.
+const projectLink = "github.com/rhymeswithlimo/frost"
+
 var fBucket = field{question: "What's the bucket called?", help: "Its name, exactly as you created it.", name: "bucket name", about: "bucket", check: checkBucket}
 
 var providers = []provider{
@@ -32,7 +35,7 @@ var providers = []provider{
 		name: "Permafrost",
 		note: "recommended",
 		fields: []field{
-			{question: "Paste your Permafrost access key.", secret: true, help: "It stays on this machine.", name: "access key", about: "key", check: noSpaces("access key")},
+			{question: "Paste your Permafrost access key.", secret: true, name: "access key", about: "key", check: noSpaces("access key")},
 		},
 		read: func(s config.Storage) []string { return []string{s.Permafrost.Token} },
 		// The server stays whatever it was: blank means the default one.
@@ -42,7 +45,7 @@ var providers = []provider{
 	{
 		name: "Backblaze B2",
 		fields: []field{
-			{question: "What's the bucket's endpoint?", help: "Buckets > your bucket > Endpoint. It looks like s3.us-west-004.backblazeb2.com.", name: "endpoint", about: "address", check: checkB2Endpoint},
+			{question: "What's the bucket's endpoint?", help: "Buckets > your bucket > Endpoint. E.g. s3.us-west-004.backblazeb2.com.", name: "endpoint", about: "address", check: checkB2Endpoint},
 			fBucket,
 			{question: "Paste the application key's keyID.", help: "Application Keys > Add a New Application Key. Limit it to this bucket.", name: "keyID", about: "key", check: noSpaces("keyID")},
 			{question: "Paste the applicationKey.", secret: true, help: "Shown once, right after you create the key.", name: "applicationKey", about: "secret", check: noSpaces("applicationKey")},
@@ -60,7 +63,7 @@ var providers = []provider{
 	{
 		name: "Amazon S3",
 		fields: []field{
-			{question: "Which region is the bucket in?", help: "Like us-east-1. The S3 console lists it next to the bucket.", name: "region", about: "address", check: checkRegion},
+			{question: "Which region is the bucket in?", help: "E.g. us-east-1.", name: "region", about: "address", check: checkRegion},
 			fBucket,
 			{question: "Paste the access key ID.", help: "IAM > Users > your user > Security credentials > Create access key.", name: "access key ID", about: "key", check: noSpaces("access key ID")},
 			{question: "Paste the secret access key.", secret: true, help: "Shown once, next to the access key ID.", name: "secret access key", about: "secret", check: noSpaces("secret access key")},
@@ -97,7 +100,7 @@ var providers = []provider{
 	{
 		name: "Wasabi",
 		fields: []field{
-			{question: "Which region is the bucket in?", help: "Like us-east-1 or eu-central-1. It's shown next to the bucket.", name: "region", about: "address", check: checkRegion},
+			{question: "Which region is the bucket in?", help: "E.g. us-east-1 or eu-central-1.", name: "region", about: "address", check: checkRegion},
 			fBucket,
 			{question: "Paste the access key.", help: "Access Keys > Create New Access Key.", name: "access key", about: "key", check: noSpaces("access key")},
 			{question: "Paste the secret key.", secret: true, help: "Shown once, when you create the key.", name: "secret key", about: "secret", check: noSpaces("secret key")},
@@ -116,7 +119,7 @@ var providers = []provider{
 		name: "Other S3-compatible",
 		note: "MinIO, Garage, Ceph",
 		fields: []field{
-			{question: "What's the S3 endpoint?", help: "Your provider's docs list it. Start with http:// only for a local test server.", name: "endpoint", about: "address", check: checkEndpoint},
+			{question: "What's the S3 endpoint?", help: "Your provider's docs list it. Use http:// only for local servers.", name: "endpoint", about: "address", check: checkEndpoint},
 			{question: "Which region?", optional: true, placeholder: "leave blank if there isn't one", help: "Only if your provider asks for one.", name: "region", about: "address", check: noSpaces("region")},
 			fBucket,
 			{question: "Paste the access key ID.", help: "From your provider's console.", name: "access key ID", about: "key", check: noSpaces("access key ID")},
@@ -186,7 +189,7 @@ func checkB2Endpoint(v string) string {
 		return msg
 	}
 	if !strings.HasSuffix(strings.TrimSuffix(hostOf(v), "/"), ".backblazeb2.com") {
-		return "Backblaze endpoints end in backblazeb2.com, like s3.us-west-004.backblazeb2.com."
+		return "That doesn't look right. Make sure you're entering the endpoint correctly."
 	}
 	return ""
 }

@@ -44,6 +44,8 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 - **Unreadable folders don't come back positive.** A backed-up directory that can't be read fails the backup, and skipped items inside it show up in `frost status`. On macOS the error explains how to grant Full Disk Access.
 
+- **A missing folder doesn't stop the others.** A configured folder that isn't there, like one on an unplugged drive, is skipped and the rest are backed up. `frost backup` and `frost status` say which one wasn't found.
+
 - **The browser doesn't block scheduled backups.** It reads what it needs from the local manifest up front and releases the lock. A scheduled backup can run while the browser is open.
 
 - **The browser fits small terminals.** Every screen is clipped to the window and switches to a compact layout when space is tight. The wordmark steps aside when there isn't room for it.

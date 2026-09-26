@@ -10,9 +10,10 @@ Interactive setup. In a terminal it opens a full-screen setup that asks one thin
 |---|---|
 | Storage | Permafrost (just an access key), Backblaze B2, Amazon S3, Cloudflare R2, Wasabi, or any other S3-compatible service. Each question says where to find the answer. |
 | Folders | Full paths (`~` works). Nothing is picked for you. The same folder, or one inside a folder already on the list, isn't added twice. A folder that doesn't exist yet is skipped until it does. |
+| Skip | Names or patterns to leave out. Starts with the `exclude` defaults, which you can remove. |
 | Schedule | How often to back up automatically, or off. |
 | Recovery phrase | New storage: your key's 24 words, hidden until you press `[v]`, then two of them to check your copy. Storage with backups: the phrase for those backups. |
-| Review | Everything on one screen, including the files to skip. Change any line, then save. |
+| Review | Everything on one screen. Change any line, then press `[s]` to save. |
 
 It connects after the storage step and checks it can write there. If that fails, it goes back to the answer that caused it and keeps the rest. If the key on this machine doesn't open the backups already in the storage, it asks for their recovery phrase.
 
@@ -33,7 +34,7 @@ Backs up the configured directories now.
 | `--exclude <pattern>` | Also skip this pattern for this run. Repeatable |
 | `--no-verify` | Skip the post-backup spot check |
 
-Files and folders inside a backed-up directory that can't be read (permissions, vanished mid-run) are skipped and listed. The snapshot is still saved, and `status` shows how many were skipped. If a configured directory itself can't be read, the whole backup fails rather than quietly saving nothing.
+Files and folders inside a backed-up directory that can't be read (permissions, vanished mid-run) are skipped and listed. The snapshot is still saved, and `status` shows how many were skipped. A configured directory that isn't there (an unplugged drive, a moved folder) is skipped, and `backup` and `status` name it. If none are there, or one exists but can't be read, the whole backup fails rather than quietly saving nothing.
 
 On macOS, protected folders like `~/Documents` need Full Disk Access for the `frost` binary: System Settings > Privacy & Security > Full Disk Access. Scheduled runs need it too.
 

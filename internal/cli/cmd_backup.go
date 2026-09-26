@@ -131,6 +131,10 @@ func printBackup(out io.Writer, res engine.BackupResult) {
 		fmt.Fprintln(out, kv("new data", fmt.Sprintf("%s in %s chunks %s", humanBytes(s.Stats.NewBytes),
 			humanCount(s.Stats.NewChunks), dim("("+humanBytes(s.Stats.UploadedBytes)+" uploaded after compression)"))))
 	}
+	if len(s.Missing) > 0 {
+		fmt.Fprintln(out, kv("not found", caution(missingList(s.Missing))))
+		fmt.Fprintln(out, kv("", dim("Skipped until they're back. If one moved, update it with `frost init`.")))
+	}
 	if len(s.Warnings) > 0 {
 		fmt.Fprintln(out, kv("skipped", caution(fmt.Sprintf("%d items couldn't be read:", len(s.Warnings)))))
 		for i, w := range s.Warnings {
@@ -146,6 +150,9 @@ func printBackup(out io.Writer, res engine.BackupResult) {
 func printDryRun(out io.Writer, res engine.BackupResult) {
 	s := res.Snapshot
 	fmt.Fprintln(out, heading("dry run")+dim(" nothing was uploaded"))
+	if len(s.Missing) > 0 {
+		fmt.Fprintln(out, kv("not found", caution(missingList(s.Missing))))
+	}
 	if len(res.Planned) == 0 {
 		fmt.Fprintf(out, "\nNothing to upload. All %s files (%s) are already backed up.\n",
 			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes))
@@ -179,4 +186,13 @@ func executable() string {
 		p = r
 	}
 	return p
+}
+
+// missingList names paths that weren't found, the way you'd type them.
+func missingList(paths []string) string {
+	names := make([]string, len(paths))
+	for i, p := range paths {
+		names[i] = printable(tildify(filepath.FromSlash(p)))
+	}
+	return strings.Join(names, ", ")
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -326,5 +327,35 @@ func TestUnreadable(t *testing.T) {
 	}
 	if last, _ := e.eng.LastBackup(); last.Error == "" {
 		t.Fatal("failed backup not recorded")
+	}
+}
+
+func TestMissingRoot(t *testing.T) {
+	e := newEnv(t)
+	e.write("ok.txt", []byte("fine"))
+	gone := filepath.Join(t.TempDir(), "unplugged", "Photos")
+
+	// A root that isn't there is skipped, and the others are still backed up.
+	res := e.backup(BackupOptions{Paths: []string{e.src, gone}})
+	if res.Snapshot.Stats.Files != 1 {
+		t.Fatalf("files = %d, want 1", res.Snapshot.Stats.Files)
+	}
+	want := filepath.ToSlash(gone)
+	if m := res.Snapshot.Missing; len(m) != 1 || m[0] != want {
+		t.Fatalf("missing = %v", m)
+	}
+	if slices.Contains(res.Snapshot.Paths, want) {
+		t.Fatalf("paths include the missing root: %v", res.Snapshot.Paths)
+	}
+	if last, _ := e.eng.LastBackup(); last.Error != "" || len(last.Missing) != 1 {
+		t.Fatalf("last run = %+v", last)
+	}
+
+	// When none of them are there, it's a failed backup, not an empty one.
+	if _, err := e.eng.Backup(context.Background(), BackupOptions{Paths: []string{gone}}); err == nil {
+		t.Fatal("backup with nothing there succeeded")
+	}
+	if last, _ := e.eng.LastBackup(); last.Error == "" || last.SnapshotID != "" {
+		t.Fatalf("failed backup recorded as %+v", last)
 	}
 }
