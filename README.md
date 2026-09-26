@@ -1,3 +1,7 @@
+<div align="center">
+   <img alt="frost" src="public/repo/banner-test.png" width="100%">
+</div>
+
 <h3 align="center">frost</h3>
 
 <p align="center">Backup your files. Encrypted, incrementally to storage you choose.</p>
