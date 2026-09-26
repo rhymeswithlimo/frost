@@ -26,7 +26,7 @@
 
 frost is a single binary that backs up your directories to an S3-compatible bucket or to [Permafrost](https://example.com), on a schedule. Everything is encrypted on your machine before it's uploaded, so the storage only ever sees encrypted blobs.
 
-There's no account, no sign-up, no email and no password. Your key is generated locally and handed to you once as a 24 word recovery phrase.
+There's no account, no sign-up, no email, no password. Your key is generated locally and handed to you once as a 24 word recovery phrase.
 
 - **Client-side encryption**: XChaCha20-Poly1305 with a key that never leaves your machine.
 - **Only uploads what's changed**: content-defined chunking means an edit in the middle of a big file re-uploads a chunk or two, not the whole file.
@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/i
 
 Works on macOS, Linux and Windows (through Git Bash). The installer downloads the right binary, checks its SHA-256 and puts it on your PATH.
 
-Prefer doing it by hand? Grab an archive from [Releases](https://github.com/rhymeswithlimo/frost/releases), or:
+If you prefer doing it by hand, grab an archive from [Releases](https://github.com/rhymeswithlimo/frost/releases), or:
 
 ```sh
 go install github.com/rhymeswithlimo/frost/cmd/frost@latest
@@ -63,15 +63,14 @@ frost browse                # browse snapshots, diff them, pick files to restore
 Restores go into a new `./frost-restore-<id>` folder by default, so nothing on disk is overwritten unless you pass `--in-place`.
 
 > [!IMPORTANT]
-> Save your recovery phrase somewhere safe!
-> It's the only way to decrypt your backups, and there's no way to reset it.
+> Save your recovery phrase somewhere safe! It's the only way to decrypt your backups, and there's no way to reset it.
 
 > [!NOTE]
 > On macOS, folders like `~/Documents` and `~/Desktop` are privacy protected. If a backup fails with "operation not permitted", add the `frost` binary under System Settings > Privacy & Security > Full Disk Access.
 
 ## Commands
 
-frost has exactly seven commands. New features go in as flags, not new commands.
+frost has exactly seven commands.
 
 ```text
 frost <command> [flags]
