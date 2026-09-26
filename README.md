@@ -1,12 +1,12 @@
-<div align="center">
+<div>
 <img alt="frost" src="public/repo/README_Banner_JPG_v1.1__frost.jpg" width="100%">
 </div>
 
-<h3 align="center">frost</h3>
+<h3>frost</h3>
 
-<p align="center">Encrypted, incremental backups to storage you choose.</p>
+<p>Encrypted, incremental backups to storage you choose.</p>
 
-<p align="center">
+<p>
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="docs/CLI.md">Docs</a> ·
@@ -14,7 +14,7 @@
   <a href="#license">License</a>
 </p>
 
-<p align="center">
+<p>
 <a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4" alt="Latest release"></a>
 <a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI" alt="CI"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4" alt="License: BSD 3-Clause"></a>
@@ -63,7 +63,8 @@ frost browse                # browse snapshots, diff them, pick files to restore
 Restores go into a new `./frost-restore-<id>` folder by default, so nothing on disk is overwritten unless you pass `--in-place`.
 
 > [!IMPORTANT]
-> Save your recovery phrase somewhere safe. It's the only way to decrypt your backups, and there's no way to reset it.
+> Save your recovery phrase somewhere safe!
+> It's the only way to decrypt your backups, and there's no way to reset it.
 
 > [!NOTE]
 > On macOS, folders like `~/Documents` and `~/Desktop` are privacy protected. If a backup fails with "operation not permitted", add the `frost` binary under System Settings > Privacy & Security > Full Disk Access.
