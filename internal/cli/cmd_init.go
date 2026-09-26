@@ -71,7 +71,6 @@ func runSetupScreens(cmd *cobra.Command, cfg config.Config, existing bool, local
 		Finish:    finishSetup,
 		PickWords: pickWords,
 		DirExists: func(p string) bool { return len(missingDirs([]string{p})) == 0 },
-		Scheduler: schedule.Kind(),
 	}
 	res, err := tui.Setup(cmd.Context(), deps, cfg, existing)
 	if err != nil {

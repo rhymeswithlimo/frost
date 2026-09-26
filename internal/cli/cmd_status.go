@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -63,8 +64,15 @@ downloaded and checked against its hashes).
 				fmt.Fprintln(out, kv("last backup", dim("never")))
 			} else if last.Error != "" {
 				fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(last.Time)+": "+last.Error))
-			} else if last.Skipped > 0 {
-				fmt.Fprintln(out, kv("last backup", caution(fmt.Sprintf("ok, but %d items couldn't be read ", last.Skipped))+ago(last.Time)+dim("  "+last.SnapshotID)))
+			} else if len(last.Missing) > 0 || last.Skipped > 0 {
+				var buts []string
+				if len(last.Missing) > 0 {
+					buts = append(buts, "not found: "+missingList(last.Missing))
+				}
+				if last.Skipped > 0 {
+					buts = append(buts, fmt.Sprintf("%d items couldn't be read", last.Skipped))
+				}
+				fmt.Fprintln(out, kv("last backup", caution("ok, but "+strings.Join(buts, "; ")+" ")+ago(last.Time)+dim("  "+last.SnapshotID)))
 			} else {
 				fmt.Fprintln(out, kv("last backup", good("ok ")+ago(last.Time)+dim("  "+last.SnapshotID)))
 			}

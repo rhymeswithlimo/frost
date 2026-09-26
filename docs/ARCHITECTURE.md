@@ -55,7 +55,7 @@ walk dirs ─> skip excluded ─> unchanged since last run? ─yes─> reuse chu
                           all done ─> save tree, then header ─> update manifest ─> verify sample
 ```
 
-1. **Walk.** Each configured directory is walked. Excluded names and paths are skipped. Symlinks are recorded. Sockets and devices are ignored.
+1. **Walk.** Each configured directory is walked. One that doesn't exist is skipped and listed in the header as missing. Excluded names and paths are skipped. Symlinks are recorded. Sockets and devices are ignored.
 2. **Skip unchanged files.** The manifest remembers each file's size, mtime and chunk list from the last run. If size and mtime match and every chunk is known, the file isn't opened.
 3. **Chunk.** Changed files go through FastCDC. Chunks average 1 MiB (256 KiB min, 8 MiB max).
 4. **Deduplicate.** Each chunk's ID is its HMAC. If the manifest already has that ID, nothing's uploaded. This works across files and across runs.
@@ -81,7 +81,7 @@ Everything a backend stores:
 |---|---|
 | `frost.repo` | Format version, repository ID, creation time. Decrypting it is how frost checks a key |
 | `chunks/<ab>/<abcdef...>` | File data, named by HMAC chunk ID |
-| `snapshots/<id>` | Snapshot header: time, host, paths, stats |
+| `snapshots/<id>` | Snapshot header: time, host, paths, missing paths, stats |
 | `trees/<id>` | Snapshot file list: path, type, mode, mtime, size, chunk IDs |
 
 Every object is sealed as `version(1) | nonce(24) | ciphertext`, and the object's own key is the AEAD associated data. A provider can't rename, swap or replay an object under another name without the decryption failing.

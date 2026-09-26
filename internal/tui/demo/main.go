@@ -138,7 +138,6 @@ func runSetup(latency time.Duration) error {
 			_, err := os.Stat(config.Expand(p))
 			return err == nil
 		},
-		Scheduler: "launchd",
 	}
 	res, err := tui.Setup(context.Background(), deps, config.Default(), false)
 	if err != nil {

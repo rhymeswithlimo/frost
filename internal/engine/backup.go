@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ type LastRun struct {
 	SnapshotID string    `json:"snapshot_id,omitempty"`
 	Error      string    `json:"error,omitempty"`
 	Skipped    int       `json:"skipped,omitempty"` // items that couldn't be read
+	Missing    []string  `json:"missing,omitempty"` // configured paths that weren't there
 }
 
 // BackupOptions controls one backup run.
@@ -83,7 +85,7 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	}
 	if !opts.DryRun {
 		defer func() {
-			run := LastRun{Time: time.Now(), SnapshotID: res.Snapshot.ID, Skipped: len(res.Snapshot.Warnings)}
+			run := LastRun{Time: time.Now(), SnapshotID: res.Snapshot.ID, Skipped: len(res.Snapshot.Warnings), Missing: res.Snapshot.Missing}
 			if err != nil {
 				run.Error = err.Error()
 			}
@@ -124,6 +126,14 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 		abs, err := filepath.Abs(root)
 		if err != nil {
 			return res, err
+		}
+		// A path that isn't there, like an unplugged drive or a moved
+		// folder, is skipped so the others still get backed up. Older
+		// snapshots keep its files. Any other problem with it (no
+		// permission, say) still fails the backup below.
+		if _, err := os.Lstat(abs); errors.Is(err, fs.ErrNotExist) {
+			snap.Missing = append(snap.Missing, filepath.ToSlash(abs))
+			continue
 		}
 		snap.Paths = append(snap.Paths, filepath.ToSlash(abs))
 		walkErr := filepath.WalkDir(abs, func(p string, d fs.DirEntry, err error) error {
@@ -202,6 +212,11 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	}
 	if ctx.Err() != nil {
 		return res, context.Cause(ctx)
+	}
+	if len(snap.Paths) == 0 {
+		// Nothing was there at all: saying so beats an empty snapshot.
+		res.Snapshot.Missing = snap.Missing
+		return res, fmt.Errorf("none of the folders to back up were found: %s", strings.Join(snap.Missing, ", "))
 	}
 	snap.Stats.NewChunks = len(b.pending)
 	snap.Stats.NewBytes = b.newBytes

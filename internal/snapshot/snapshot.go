@@ -24,6 +24,9 @@ type Snapshot struct {
 	Paths    []string  `json:"paths"`
 	Stats    Stats     `json:"stats"`
 	Warnings []string  `json:"warnings,omitempty"`
+	// Missing are configured paths that weren't there, like a drive that
+	// isn't plugged in. They're left out of Paths.
+	Missing []string `json:"missing,omitempty"`
 }
 
 // Stats summarises a run.

@@ -41,7 +41,6 @@ type SetupDeps struct {
 	Finish    func(ctx context.Context, cfg config.Config, key *crypto.Key, newRepo bool) ([][2]string, error)
 	PickWords func() (int, int)
 	DirExists func(path string) bool
-	Scheduler string // "launchd", "systemd", ...
 }
 
 // ConnectError is a connect failure caused by one answer in particular, so
@@ -122,6 +121,7 @@ type setupModel struct {
 	back []setupStep // for esc
 	spin spinner.Model
 	busy string // non-empty while waiting on storage
+	quit bool   // asking whether to quit
 	err  string // shown on the current screen until the next key press
 	note string // the same, for news that isn't a problem
 
@@ -134,10 +134,11 @@ type setupModel struct {
 	state     RepoState
 	autoTried bool // a saved config gets one silent connect
 
-	// folders: the input box has focus while folderSel is -1
+	// folders and skip: the input box has focus while the selection is -1
 	folderIn  form
 	folderSel int
 	skipIn    form
+	skipSel   int
 
 	// schedule
 	schedCur int
@@ -165,14 +166,16 @@ func newSetup(ctx context.Context, deps SetupDeps, cfg config.Config, existing b
 	sp := spinner.New()
 	sp.Spinner = spinner.Line
 	sp.Style = theme.Bold
-	m := setupModel{ctx: ctx, deps: deps, cfg: cfg, existing: existing, spin: sp, visited: map[setupStep]bool{}, folderSel: -1}
+	m := setupModel{ctx: ctx, deps: deps, cfg: cfg, existing: existing, spin: sp, visited: map[setupStep]bool{}, folderSel: -1, skipSel: -1}
 	if existing {
 		m.visited[stFolders] = true
+		m.visited[stSkip] = true
 		m.visited[stSchedule] = true
 	}
 	m.provCur = matchProvider(cfg.Storage)
 	m.schedCur = max(slices.Index(m.schedOptions(), m.schedValue()), 0)
 	m.folderIn = form{fields: []field{{placeholder: "type a path, like ~/Pictures"}}}
+	m.skipIn = form{fields: []field{{placeholder: "type a name or pattern, like *.iso"}}}
 	return m
 }
 
@@ -227,6 +230,9 @@ func (m setupModel) advance() (tea.Model, tea.Cmd) {
 	case !m.visited[stFolders]:
 		m.folderSel = -1
 		return m.goTo(stFolders), nil
+	case !m.visited[stSkip]:
+		m.skipSel = -1
+		return m.goTo(stSkip), nil
 	case !m.visited[stSchedule]:
 		return m.goTo(stSchedule), nil
 	case !m.keyReady:
@@ -353,19 +359,34 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // and not shortcuts.
 func (m setupModel) typing() bool {
 	switch m.step {
-	case stDetails, stCheck, stUnlock, stSkip:
+	case stDetails, stCheck, stUnlock:
 		return true
 	case stFolders:
 		return m.folderSel < 0
+	case stSkip:
+		return m.skipSel < 0
 	}
 	return false
 }
 
 func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := k.String()
+	if m.quit {
+		switch s {
+		case "y":
+			return m, tea.Quit
+		case "n", "esc":
+			m.quit = false
+		}
+		return m, nil
+	}
 	m.err, m.note = "", "" // a message lasts until the next key press
 	if !m.typing() && s == "q" && m.step != stDone {
-		return m, tea.Quit
+		if m.step == stWelcome { // nothing's been asked yet
+			return m, tea.Quit
+		}
+		m.quit = true
+		return m, nil
 	}
 
 	switch m.step {
@@ -424,20 +445,7 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.foldersKey(k)
 
 	case stSkip:
-		switch {
-		case s == "esc":
-			return m.goBack(), nil
-		case m.skipIn.key(k):
-			list := splitList(m.skipIn.values()[0])
-			for _, p := range list {
-				if _, err := path.Match(p, ""); err != nil {
-					m.err = fmt.Sprintf("%q isn't a valid pattern. Check its brackets.", p)
-					return m, nil
-				}
-			}
-			m.cfg.Exclude = list
-			return m.advance()
-		}
+		return m.skipKey(k)
 
 	case stSchedule:
 		opts := m.schedOptions()
@@ -473,8 +481,8 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			i, j := m.deps.PickWords()
 			m.checkIdx = [2]int{i, j}
 			m.check = form{fields: []field{
-				{question: "What's word " + strconv.Itoa(i+1) + "?"},
-				{question: "And word " + strconv.Itoa(j+1) + "?"},
+				{question: "Let's check, what's word " + strconv.Itoa(i+1) + "?"},
+				{question: "What about word " + strconv.Itoa(j+1) + "?"},
 			}}
 			m.showWords = false
 			return m.goTo(stCheck), nil
@@ -552,16 +560,13 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.visited[stFolders], m.folderSel = false, -1
 				return m.goTo(stFolders), nil
 			case stSkip:
-				m.skipIn = form{fields: []field{{
-					value:       strings.Join(m.cfg.Exclude, ", "),
-					placeholder: "nothing, back up every file",
-				}}}
+				m.visited[stSkip], m.skipSel = false, -1
 				return m.goTo(stSkip), nil
 			case stSchedule:
 				m.visited[stSchedule] = false
 				return m.goTo(stSchedule), nil
 			}
-		case "enter":
+		case "s": // not enter, so it can't happen by accident
 			m.busy, m.err = "Saving", ""
 			ctx, fn, cfg, key, isNew := m.ctx, m.deps.Finish, m.cfg, m.key, m.newRepo
 			return m, tea.Batch(m.spin.Tick, func() tea.Msg {
@@ -586,21 +591,7 @@ func (m setupModel) foldersKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.goBack(), nil
 	}
 	if m.folderSel >= 0 {
-		switch s {
-		case "esc", "enter":
-			m.folderSel = -1
-		case "up", "k":
-			m.folderSel = max(m.folderSel-1, 0)
-		case "down", "j":
-			if m.folderSel++; m.folderSel >= len(m.cfg.Paths) {
-				m.folderSel = -1
-			}
-		case "x", "backspace", "delete":
-			m.cfg.Paths = slices.Delete(slices.Clone(m.cfg.Paths), m.folderSel, m.folderSel+1)
-			if m.folderSel >= len(m.cfg.Paths) {
-				m.folderSel = len(m.cfg.Paths) - 1
-			}
-		}
+		m.cfg.Paths = listKey(s, &m.folderSel, m.cfg.Paths)
 		return m, nil
 	}
 	if s == "up" && len(m.cfg.Paths) > 0 {
@@ -638,6 +629,67 @@ func (m setupModel) foldersKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.folderIn.fields = []field{{placeholder: m.folderIn.fields[0].placeholder}}
 	return m, nil
+}
+
+// skipKey works like foldersKey, for patterns: the box adds one (or a
+// comma separated few), and up moves into the list to remove one.
+func (m setupModel) skipKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := k.String()
+	if s == "esc" && m.skipSel < 0 {
+		return m.goBack(), nil
+	}
+	if m.skipSel >= 0 {
+		m.cfg.Exclude = listKey(s, &m.skipSel, m.cfg.Exclude)
+		return m, nil
+	}
+	if s == "up" && len(m.cfg.Exclude) > 0 {
+		m.skipSel = len(m.cfg.Exclude) - 1
+		return m, nil
+	}
+	if !m.skipIn.key(k) {
+		return m, nil
+	}
+	typed := splitList(m.skipIn.values()[0])
+	if len(typed) == 0 {
+		m.visited[stSkip] = true
+		return m.advance()
+	}
+	for _, p := range typed {
+		if _, err := path.Match(p, ""); err != nil {
+			m.err = fmt.Sprintf("%q isn't a valid pattern. Check its brackets.", p)
+			return m, nil
+		}
+	}
+	list := slices.Clone(m.cfg.Exclude)
+	for _, p := range typed {
+		if !slices.Contains(list, p) {
+			list = append(list, p)
+		}
+	}
+	m.cfg.Exclude = list
+	m.skipIn.fields = []field{{placeholder: m.skipIn.fields[0].placeholder}}
+	return m, nil
+}
+
+// listKey handles a key while an item in a list is selected: move, remove,
+// or go back to the box. sel becomes -1 when the box has focus again.
+func listKey(s string, sel *int, items []string) []string {
+	switch s {
+	case "esc", "enter":
+		*sel = -1
+	case "up", "k":
+		*sel = max(*sel-1, 0)
+	case "down", "j":
+		if *sel++; *sel >= len(items) {
+			*sel = -1
+		}
+	case "x", "backspace", "delete":
+		items = slices.Delete(slices.Clone(items), *sel, *sel+1)
+		if *sel >= len(items) {
+			*sel = len(items) - 1
+		}
+	}
+	return items
 }
 
 func splitList(s string) []string {
@@ -691,9 +743,6 @@ func (m setupModel) reviewRows() []reviewRow {
 	sched := "off"
 	if m.cfg.Schedule.Enabled {
 		sched = strings.ToLower(schedLabel(m.schedValue()))
-		if m.deps.Scheduler != "" {
-			sched += ", via " + m.deps.Scheduler
-		}
 	}
 	skip := strings.Join(m.cfg.Exclude, ", ")
 	if skip == "" {
@@ -713,6 +762,7 @@ func (m setupModel) reviewRows() []reviewRow {
 type field struct {
 	question, help, value, placeholder string
 	secret, optional                   bool
+	back                               int                 // runes after the text cursor, so 0 is the end
 	name                               string              // what the answer is, for "Type the bucket name"
 	about                              string              // the ConnectError.About it can cause
 	check                              func(string) string // a problem with the answer, or ""
@@ -748,23 +798,61 @@ func (f *form) key(k tea.KeyMsg) bool {
 	// model mustn't see this one's typing.
 	f.fields = slices.Clone(f.fields)
 	cur := &f.fields[f.focus]
+	r := []rune(cur.value)
+	at := cur.cursor()
+	before, after := r[:at], r[at:]
+	set := func(before, after []rune) {
+		cur.value = string(before) + string(after)
+		cur.back = len(after)
+	}
+	// Alt with an arrow, b or f jumps a word, like option+arrow on a Mac.
+	if k.Alt {
+		switch {
+		case k.Type == tea.KeyLeft || k.String() == "alt+b":
+			cur.back = len(r) - wordStart(r, at)
+		case k.Type == tea.KeyRight || k.String() == "alt+f":
+			cur.back = len(r) - wordEnd(r, at)
+		case k.Type == tea.KeyBackspace:
+			set(before[:wordStart(r, at)], after)
+		case k.Type == tea.KeyEnter:
+			return true
+		}
+		return false
+	}
 	switch k.Type {
 	case tea.KeyEnter:
 		return true
+	case tea.KeyLeft, tea.KeyCtrlB:
+		cur.back = min(cur.back+1, len(r))
+	case tea.KeyRight, tea.KeyCtrlF:
+		cur.back = max(cur.back-1, 0)
+	case tea.KeyHome, tea.KeyCtrlA:
+		cur.back = len(r)
+	case tea.KeyEnd, tea.KeyCtrlE:
+		cur.back = 0
+	case tea.KeyCtrlLeft:
+		cur.back = len(r) - wordStart(r, at)
+	case tea.KeyCtrlRight:
+		cur.back = len(r) - wordEnd(r, at)
 	case tea.KeyBackspace:
-		if r := []rune(cur.value); len(r) > 0 {
-			cur.value = string(r[:len(r)-1])
+		if len(before) > 0 {
+			set(before[:len(before)-1], after)
+		}
+	case tea.KeyDelete:
+		if len(after) > 0 {
+			set(before, after[1:])
 		}
 	case tea.KeyCtrlU:
-		cur.value = ""
+		set(nil, after)
+	case tea.KeyCtrlK:
+		set(before, nil)
 	case tea.KeyCtrlW:
-		v := strings.TrimRight(cur.value, " ")
-		cur.value = v[:strings.LastIndex(v, " ")+1]
+		set(before[:wordStart(r, at)], after)
 	case tea.KeySpace:
-		cur.value += " "
+		set(append(slices.Clone(before), ' '), after)
 	case tea.KeyRunes:
 		// Pastes arrive here too, newlines and all.
-		cur.value += strings.Map(func(r rune) rune {
+		typed := strings.Map(func(r rune) rune {
 			if r == '\n' || r == '\r' || r == '\t' {
 				return ' '
 			}
@@ -773,8 +861,37 @@ func (f *form) key(k tea.KeyMsg) bool {
 			}
 			return r
 		}, string(k.Runes))
+		set(append(slices.Clone(before), []rune(typed)...), after)
 	}
 	return false
+}
+
+// cursor is where the text cursor is, in runes from the start.
+func (f field) cursor() int {
+	n := len([]rune(f.value))
+	return n - min(max(f.back, 0), n)
+}
+
+// wordStart is the start of the word before i, skipping spaces first.
+func wordStart(r []rune, i int) int {
+	for i > 0 && r[i-1] == ' ' {
+		i--
+	}
+	for i > 0 && r[i-1] != ' ' {
+		i--
+	}
+	return i
+}
+
+// wordEnd is the end of the word after i, skipping spaces first.
+func wordEnd(r []rune, i int) int {
+	for i < len(r) && r[i] == ' ' {
+		i++
+	}
+	for i < len(r) && r[i] != ' ' {
+		i++
+	}
+	return i
 }
 
 func (f *form) values() []string {

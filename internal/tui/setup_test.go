@@ -55,7 +55,6 @@ func (f *fakeSetup) deps(local *crypto.Key) SetupDeps {
 		},
 		PickWords: func() (int, int) { return 2, 17 },
 		DirExists: func(p string) bool { _, err := os.Stat(config.Expand(p)); return err == nil },
-		Scheduler: "launchd",
 	}
 }
 
@@ -105,6 +104,14 @@ func walkNewSetup(t *testing.T, w, h int) (map[string]tea.Model, *fakeSetup) {
 	shots["07-folders-missing"] = m
 	shots["07b-folders-choosing"] = step(t, m, up)
 	m = step(t, m, key("enter")) // empty box: move on
+	if sm(m).step != stSkip || len(sm(m).cfg.Exclude) == 0 {
+		t.Fatalf("folders didn't go to the skip list with the defaults: step %d, %v", sm(m).step, sm(m).cfg.Exclude)
+	}
+	shots["07c-skip"] = m
+	m = step(t, typeText(t, m, "*.iso"), key("enter"))
+	shots["07d-skip-added"] = m
+	shots["07e-skip-choosing"] = step(t, m, up)
+	m = step(t, m, key("enter")) // empty box: move on
 	shots["08-schedule"] = m
 	m = step(t, m, up)
 	m = step(t, m, key("enter"))
@@ -130,7 +137,11 @@ func walkNewSetup(t *testing.T, w, h int) (map[string]tea.Model, *fakeSetup) {
 		t.Fatalf("after the word check: step %d, err %q", sm(m).step, sm(m).err)
 	}
 	shots["13-review"] = m
-	m = step(t, m, key("enter"))
+	if m = step(t, m, key("enter")); sm(m).step != stReview || f.finished != nil {
+		t.Fatal("enter saved on the review screen")
+	}
+	shots["13b-quit"] = step(t, m, key("q"))
+	m = step(t, m, key("s"))
 	shots["14-done"] = m
 	return shots, f
 }
@@ -184,7 +195,7 @@ func TestSetupScreens(t *testing.T) {
 					t.Errorf("%dx%d %s: shows the access key %q", size[0], size[1], name, secret)
 				}
 			}
-			if name != "14-done" && !strings.Contains(lastLine(v), "quit") {
+			if name != "14-done" && name != "13b-quit" && !strings.Contains(lastLine(v), "quit") {
 				t.Errorf("%dx%d %s: footer lost quit: %q", size[0], size[1], name, lastLine(v))
 			}
 			hasMark := strings.Contains(plain, "▒")
@@ -203,6 +214,9 @@ func TestSetupScreens(t *testing.T) {
 		}
 		if got := f.finished.Paths; len(got) != 1 || got[0] != missingDir {
 			t.Errorf("paths = %v", got)
+		}
+		if got := f.finished.Exclude; len(got) != len(config.Default().Exclude)+1 || got[len(got)-1] != "*.iso" {
+			t.Errorf("exclude = %v", got)
 		}
 		if f.finished.Storage.Permafrost.Token != "good" || f.finished.Storage.Permafrost.URL != "" {
 			t.Errorf("storage = %+v", f.finished.Storage.Permafrost)
@@ -287,7 +301,7 @@ func TestSetupExistingRepoAsksForPhrase(t *testing.T) {
 	if sm(m).step != stReview {
 		t.Fatalf("step %d, err %q", sm(m).step, sm(m).err)
 	}
-	m = step(t, m, key("enter"))
+	m = step(t, m, key("s"))
 	if f.finished == nil || f.newRepo {
 		t.Fatal("saved as a new repository")
 	}
@@ -305,6 +319,7 @@ func TestSetupWrongLocalKeyOffersPhrase(t *testing.T) {
 	m = typeText(t, m, t.TempDir())
 	m = step(t, m, key("enter")) // add the folder
 	m = step(t, m, key("enter")) // the empty box moves on
+	m = step(t, m, key("enter")) // keep the skip list
 	m = step(t, m, key("enter")) // schedule
 	if sm(m).step != stUnlock || !strings.Contains(stripANSI(m.View()), "different key") {
 		t.Fatalf("step %d, err %q", sm(m).step, sm(m).err)
@@ -357,7 +372,7 @@ func TestSetupSavedConfigGoesToReview(t *testing.T) {
 	if sm(m).step != stReview {
 		t.Fatalf("after reconnecting: step %d, err %q", sm(m).step, sm(m).err)
 	}
-	m = step(t, m, key("enter"))
+	m = step(t, m, key("s"))
 	if f.finished == nil || f.finished.Storage.S3.SecretAccessKey != "shh-secret" || f.finished.Storage.S3.Region != "us-west-004" {
 		t.Fatalf("saved %+v", f.finished)
 	}
@@ -528,9 +543,91 @@ func TestSetupSkipPatterns(t *testing.T) {
 	if sm(m).step != stSkip {
 		t.Fatalf("step %d", sm(m).step)
 	}
-	m = step(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
-	if m = step(t, typeText(t, m, "*.tmp, [abc"), key("enter")); !strings.Contains(errText(m), "valid pattern") {
+	if m = step(t, typeText(t, m, "*.raw, [abc"), key("enter")); !strings.Contains(errText(m), "valid pattern") {
 		t.Fatalf("bad pattern: %q", errText(m))
+	}
+	if got := sm(m).cfg.Exclude; len(got) != len(cfg.Exclude) {
+		t.Fatalf("a bad pattern added some anyway: %v", got)
+	}
+	m = step(t, m, tea.KeyMsg{Type: tea.KeyCtrlU})
+	m = step(t, typeText(t, m, "*.raw, *.tmp, *.iso"), key("enter")) // *.tmp is a default
+	want := append(append([]string{}, cfg.Exclude...), "*.raw", "*.iso")
+	if got := sm(m).cfg.Exclude; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("exclude = %v, want %v", got, want)
+	}
+	// Up picks the last one, x removes it.
+	m = step(t, step(t, m, up), key("x"))
+	if got := sm(m).cfg.Exclude; got[len(got)-1] != "*.raw" {
+		t.Fatalf("after removing: %v", got)
+	}
+	m = step(t, step(t, m, key("esc")), key("enter"))
+	if sm(m).step != stReview {
+		t.Fatalf("empty box didn't go back to the review: step %d", sm(m).step)
+	}
+}
+
+func TestSetupQuitAsksFirst(t *testing.T) {
+	f := &fakeSetup{state: RepoNew}
+	var m tea.Model = newSetup(context.Background(), f.deps(nil), config.Default(), false)
+	m = step(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	if _, cmd := m.Update(key("q")); cmd == nil {
+		t.Fatal("q on the welcome screen should quit straight away")
+	}
+	m = step(t, m, key("enter")) // storage
+	m, cmd := m.Update(key("q"))
+	if cmd != nil || !sm(m).quit || !strings.Contains(stripANSI(m.View()), "Are you sure you want to quit?") {
+		t.Fatal("q quit without asking")
+	}
+	if m = step(t, m, key("enter")); !sm(m).quit || sm(m).step != stStorage {
+		t.Fatal("other keys should do nothing while asking")
+	}
+	if m = step(t, m, key("n")); sm(m).quit || sm(m).step != stStorage {
+		t.Fatal("[n] didn't go back to setup")
+	}
+	m = step(t, m, key("q"))
+	if _, cmd := m.Update(key("y")); cmd == nil {
+		t.Fatal("[y] didn't quit")
+	}
+}
+
+func TestInputCursor(t *testing.T) {
+	var f form
+	f.fields = []field{{}}
+	press := func(keys ...tea.KeyMsg) {
+		for _, k := range keys {
+			f.key(k)
+		}
+	}
+	k := func(t tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: t} }
+	runes := func(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+	press(runes("~/Pictres"))
+	press(k(tea.KeyLeft), k(tea.KeyLeft), k(tea.KeyLeft), runes("u"))
+	if got := f.fields[0].value; got != "~/Pictures" {
+		t.Fatalf("insert in the middle: %q", got)
+	}
+	press(k(tea.KeyHome), k(tea.KeyDelete), k(tea.KeyDelete), k(tea.KeyEnd), k(tea.KeyBackspace))
+	if got := f.fields[0].value; got != "Picture" {
+		t.Fatalf("home, delete, end, backspace: %q", got)
+	}
+	press(runes(" two three"), k(tea.KeyCtrlLeft), k(tea.KeyCtrlW))
+	if got := f.fields[0].value; got != "Picture three" {
+		t.Fatalf("word jump and delete: %q", got)
+	}
+	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b"), Alt: true})
+	if got, at := f.fields[0].value, f.fields[0].cursor(); got != "Picture three" || at != 0 {
+		t.Fatalf("alt+b: %q, cursor %d", got, at)
+	}
+	// Setting the value directly leaves the cursor at the end.
+	f.fields[0].value, f.fields[0].back = "abc", 0
+	if f.fields[0].cursor() != 3 {
+		t.Fatal("cursor isn't at the end")
+	}
+
+	// The cursor stays in view in a long answer.
+	long := field{value: strings.Repeat("a", 100) + "XYZ" + strings.Repeat("b", 100), back: 101}
+	if v := stripANSI(inputText(long, false, true, 20)); !strings.Contains(v, "Z") || lipgloss.Width(v) > 20 {
+		t.Fatalf("cursor scrolled out of view: %q", v)
 	}
 }
 
