@@ -2,11 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/johannesboyne/gofakes3"
@@ -81,9 +85,9 @@ func setup(t *testing.T) *fixture {
 
 func (f *fixture) initAnswers(wordA, wordB string) string {
 	return lines(
+		"2", f.s3URL, "us-east-1", "backups", "", "AKID", "SECRET", // storage
 		f.src, "*.tmp", // directories, excludes
 		"y", "6h", // schedule
-		"1", f.s3URL, "us-east-1", "backups", "", "AKID", "SECRET", // storage
 		"",           // written it down
 		wordA, wordB, // word check
 	)
@@ -92,7 +96,7 @@ func (f *fixture) initAnswers(wordA, wordB string) string {
 func TestEndToEnd(t *testing.T) {
 	f := setup(t)
 
-	// A wrong word check repeats the phrase and asks again; EOF then ends it.
+	// A wrong word check offers the phrase again and asks again; EOF then ends it.
 	if _, err := run(t, f.initAnswers("wrong", "words"), "init"); err == nil {
 		t.Fatal("init accepted a wrong word check")
 	}
@@ -188,8 +192,8 @@ func TestNewMachineImport(t *testing.T) {
 	}
 
 	answers := lines(
+		"2", f.s3URL, "us-east-1", "backups", "", "AKID", "SECRET",
 		f.src, "*.tmp", "n",
-		"1", f.s3URL, "us-east-1", "backups", "", "AKID", "SECRET",
 		f.key.Phrase(),
 	)
 	out := must(t, answers, "init")
@@ -212,4 +216,93 @@ func TestSevenCommands(t *testing.T) {
 	if len(names) != 7 {
 		t.Fatalf("commands = %v, want exactly 7", names)
 	}
+}
+
+func TestInitRetriesFailedConnect(t *testing.T) {
+	f := setup(t)
+	answers := lines(
+		"2", f.s3URL, "us-east-1", "no-such-bucket", "", "AKID", "SECRET",
+		// Second go: everything but the bucket keeps its answer.
+		"", "", "", "backups", "", "", "",
+		f.src, "*.tmp", "n",
+		"", f.phrase[2], f.phrase[17],
+	)
+	out := must(t, answers, "init")
+	if !strings.Contains(out, "no bucket with that name") {
+		t.Fatalf("no plain explanation of the failed connect:\n%s", out)
+	}
+	if strings.Contains(out, "SECRET") {
+		t.Fatal("init printed the secret")
+	}
+	must(t, "", "backup")
+}
+
+// permafrostServer is just enough of docs/PERMAFROST.md for init and a
+// backup to work. The full reference server lives in the permafrost package.
+func permafrostServer(t *testing.T, token string) string {
+	var mu sync.Mutex
+	objs := map[string][]byte{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(401)
+			w.Write([]byte(`{"error":{"code":"unauthorized","message":"bad token"}}`))
+			return
+		}
+		if r.URL.Path == "/v1/objects" {
+			var keys []string
+			for k := range objs {
+				if strings.HasPrefix(k, r.URL.Query().Get("prefix")) {
+					keys = append(keys, k)
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"keys": keys, "next_cursor": ""})
+			return
+		}
+		key := strings.TrimPrefix(r.URL.Path, "/v1/objects/")
+		switch r.Method {
+		case http.MethodPut:
+			objs[key], _ = io.ReadAll(r.Body)
+			w.WriteHeader(204)
+		case http.MethodGet:
+			b, ok := objs[key]
+			if !ok {
+				w.WriteHeader(404)
+				w.Write([]byte(`{"error":{"code":"not_found","message":"not found"}}`))
+				return
+			}
+			w.Write(b)
+		case http.MethodDelete:
+			delete(objs, key)
+			w.WriteHeader(204)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestInitPermafrostNeedsOnlyTheKey(t *testing.T) {
+	f := setup(t)
+	cfg := config.Default()
+	cfg.Storage.Backend = "permafrost"
+	cfg.Storage.Permafrost.URL = permafrostServer(t, "right-key")
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	answers := lines(
+		"", "wrong-key", // enter keeps Permafrost
+		"1", "right-key",
+		f.src, "*.tmp", "n",
+		"", f.phrase[2], f.phrase[17],
+	)
+	out := must(t, answers, "init")
+	if !strings.Contains(out, "didn't accept that access key") {
+		t.Fatalf("no plain explanation of the bad key:\n%s", out)
+	}
+	if strings.Contains(out, "right-key") || strings.Contains(out, "wrong-key") {
+		t.Fatal("init printed an access key")
+	}
+	must(t, "", "backup")
 }

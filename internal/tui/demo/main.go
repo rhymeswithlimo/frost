@@ -5,6 +5,7 @@
 //	go run ./internal/tui/demo -latency 400ms   # see the loading states
 //	go run ./internal/tui/demo -empty           # a repository with no snapshots
 //	go run ./internal/tui/demo -broken          # a failed backup and a failed health check
+//	go run ./internal/tui/demo -setup           # the `frost init` screens (Permafrost key: demo)
 //
 // Everything lives in memory and a temp directory. Restores are written into
 // that temp directory, and its path is printed when you quit.
@@ -12,6 +13,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -35,7 +37,16 @@ func main() {
 	latency := flag.Duration("latency", 0, "delay every storage call by this much")
 	empty := flag.Bool("empty", false, "start with no snapshots")
 	broken := flag.Bool("broken", false, "show a failed backup and a failed health check")
+	setup := flag.Bool("setup", false, "open the setup screens instead of the browser")
 	flag.Parse()
+
+	if *setup {
+		if err := runSetup(*latency); err != nil {
+			fmt.Fprintln(os.Stderr, "demo:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if err := run(*latency, *empty, *broken); err != nil {
 		fmt.Fprintln(os.Stderr, "demo:", err)
@@ -91,6 +102,49 @@ func run(latency time.Duration, empty, broken bool) error {
 		return err
 	}
 	fmt.Println("Demo files and any restores are in", work)
+	return nil
+}
+
+// runSetup opens the setup screens with nothing behind them: the Permafrost
+// access key "demo" connects, any other is refused, and S3 presets always
+// connect. Nothing is saved.
+func runSetup(latency time.Duration) error {
+	wait := func() { time.Sleep(max(latency, 600*time.Millisecond)) }
+	deps := tui.SetupDeps{
+		Connect: func(_ context.Context, s config.Storage) (tui.RepoState, error) {
+			wait()
+			if s.Backend == "permafrost" && s.Permafrost.Token != "demo" {
+				return 0, errors.New("that access key wasn't accepted, check you copied all of it (the demo key is: demo)")
+			}
+			return tui.RepoNew, nil
+		},
+		NewKey: crypto.NewKey,
+		Unlock: func(_ context.Context, _ config.Storage, phrase string) (*crypto.Key, error) {
+			wait()
+			return crypto.KeyFromPhrase(phrase)
+		},
+		Finish: func(_ context.Context, cfg config.Config, _ *crypto.Key, _ bool) ([][2]string, error) {
+			wait()
+			return [][2]string{{"config", "not saved, this is the demo"}, {"schedule", cfg.Schedule.Every}}, nil
+		},
+		PickWords: func() (int, int) {
+			i, j := rand.Intn(24), rand.Intn(23)
+			if j >= i {
+				j++
+			}
+			return min(i, j), max(i, j)
+		},
+		DirExists: func(p string) bool {
+			_, err := os.Stat(config.Expand(p))
+			return err == nil
+		},
+		Scheduler: "launchd",
+	}
+	res, err := tui.Setup(context.Background(), deps, config.Default(), false)
+	if err != nil {
+		return err
+	}
+	fmt.Println("demo setup finished, saved:", res.Saved)
 	return nil
 }
 

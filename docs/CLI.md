@@ -4,19 +4,23 @@ frost has seven commands. Every command accepts `--config-dir <dir>` to use a di
 
 ## `frost init`
 
-Interactive setup. Asks for:
+Interactive setup. In a terminal it opens a full-screen setup that asks one thing at a time:
 
-1. Directories to back up (comma separated, `~` works)
-2. Patterns to skip
-3. Whether to back up automatically, and how often
-4. Where to store backups: S3-compatible or Permafrost, plus their details
+| Step | What it asks |
+|---|---|
+| Storage | Permafrost (just an access key), Backblaze B2, Amazon S3, Cloudflare R2, Wasabi, or any other S3-compatible service. Each question says where to find the answer. |
+| Folders | Full paths (`~` works). Nothing is picked for you. The same folder, or one inside a folder already on the list, isn't added twice. A folder that doesn't exist yet is skipped until it does. |
+| Schedule | How often to back up automatically, or off. |
+| Recovery phrase | New storage: your key's 24 words, hidden until you press `[v]`, then two of them to check your copy. Storage with backups: the phrase for those backups. |
+| Review | Everything on one screen, including the files to skip. Change any line, then save. |
 
-Then it connects to the storage, checks it can write there, and:
+It connects after the storage step and checks it can write there. If that fails, it goes back to the answer that caused it and keeps the rest. If the key on this machine doesn't open the backups already in the storage, it asks for their recovery phrase.
 
-- **New storage:** generates your key, shows the 24 word recovery phrase once, and asks for two of the words back to check you saved it.
-- **Storage that already has frost backups:** asks for the recovery phrase instead.
+Saving writes `config.toml` and the key file, and installs the scheduled job. Run it again any time to review and change your settings.
 
-It writes `config.toml` and the key file, and installs the scheduled job. Run it again any time: your current answers become the defaults.
+The full-screen setup doesn't ask for a Permafrost server or a folder inside an S3 bucket, and keeps whatever's already set. Use `frost config set storage.permafrost.url` or `storage.s3.prefix` for those.
+
+With piped input it asks plain questions, one per line, with a generic S3 option instead of the provider presets.
 
 ## `frost backup`
 
@@ -111,7 +115,7 @@ Changing `schedule.enabled` or `schedule.every` updates the OS scheduled job str
 | `storage.s3.access_key_id` | | |
 | `storage.s3.secret_access_key` | | |
 | `storage.s3.insecure` | `false` | Plain HTTP. Only for local testing |
-| `storage.permafrost.url` | | Must be `https://` (or `http://localhost`) |
+| `storage.permafrost.url` | | Blank means the default server. Otherwise `https://` (or `http://localhost`) |
 | `storage.permafrost.token` | | |
 
 ### Environment variables

@@ -14,7 +14,9 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 - **Encrypted backups to S3-compatible storage.** frost backs up your directories to any S3-compatible container.
 
-- **Permafrost as a second storage option.** You can pick hosted Permafrost storage instead of running your own S3 container.
+- **Permafrost storage.** Connecting takes one access key, with no bucket, region or endpoint to set up. You can point frost at your own Permafrost server instead of the default one.
+
+- **Guided setup.** In a terminal, `frost init` opens a full-screen setup that asks one thing at a time and says where to find each answer, with presets for Backblaze B2, Amazon S3, Cloudflare R2 and Wasabi. If connecting fails, it says why in plain words and goes back to the answer that caused it.
 
 - **Incremental backups with content-defined chunking.** Files are split where their content says, not at fixed offsets, so an edit only re-uploads the chunk or two around it. Files that haven't changed since the last run aren't even read.
 

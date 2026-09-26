@@ -116,8 +116,8 @@ Full reference, including every setting and environment variable: [docs/CLI.md](
 
 | Backend | For | Setup |
 |---|---|---|
-| `s3` | Any S3-compatible bucket: AWS S3, Backblaze B2, Cloudflare R2, Wasabi, MinIO, Garage | Endpoint, bucket, access key |
-| `permafrost` | Hosted storage if you'd rather not run a bucket | URL and API token. API: [docs/PERMAFROST.md](docs/PERMAFROST.md) |
+| `permafrost` | Storage you connect to with a single access key | Access key. API: [docs/PERMAFROST.md](docs/PERMAFROST.md) |
+| `s3` | Any S3-compatible bucket: AWS S3, Backblaze B2, Cloudflare R2, Wasabi, MinIO, Garage | Bucket and access key. `frost init` has presets for the big providers. |
 
 You pick one during `frost init`. Credentials can also come from the environment (`FROST_S3_ACCESS_KEY_ID`, `FROST_PERMAFROST_TOKEN` and friends), and those are never written to `config.toml`.
 

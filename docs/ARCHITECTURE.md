@@ -24,7 +24,7 @@ internal/
     storagetest        in-memory backend and conformance suite, tests only
   schedule             launchd, systemd, cron and Task Scheduler jobs
   theme                colours, borders and spacing for the CLI and TUI
-  tui                  snapshot browser (bubbletea, lipgloss)
+  tui                  snapshot browser and setup screens (bubbletea, lipgloss)
     assets             the wordmark
 ```
 

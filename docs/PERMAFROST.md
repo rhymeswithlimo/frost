@@ -1,6 +1,6 @@
 # Permafrost HTTP API
 
-Permafrost is an optional hosted storage service for frost. It's a plain object store with four operations. It never sees plaintext: frost encrypts everything before upload, same as with S3.
+Permafrost is a hosted storage service for frost. It's a plain object store with four operations. It never sees plaintext: frost encrypts everything before upload, same as with S3.
 
 This document is the contract. frost's `permafrost` backend (`internal/storage/permafrost`) is a client for it, and its tests run against a reference server built from this document. Anyone can run a compatible server.
 
@@ -10,7 +10,7 @@ Version: `v1`
 
 | | |
 |---|---|
-| Base URL | Whatever you set as `storage.permafrost.url`, e.g. `https://permafrost.example.com` |
+| Base URL | `storage.permafrost.url`, or the default server when that's blank |
 | Auth | `Authorization: Bearer <token>` on every request |
 | Transport | HTTPS. Clients refuse plain `http://` except for `localhost` and `127.0.0.1` |
 | Object bodies | Raw bytes, `Content-Type: application/octet-stream` |
