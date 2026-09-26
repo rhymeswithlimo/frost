@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. Security problems go through private reporting, not issues. See [SECURITY.md](docs/SECURITY.md).
+Thanks for helping. Security problems go through private reporting, not issues. See [SECURITY.md](SECURITY.md).
 
 ## How it works
 
@@ -33,7 +33,7 @@ export FROST_CONFIG_DIR=/tmp/frost-dev/config FROST_CACHE_DIR=/tmp/frost-dev/cac
 
 To try the snapshot browser on fake data, run `go run ./internal/tui/demo`.
 
-[ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the code is laid out.
+[ARCHITECTURE.md](ARCHITECTURE.md) explains how the code is laid out.
 
 ## Rules
 
