@@ -54,7 +54,7 @@ func (f *fakeSetup) deps(local *crypto.Key) SetupDeps {
 			return [][2]string{{"config", "~/.config/frost/config.toml"}}, nil
 		},
 		PickWords: func() (int, int) { return 2, 17 },
-		DirExists: func(p string) bool { return p != "/Volumes/Photos" },
+		DirExists: func(p string) bool { _, err := os.Stat(config.Expand(p)); return err == nil },
 		Scheduler: "launchd",
 	}
 }
@@ -67,6 +67,10 @@ func typeText(t *testing.T, m tea.Model, s string) tea.Model {
 var up = tea.KeyMsg{Type: tea.KeyUp}
 
 func sm(m tea.Model) setupModel { return m.(setupModel) }
+
+// missingDir is a full path, on every OS, to a folder that doesn't exist:
+// like a drive that isn't plugged in.
+var missingDir = filepath.Join(os.TempDir(), "frost-setup-test-not-there", "Photos")
 
 // walkNewSetup goes through a first-time setup on Permafrost, capturing
 // every screen on the way.
@@ -95,7 +99,7 @@ func walkNewSetup(t *testing.T, w, h int) (map[string]tea.Model, *fakeSetup) {
 		t.Fatalf("after connecting: step %d, err %q", sm(m).step, sm(m).err)
 	}
 	shots["05-folders"] = m
-	m = typeText(t, m, "/Volumes/Photos")
+	m = typeText(t, m, missingDir)
 	shots["06-folders-typing"] = m
 	m = step(t, m, key("enter"))
 	shots["07-folders-missing"] = m
@@ -197,7 +201,7 @@ func TestSetupScreens(t *testing.T) {
 		if f.finished == nil || !f.newRepo {
 			t.Fatalf("%dx%d: setup didn't finish with a new repository", size[0], size[1])
 		}
-		if got := f.finished.Paths; len(got) != 1 || got[0] != "/Volumes/Photos" {
+		if got := f.finished.Paths; len(got) != 1 || got[0] != missingDir {
 			t.Errorf("paths = %v", got)
 		}
 		if f.finished.Storage.Permafrost.Token != "good" || f.finished.Storage.Permafrost.URL != "" {
