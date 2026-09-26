@@ -1,5 +1,5 @@
 <div align="center">
-   <img alt="frost" src="public/repo/README_Hero_JPG_v2.1__frost.png" width="100%">
+   <img alt="frost" src="public/repo/README_Hero_PNG_v2.1__frost.png" width="100%">
 </div>
 
 <h3 align="center">frost</h3>
