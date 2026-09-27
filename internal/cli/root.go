@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
+	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 )
 
 // Version is set at build time with -ldflags "-X .../cli.Version=v1.2.3".
@@ -56,8 +58,17 @@ func Execute() int {
 	defer stop()
 	defer enableANSI()()
 	if err := NewRoot().ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, errStyle("error:"), err)
+		fmt.Fprintln(os.Stderr, errStyle("error:"), plainError(err))
 		return 1
 	}
 	return 0
+}
+
+// plainError swaps errors that need the user to do something for words
+// that say what. Anything else comes back unchanged.
+func plainError(err error) error {
+	if errors.Is(err, permafrost.ErrUnauthorized) {
+		return errors.New("Permafrost didn't accept your access key, it may be wrong or expired. Run `frost init` and set up storage again to get a working one")
+	}
+	return err
 }

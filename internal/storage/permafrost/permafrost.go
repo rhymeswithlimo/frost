@@ -70,7 +70,18 @@ type APIError struct {
 	Message string `json:"message"`
 }
 
+// ErrUnauthorized matches an *APIError for a missing, invalid or expired
+// access key, with errors.Is.
+var ErrUnauthorized = errors.New("permafrost: access key not accepted")
+
+func (e *APIError) Is(target error) bool {
+	return target == ErrUnauthorized && e.Status == http.StatusUnauthorized
+}
+
 func (e *APIError) Error() string {
+	if e.Status == http.StatusUnauthorized {
+		return "permafrost didn't accept the access key, it may be wrong or expired (run `frost init` to set it up again)"
+	}
 	return fmt.Sprintf("permafrost: %s (%d %s)", e.Message, e.Status, e.Code)
 }
 

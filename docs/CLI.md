@@ -8,7 +8,7 @@ Interactive setup. In a terminal it opens a full-screen setup that asks one thin
 
 | Step | What it asks |
 |---|---|
-| Storage | Permafrost (just an access key), Backblaze B2, Amazon S3, Cloudflare R2, Wasabi, or any other S3-compatible service. Each question says where to find the answer. |
+| Storage | Permafrost (just an access key, or get one in the browser), Backblaze B2, Amazon S3, Cloudflare R2, Wasabi, or any other S3-compatible service. Each question says where to find the answer. |
 | Folders | Full paths (`~` works). Nothing is picked for you. The same folder, or one inside a folder already on the list, isn't added twice. A folder that doesn't exist yet is skipped until it does. |
 | Skip | Names or patterns to leave out. Starts with the `exclude` defaults, which you can remove. |
 | Schedule | How often to back up automatically, or off. |
@@ -17,11 +17,15 @@ Interactive setup. In a terminal it opens a full-screen setup that asks one thin
 
 It connects after the storage step and checks it can write there. If that fails, it goes back to the answer that caused it and keeps the rest. If the key on this machine doesn't open the backups already in the storage, it asks for their recovery phrase.
 
+Picking Permafrost asks whether you have an access key. If you don't, frost opens a page in your browser to get one and saves the key to `config.toml` as soon as it comes back, so quitting setup doesn't lose it. If that doesn't work you can try again or paste the key yourself. How the handoff works: [PERMAFROST.md](PERMAFROST.md#getting-a-key).
+
 Saving writes `config.toml` and the key file, and installs the scheduled job. Run it again any time to review and change your settings.
 
 The full-screen setup doesn't ask for a Permafrost server or a folder inside an S3 bucket, and keeps whatever's already set. Use `frost config set storage.permafrost.url` or `storage.s3.prefix` for those.
 
-With piped input it asks plain questions, one per line, with a generic S3 option instead of the provider presets.
+With piped input it asks plain questions, one per line, with a generic S3 option instead of the provider presets. Getting a Permafrost key works there too.
+
+If Permafrost ever rejects your access key, every command stops with an error saying so. Run `frost init` again to set up a working one.
 
 ## `frost backup`
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -56,6 +57,19 @@ func (s *refServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.failNext--
 		w.Header().Set("Retry-After", "0")
 		apiError(w, 503, "unavailable", "try again")
+		return
+	}
+	// The checkout page: a web page, no token. This one pays at once and
+	// sends the browser back with the key.
+	if r.URL.Path == "/checkout" {
+		q := r.URL.Query()
+		back, err := url.Parse(q.Get("redirect_uri"))
+		if err != nil || q.Get("state") == "" || !slices.Contains([]string{"127.0.0.1", "localhost"}, back.Hostname()) {
+			http.Error(w, "bad checkout request", http.StatusBadRequest)
+			return
+		}
+		back.RawQuery = url.Values{"state": {q.Get("state")}, "token": {s.token}}.Encode()
+		http.Redirect(w, r, back.String(), http.StatusFound)
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer "+s.token {

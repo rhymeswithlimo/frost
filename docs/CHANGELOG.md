@@ -16,6 +16,8 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 - **Permafrost storage.** Connecting takes one access key, with no bucket, region or endpoint to set up. You can point frost at your own Permafrost server instead of the default one.
 
+- **Get a Permafrost key from setup.** If you don't have an access key yet, `frost init` opens a page in your browser to get one, and the key comes back to frost and is saved straight away. If Permafrost rejects a key later, every command says so and points you to `frost init`.
+
 - **Guided setup.** In a terminal, `frost init` opens a full-screen setup that asks one thing at a time and says where to find each answer, with presets for Backblaze B2, Amazon S3, Cloudflare R2 and Wasabi. If connecting fails, it says why in plain words and goes back to the answer that caused it.
 
 - **Incremental backups with content-defined chunking.** Files are split where their content says, not at fixed offsets, so an edit only re-uploads the chunk or two around it. Files that haven't changed since the last run aren't even read.

@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/crypto"
+	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 )
 
 // run executes the CLI with args and stdin, returning combined output.
@@ -64,10 +67,12 @@ func setup(t *testing.T) *fixture {
 	syncSchedule = func(c config.Config) error { f.sched = append(f.sched, c); return nil }
 	newKey = func() (*crypto.Key, error) { return f.key, nil }
 	pickWords = func() (int, int) { return 2, 17 }
+	openBrowser = func(string) error { return errors.New("no browser in tests") }
 	t.Cleanup(func() {
 		syncSchedule = installSchedule
 		newKey = crypto.NewKey
 		pickWords = randomWords
+		openBrowser = openDefaultBrowser
 	})
 
 	mem := s3mem.New()
@@ -292,7 +297,7 @@ func TestInitPermafrostNeedsOnlyTheKey(t *testing.T) {
 	}
 
 	answers := lines(
-		"", "wrong-key", // enter keeps Permafrost
+		"", "", "wrong-key", // enter keeps Permafrost, then "I have a key"
 		"1", "right-key",
 		f.src, "*.tmp", "n",
 		"", f.phrase[2], f.phrase[17],
@@ -305,4 +310,75 @@ func TestInitPermafrostNeedsOnlyTheKey(t *testing.T) {
 		t.Fatal("init printed an access key")
 	}
 	must(t, "", "backup")
+}
+
+func TestInitGetsPermafrostKey(t *testing.T) {
+	f := setup(t)
+	cfg := config.Default()
+	cfg.Storage.Permafrost.URL = permafrostServer(t, "new-key")
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// The browser goes through checkout and comes back with a key.
+	var opened string
+	openBrowser = func(u string) error {
+		p, err := url.Parse(u)
+		if err != nil {
+			return err
+		}
+		q := p.Query()
+		opened = p.Path
+		back := q.Get("redirect_uri") + "?" + url.Values{"state": {q.Get("state")}, "token": {"new-key"}}.Encode()
+		go http.Get(back)
+		return nil
+	}
+	answers := lines(
+		"1", "2", // Permafrost, no key yet
+		f.src, "*.tmp", "n",
+		"", f.phrase[2], f.phrase[17],
+	)
+	out := must(t, answers, "init")
+	if opened != "/checkout" {
+		t.Errorf("opened %q, want the custom server's /checkout", opened)
+	}
+	if strings.Contains(out, "new-key") {
+		t.Fatal("init printed the access key")
+	}
+	saved, err := config.LoadFile()
+	if err != nil || saved.Storage.Backend != "permafrost" || saved.Storage.Permafrost.Token != "new-key" {
+		t.Fatalf("saved storage %+v, %v", saved.Storage, err)
+	}
+	must(t, "", "backup")
+
+	// Later the key stops working: say so plainly, and don't retry.
+	saved.Storage.Permafrost.Token = "expired"
+	config.Save(saved)
+	_, err = run(t, "", "backup")
+	if !errors.Is(err, permafrost.ErrUnauthorized) || !strings.Contains(plainError(err).Error(), "frost init") {
+		t.Fatalf("backup with a rejected key: %v", err)
+	}
+}
+
+func TestSaveTokenKeepsBackend(t *testing.T) {
+	setup(t)
+	cfg := config.Default()
+	cfg.Storage.Backend, cfg.Storage.S3.Bucket = "s3", "backups"
+	config.Save(cfg)
+	if err := saveToken("new-key"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := config.LoadFile()
+	if got.Storage.Backend != "s3" || got.Storage.Permafrost.Token != "new-key" {
+		t.Errorf("storage after saving a key: %+v", got.Storage)
+	}
+
+	// On a fresh machine the key's file isn't a finished setup.
+	os.Remove(config.Path())
+	if err := saveToken("new-key"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = config.LoadFile()
+	if got.Storage.Backend != "permafrost" || len(got.Paths) != 0 {
+		t.Errorf("fresh config after saving a key: %+v", got)
+	}
 }

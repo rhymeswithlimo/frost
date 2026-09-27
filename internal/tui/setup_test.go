@@ -24,6 +24,10 @@ type fakeSetup struct {
 	existing *crypto.Key // the key the pretend repository was made with
 	finished *config.Config
 	newRepo  bool
+	// what checkout in the browser brings back
+	coToken string
+	coErr   error
+	coWaits int // how many times wait ran
 }
 
 func (f *fakeSetup) deps(local *crypto.Key) SetupDeps {
@@ -55,6 +59,9 @@ func (f *fakeSetup) deps(local *crypto.Key) SetupDeps {
 		},
 		PickWords: func() (int, int) { return 2, 17 },
 		DirExists: func(p string) bool { _, err := os.Stat(config.Expand(p)); return err == nil },
+		Checkout: func(_ context.Context, _ config.Storage) (string, func() (string, error), error) {
+			return "getfro.st/perma", func() (string, error) { f.coWaits++; return f.coToken, f.coErr }, nil
+		},
 	}
 }
 
@@ -82,6 +89,8 @@ func walkNewSetup(t *testing.T, w, h int) (map[string]tea.Model, *fakeSetup) {
 
 	m = step(t, m, key("enter"))
 	shots["02-storage"] = m
+	m = step(t, m, key("enter"))
+	shots["02b-permafrost-choice"] = m
 	m = step(t, m, key("enter"))
 	shots["03-permafrost"] = m
 	m = typeText(t, m, "bad-key-123")
@@ -165,7 +174,107 @@ func otherScreens(t *testing.T, w, h int) map[string]tea.Model {
 	b = step(t, b, key("enter"))
 	b = step(t, b, key("down"))
 	shots["23-b2"] = step(t, b, key("enter"))
+
+	c, _ := walkToChoice(t, w, h)
+	shots["24-permafrost-no-key"] = c
+	c, _ = c.Update(key("enter")) // without running the checkout
+	shots["27-checkout-opening"] = c
+	c, _ = c.Update(checkoutStartedMsg{id: sm(c).co.id, page: "getfro.st/perma", wait: nil, cancel: func() {}})
+	shots["28-checkout-waiting"] = c
+	f2 := &fakeSetup{state: RepoNew, coErr: errors.New("nothing came back from checkout within 25 minutes, so frost stopped waiting")}
+	var d tea.Model = newSetup(context.Background(), f2.deps(nil), config.Default(), false)
+	d = step(t, d, tea.WindowSizeMsg{Width: w, Height: h})
+	d = step(t, step(t, step(t, d, key("enter")), key("enter")), key("down"))
+	d = step(t, d, key("enter"))
+	shots["29-checkout-failed"] = d
 	return shots
+}
+
+// walkToChoice goes from the welcome to "I don't have a key yet", ready
+// for enter to open the browser.
+func walkToChoice(t *testing.T, w, h int) (tea.Model, *fakeSetup) {
+	t.Helper()
+	f := &fakeSetup{state: RepoNew}
+	var m tea.Model = newSetup(context.Background(), f.deps(nil), config.Default(), false)
+	m = step(t, m, tea.WindowSizeMsg{Width: w, Height: h})
+	m = step(t, m, key("enter")) // welcome
+	m = step(t, m, key("enter")) // Permafrost
+	m = step(t, m, key("down"))  // I don't have a key yet
+	if sm(m).step != stPermaChoice || sm(m).permaCur != 1 {
+		t.Fatalf("didn't reach the have-a-key choice: step %d", sm(m).step)
+	}
+	return m, f
+}
+
+func TestSetupCheckout(t *testing.T) {
+	m, f := walkToChoice(t, 80, 24)
+
+	// Checkout fails: say why, and offer a retry or pasting.
+	f.coErr = errors.New("checkout was cancelled in the browser")
+	m = step(t, m, key("enter"))
+	if sm(m).step != stCheckout || sm(m).co.waiting || !strings.Contains(stripANSI(m.View()), "cancelled") {
+		t.Fatalf("failed checkout: step %d, waiting %v", sm(m).step, sm(m).co.waiting)
+	}
+	paste := step(t, m, key("p"))
+	if sm(paste).step != stDetails || sm(paste).prov != 0 {
+		t.Fatalf("[p] didn't go to pasting a key: step %d", sm(paste).step)
+	}
+	if back := step(t, paste, key("esc")); sm(back).step != stPermaChoice {
+		t.Errorf("esc from pasting went to step %d, want the have-a-key choice", sm(back).step)
+	}
+
+	// Retry, and this time a key comes back: it's used to connect.
+	f.coErr, f.coToken = nil, "good"
+	m = step(t, m, key("r"))
+	if sm(m).step != stFolders || sm(m).cfg.Storage.Permafrost.Token != "good" || sm(m).cfg.Storage.Backend != "permafrost" {
+		t.Fatalf("after a successful checkout: step %d, storage %+v, err %q", sm(m).step, sm(m).cfg.Storage, sm(m).err)
+	}
+
+	// A key that doesn't connect lands on the paste screen with it filled in.
+	m, f = walkToChoice(t, 80, 24)
+	f.coToken = "expired"
+	m = step(t, m, key("enter"))
+	if sm(m).step != stDetails || sm(m).details.fields[0].value != "expired" || sm(m).err == "" {
+		t.Fatalf("bad new key: step %d, value %q, err %q", sm(m).step, sm(m).details.fields[0].value, sm(m).err)
+	}
+
+	// Cancelled while the browser was still opening: wait still runs, so
+	// the listener closes instead of telling a paying browser all's well.
+	m, f = walkToChoice(t, 80, 24)
+	m, _ = m.Update(key("enter"))
+	opening := sm(m).co.id
+	m = step(t, m, key("esc"))
+	m = step(t, m, checkoutStartedMsg{id: opening, page: "x", wait: func() (string, error) { f.coWaits++; return "", context.Canceled }, cancel: func() {}})
+	if f.coWaits != 1 || sm(m).step != stPermaChoice {
+		t.Errorf("late start after cancel: waits %d, step %d", f.coWaits, sm(m).step)
+	}
+
+	// A result from a checkout that was cancelled is ignored.
+	m, _ = walkToChoice(t, 80, 24)
+	m, _ = m.Update(key("enter"))
+	old := sm(m).co.id
+	m = step(t, m, key("esc"))
+	m = step(t, m, checkoutMsg{id: old, token: "good"})
+	if sm(m).step != stPermaChoice || sm(m).cfg.Storage.Permafrost.Token != "" {
+		t.Errorf("a cancelled checkout's key was used: step %d", sm(m).step)
+	}
+}
+
+// A key from an earlier run that was quit is filled in.
+func TestSetupEarlierKeyFilledIn(t *testing.T) {
+	cfg := config.Default()
+	cfg.Storage.Backend, cfg.Storage.S3.Bucket = "s3", "backups"
+	cfg.Storage.Permafrost.Token = "earlier"
+	var m tea.Model = newSetup(context.Background(), (&fakeSetup{}).deps(nil), cfg, false)
+	m = step(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = step(t, m, key("enter"))
+	for sm(m).provCur > 0 {
+		m = step(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	}
+	m = step(t, step(t, m, key("enter")), key("enter"))
+	if sm(m).step != stDetails || sm(m).details.fields[0].value != "earlier" {
+		t.Fatalf("step %d, key %q", sm(m).step, sm(m).details.fields[0].value)
+	}
 }
 
 func TestSetupScreens(t *testing.T) {
@@ -314,6 +423,7 @@ func TestSetupWrongLocalKeyOffersPhrase(t *testing.T) {
 	m = step(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step(t, m, key("enter"))
 	m = step(t, m, key("enter"))
+	m = step(t, m, key("enter")) // I have a key
 	m = typeText(t, m, "good")
 	m = step(t, m, key("enter"))
 	m = typeText(t, m, t.TempDir())
@@ -418,6 +528,7 @@ func TestSetupFolderRules(t *testing.T) {
 	m = step(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step(t, m, key("enter"))
 	m = step(t, m, key("enter"))
+	m = step(t, m, key("enter")) // I have a key
 	m = typeText(t, m, "good")
 	m = step(t, m, key("enter"))
 	if sm(m).step != stFolders || len(sm(m).cfg.Paths) != 0 {
