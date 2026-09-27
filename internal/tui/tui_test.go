@@ -20,7 +20,51 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/repo"
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
 	"github.com/rhymeswithlimo/frost/internal/storage/storagetest"
+	"github.com/rhymeswithlimo/frost/internal/theme"
 )
+
+func TestHelpKeysUseLightTextOnBlue(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	view := (model{w: 120, h: 36}).viewHelp()
+	if !strings.Contains(view, theme.Bold.Render("[h]")) {
+		t.Fatal("help key is missing the light-on-blue style")
+	}
+	if strings.Contains(view, theme.Key.Render("[h]")) {
+		t.Fatal("help key still uses the inverted button style")
+	}
+}
+
+func TestHelpSectionsAlign(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	view := (model{w: 120, h: 36}).viewHelp()
+	for _, heading := range []string{"Everywhere", "Snapshots", "Moving", "Files"} {
+		if !strings.Contains(view, theme.Dim.Render(heading)) {
+			t.Fatalf("%s heading is not grey", heading)
+		}
+	}
+	lines := strings.Split(view, "\n")
+	for _, pair := range [][2]string{{"Everywhere", "Snapshots"}, {"Moving", "Files"}, {"[↑ ↓]", "[space]"}} {
+		found := false
+		for i, line := range lines {
+			if strings.Contains(line, pair[0]) && strings.Contains(line, pair[1]) {
+				found = true
+				if pair[0] != "[↑ ↓]" {
+					first, second := "[h]", "[d]"
+					if pair[0] == "Moving" {
+						first, second = "[↑ ↓]", "[space]"
+					}
+					if i+1 >= len(lines) || !strings.Contains(lines[i+1], first) || !strings.Contains(lines[i+1], second) {
+						t.Fatalf("shortcuts do not follow %s and %s", pair[0], pair[1])
+					}
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s and %s are not aligned", pair[0], pair[1])
+		}
+	}
+}
 
 func testEngine(t *testing.T) (*engine.Engine, string) {
 	t.Helper()

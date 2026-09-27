@@ -160,10 +160,10 @@ func (m model) viewSnapshots() string {
 
 func snapshotListLabel(s snapshot.Snapshot, mark string, width int) string {
 	prefix := mark + s.Time.Local().Format("15:04") + "  "
-	suffix := fmt.Sprintf("  %d files  %s", s.Stats.Files, humanBytes(s.Stats.Bytes))
+	suffix := fmt.Sprintf("  %d files  %s  ", s.Stats.Files, humanBytes(s.Stats.Bytes))
 	idWidth := width - lipgloss.Width(prefix) - lipgloss.Width(suffix)
 	if idWidth < 8 {
-		return truncate(prefix+s.ID, width)
+		return truncate(prefix+s.ID, max(width-2, 0)) + strings.Repeat(" ", min(width, 2))
 	}
 	return prefix + padPlain(truncate(s.ID, idWidth), idWidth) + suffix
 }
@@ -302,35 +302,37 @@ func (m model) viewDiff() string {
 
 func (m model) viewHelp() string {
 	section := func(title string, rows [][2]string) string {
-		out := []string{theme.Bold.Render(title)}
+		out := []string{theme.Dim.Render(title)}
 		for _, r := range rows {
 			if r[0] == "" { // continuation of the line above
 				out = append(out, theme.Text.Render(strings.Repeat(" ", 12)+r[1]))
 				continue
 			}
 			k := "[" + r[0] + "]"
-			out = append(out, theme.Key.Render(k)+theme.Text.Render(strings.Repeat(" ", max(12-lipgloss.Width(k), 1))+r[1]))
+			out = append(out, theme.Bold.Render(k)+theme.Text.Render(strings.Repeat(" ", max(12-lipgloss.Width(k), 1))+r[1]))
 		}
 		return stack(out...)
 	}
-	general := stack(
-		section("Everywhere", [][2]string{{"h", "this help"}, {"s", "settings"}, {"v", "show or hide the key"}, {"esc", "go back"}, {"q", "quit"}}),
-		fill(1, 1),
-		section("Moving", [][2]string{{"↑ ↓", "move (or k j)"}, {"pgup pgdn", "page"}, {"g G", "top, bottom"}, {"enter", "open"}, {"←", "up a folder"}}),
-	)
-	specific := stack(
-		section("Snapshots", [][2]string{
-			{"d", "diff: list what was added, removed"},
-			{"", "or changed since the snapshot before"},
-			{"m", "mark: pick a snapshot to diff from,"},
-			{"", "then press [d] on another one"},
-		}),
-		fill(1, 1),
-		section("Files", [][2]string{{"space", "select for restore"}, {"a", "select whole folder"}, {"c", "clear selection"}, {"r", "restore selection"}}),
-	)
-	body := side(6, general, specific)
+	everywhere := section("Everywhere", [][2]string{{"h", "this help"}, {"s", "settings"}, {"v", "show or hide the key"}, {"esc", "go back"}, {"q", "quit"}})
+	moving := section("Moving", [][2]string{{"↑ ↓", "move (or k j)"}, {"pgup pgdn", "page"}, {"g G", "top, bottom"}, {"enter", "open"}, {"←", "up a folder"}})
+	snapshots := section("Snapshots", [][2]string{
+		{"d", "diff: list what was added, removed"},
+		{"", "or changed since the snapshot before"},
+		{"m", "mark: pick a snapshot to diff from,"},
+		{"", "then press [d] on another one"},
+	})
+	files := section("Files", [][2]string{{"space", "select for restore"}, {"a", "select whole folder"}, {"c", "clear selection"}, {"r", "restore selection"}})
+	leftW := max(lipgloss.Width(everywhere), lipgloss.Width(moving))
+	fitColumn := func(block string) string {
+		lines := strings.Split(block, "\n")
+		for i, line := range lines {
+			lines[i] = pad(line, leftW)
+		}
+		return strings.Join(lines, "\n")
+	}
+	body := stack(side(6, fitColumn(everywhere), snapshots), fill(1, 1), side(6, fitColumn(moving), files))
 	if lipgloss.Width(body) > m.innerW()-8 {
-		body = stack(general, fill(1, 1), specific)
+		body = stack(everywhere, fill(1, 1), moving, fill(1, 1), snapshots, fill(1, 1), files)
 	}
 	footer := theme.Dim.Render("Confused? Check out the frost documentation at ") + theme.Bold.Render("getfro.st/docs")
 	body = stack(body, fill(1, 1), footer)
