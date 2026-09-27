@@ -25,6 +25,17 @@ type Mem struct {
 // NewMem returns an empty in-memory backend.
 func NewMem() *Mem { return &Mem{objs: map[string][]byte{}} }
 
+func (m *Mem) PutNew(_ context.Context, key string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.objs[key]; ok {
+		return storage.ErrExists
+	}
+	m.objs[key] = bytes.Clone(data)
+	m.Puts++
+	return nil
+}
+
 func (m *Mem) Put(_ context.Context, key string, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,6 +94,18 @@ func (m *Mem) SetRaw(key string, data []byte) {
 func Conformance(t *testing.T, b storage.Backend) {
 	t.Helper()
 	ctx := context.Background()
+	if err := b.PutNew(ctx, "conditional", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.PutNew(ctx, "conditional", []byte("second")); !errors.Is(err, storage.ErrExists) {
+		t.Fatalf("conditional overwrite: %v", err)
+	}
+	if got, err := b.Get(ctx, "conditional"); err != nil || string(got) != "first" {
+		t.Fatalf("conditional original lost: %q, %v", got, err)
+	}
+	if err := b.Delete(ctx, "conditional"); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := b.Get(ctx, "missing/key"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("Get missing: want ErrNotFound, got %v", err)

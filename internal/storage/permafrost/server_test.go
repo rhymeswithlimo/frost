@@ -93,6 +93,10 @@ func (s *refServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
+		if _, exists := s.objs[key]; exists && r.Header.Get("If-None-Match") == "*" {
+			apiError(w, 412, "already_exists", "object already exists")
+			return
+		}
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 16<<20+1))
 		if len(body) > 16<<20 {
 			apiError(w, 413, "too_large", "too large")

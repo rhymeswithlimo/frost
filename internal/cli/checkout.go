@@ -59,8 +59,6 @@ func explainCheckout(err error) error {
 	switch {
 	case errors.Is(err, permafrost.ErrCheckoutTimeout):
 		return fmt.Errorf("nothing came back from checkout within %d minutes, so frost stopped waiting. If you did pay, your access key is on the checkout page and in your Permafrost account", int(permafrost.CheckoutTimeout.Minutes()))
-	case errors.Is(err, permafrost.ErrStateMismatch):
-		return errors.New("the browser came back from a different checkout than the one frost started, so frost ignored it and stopped waiting. An old checkout tab can cause this")
 	case errors.Is(err, permafrost.ErrCheckoutCancelled):
 		return errors.New("checkout was cancelled in the browser")
 	}

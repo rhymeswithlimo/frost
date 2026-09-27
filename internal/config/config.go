@@ -74,7 +74,8 @@ var Intervals = []string{"hourly", "2h", "3h", "4h", "6h", "8h", "12h", "daily",
 
 // Interval parses schedule.every into a duration.
 func Interval(s string) (time.Duration, error) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
 	case "hourly", "1h":
 		return time.Hour, nil
 	case "daily", "24h":
@@ -245,11 +246,7 @@ func Save(c Config) error {
 	if err != nil {
 		return err
 	}
-	tmp := Path() + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, Path())
+	return WritePrivate(Path(), raw)
 }
 
 // Render produces the commented TOML for c.

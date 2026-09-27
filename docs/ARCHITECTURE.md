@@ -63,7 +63,7 @@ walk dirs ─> skip excluded ─> unchanged since last run? ─yes─> reuse chu
 6. **Commit.** Once every upload succeeds, the file list (`trees/<id>`) is saved, then the header (`snapshots/<id>`). A snapshot therefore never appears before its data exists. Any upload failure aborts the run without saving a snapshot.
 7. **Verify.** A random sample of chunks is downloaded and checked.
 
-A dry run does steps 1 to 4 and reports, but never uploads or saves anything.
+A dry run does steps 1 to 4 and reports without uploading objects or saving a snapshot. It refreshes the local chunk-presence cache. Unchanged files can still reuse their cached chunk lists.
 
 ## Why content-defined chunking
 
@@ -88,23 +88,27 @@ Every object is sealed as `version(1) | nonce(24) | ciphertext`, and the object'
 
 Headers and trees are split so `status` and the browser can list snapshots by fetching small headers, and only load a tree when you open that snapshot.
 
+New snapshot IDs contain 64 random bits; older short IDs remain valid. Decompressed objects are limited to 256 MiB. S3 downloads allow that size plus encryption overhead, with an 8 MiB plus overhead limit for chunks. Permafrost responses retain the protocol's 16 MiB limit. Large trees exceeding these limits require a future paged format.
+
 ## Manifest
 
 `manifest-<repo id>.db` in the cache directory, one per repository. It's a bbolt file with four buckets: uploaded chunk IDs, per-file cache, snapshot headers, and small bits of state (last backup, last verification).
 
-It's a cache. If it's missing, the next backup lists `chunks/` and rebuilds the chunk set, so a new machine never re-uploads data that's already there. The file cache just refills, costing one full read of your files.
+Each backup refreshes the chunk set from storage before reusing cached file entries. Missing chunks are uploaded again when their source data is still available. If the manifest is missing, the file cache refills, costing one full read of your files. Object listings prove presence, not integrity; verification and restore authenticate downloaded data.
 
-bbolt takes an exclusive file lock, which stops two frost processes from writing the same repository at once.
+bbolt takes an exclusive file lock, which prevents concurrent operations using the same local manifest. It doesn't lock other machines or separate cache directories. Repository metadata uses atomic conditional writes to prevent overwrites during concurrent initialization or snapshot-ID collisions. S3-compatible servers must support `If-None-Match: *` on object PUTs.
 
 ## Restore
 
-The tree is loaded and filtered to the chosen paths. Each file's chunks are fetched, decrypted and checked against their IDs, written to a temp file next to the target, then renamed into place. Modes and mtimes are restored. Symlinks are created after all files, so a link can't redirect a later write. Directories get their mtimes last, deepest first.
+The tree is loaded and the selected paths and types are validated before writing. Each file's chunks are authenticated, written to a private temporary file, checked against the recorded total size and flushed before replacement. The old file isn't deleted before rename. Modes and mtimes are restored, and failures are reported. Symlinks are staged and renamed after regular files. Directories get their mtimes last, deepest first.
 
-Snapshot paths are made relative before being joined under a restore target and anything containing `..` is rejected.
+Targeted restores use confined directory handles and reject symlink parents, traversal, duplicate destinations and Windows device or alternate-stream paths. In-place restore requires native absolute paths and refuses symlinked parent paths. Default CLI and browser targets must be new directories; explicit `--target` can replace files in an existing directory. A restore is transactional per file, not across the whole selection.
 
 ## Verification
 
-`engine.Verify` samples N chunk IDs uniformly from the manifest, downloads each, decrypts it and recomputes its HMAC. It also opens the newest snapshot's tree. The result is saved in the manifest and shown by `status` and the browser. It catches missing objects, bit rot, truncation and tampering long before a restore depends on them.
+`engine.Verify` refreshes remote snapshot headers and adds remote chunk IDs to the local sampling set. It samples N chunk IDs, authenticates each and checks its HMAC. It also opens the newest snapshot's tree and checks its chunk references against the remote listing. Results are saved for `status` and the browser. Sampling can detect corruption but doesn't prove that every snapshot is recoverable. `status --verify` returns an error when verification fails.
+
+Files that visibly change during reading are skipped with a warning. Size and mtime caching can't detect changes that preserve both values. frost doesn't take filesystem or database snapshots, preserve ownership, ACLs, extended attributes or hard-link relationships, or guarantee a consistent backup of actively written databases.
 
 ## Scheduling
 
@@ -120,10 +124,11 @@ The generated files are built by pure functions (`LaunchdPlist`, `SystemdUnits`,
 
 ```go
 type Backend interface {
-    Put(ctx, key string, data []byte) error
-    Get(ctx, key string) ([]byte, error)   // storage.ErrNotFound if missing
-    List(ctx, prefix string) ([]string, error)
-    Delete(ctx, key string) error
+    Put(ctx context.Context, key string, data []byte) error
+    PutNew(ctx context.Context, key string, data []byte) error // storage.ErrExists if present
+    Get(ctx context.Context, key string) ([]byte, error)      // storage.ErrNotFound if missing
+    List(ctx context.Context, prefix string) ([]string, error)
+    Delete(ctx context.Context, key string) error
     String() string
 }
 ```

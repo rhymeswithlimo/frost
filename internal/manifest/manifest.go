@@ -3,7 +3,8 @@
 // It's a cache, not a source of truth. If it's deleted, the next backup
 // rebuilds the chunk list from the repository and simply re-reads files once.
 // It's a single bbolt file, which also acts as a lock: two frost processes
-// can't back up to the same repository at the same time.
+// can't use the same local manifest at the same time. Other machines and
+// separate cache directories aren't covered by this lock.
 package manifest
 
 import (

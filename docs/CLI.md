@@ -33,7 +33,7 @@ Backs up the configured directories now.
 
 | Flag | Does |
 |---|---|
-| `-n`, `--dry-run` | Reads and chunks everything, then lists each file with new data and the total that would upload. Uploads nothing, saves nothing |
+| `-n`, `--dry-run` | Lists new data without uploading objects or saving a snapshot. Reuses unchanged file entries and refreshes the local chunk-presence cache |
 | `--path <dir>` | Back up this directory instead of the configured ones. Repeatable |
 | `--exclude <pattern>` | Also skip this pattern for this run. Repeatable |
 | `--no-verify` | Skip the post-backup spot check |
@@ -68,6 +68,10 @@ Files land under the target at their full original path, e.g. `frost-restore-map
 
 With no arguments in a terminal, `restore` opens the snapshot browser.
 
+The browser chooses an unused new folder, adding `-1`, `-2`, and so on when the default name already exists. It shows the destination before confirmation. A failed restore reports completed files; earlier changes aren't rolled back.
+
+The default folder must not already exist. Choose a different folder or explicitly use `--target` to restore into an existing one, where matching files can be replaced. Existing symlink parents are refused. In-place restore requires paths from the current OS and refuses symlinked parent paths. Files restored before a later failure remain restored.
+
 ## `frost status`
 
 Shows the repository and key fingerprint, the last backup and whether it worked, when the next one is due, the latest verification result, and the 10 most recent snapshots.
@@ -97,7 +101,7 @@ Arrow keys or `j`/`k` move, `pgup`/`pgdn` page, `g`/`G` jump to top and bottom.
 | Usage | Does |
 |---|---|
 | `frost config` | Print every setting. Credentials are masked, `--show-secrets` shows them |
-| `frost config get <key>` | Print one setting. Lists print one item per line |
+| `frost config get <key>` | Print one setting. Lists print one item per line. Secrets require `--show-secrets` |
 | `frost config set <key> <value...>` | Change one setting. Lists take one value per item |
 | `frost config edit` | Open `config.toml` in `$VISUAL`, `$EDITOR`, nano, vim or vi (Notepad on Windows) |
 

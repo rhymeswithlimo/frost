@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/engine"
-	"github.com/rhymeswithlimo/frost/internal/schedule"
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
 )
 
@@ -37,6 +37,7 @@ downloaded and checked against its hashes).
 			defer a.Close()
 			out := cmd.OutOrStdout()
 			e := a.engine
+			verifyFailed := false
 
 			if verify {
 				n := a.cfg.Verify.Sample
@@ -44,9 +45,11 @@ downloaded and checked against its hashes).
 					n = 20
 				}
 				fmt.Fprintf(out, dim("Checking %d random chunks... "), n)
-				if _, err := e.Verify(cmd.Context(), n); err != nil {
+				v, err := e.Verify(cmd.Context(), n)
+				if err != nil {
 					return err
 				}
+				verifyFailed = !v.OK()
 				fmt.Fprintln(out, dim("done"))
 			}
 
@@ -54,7 +57,9 @@ downloaded and checked against its hashes).
 			if err != nil {
 				return err
 			}
-			e.Manifest.SetSnapshots(snaps)
+			if err := e.Manifest.SetSnapshots(snaps); err != nil {
+				return err
+			}
 			slices.SortFunc(snaps, func(x, y snapshot.Snapshot) int { return y.Time.Compare(x.Time) })
 
 			fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(e.Repo.Backend.String()+"  key "+e.Repo.Key.Fingerprint()))
@@ -63,7 +68,7 @@ downloaded and checked against its hashes).
 			if last, ok := e.LastBackup(); !ok {
 				fmt.Fprintln(out, kv("last backup", dim("never")))
 			} else if last.Error != "" {
-				fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(last.Time)+": "+last.Error))
+				fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(last.Time)+": "+printable(last.Error)))
 			} else if len(last.Missing) > 0 || last.Skipped > 0 {
 				var buts []string
 				if len(last.Missing) > 0 {
@@ -88,7 +93,7 @@ downloaded and checked against its hashes).
 			} else {
 				fmt.Fprintln(out, kv("health", errStyle(fmt.Sprintf("PROBLEM: %d of %d checks failed %s", len(v.Failures), v.Checked, ago(v.Time)))))
 				for _, f := range v.Failures {
-					fmt.Fprintln(out, "               "+f)
+					fmt.Fprintln(out, "               "+printable(f))
 				}
 				fmt.Fprintln(out, "               "+dim("Run a new backup to re-upload anything missing, then `frost status --verify`."))
 			}
@@ -100,6 +105,9 @@ downloaded and checked against its hashes).
 
 			fmt.Fprintln(out)
 			printSnapshots(out, snaps, all)
+			if verifyFailed {
+				return errors.New("verification failed")
+			}
 			return nil
 		},
 	}
@@ -118,10 +126,10 @@ func nextRun(cfg config.Config, e *engine.Engine) string {
 	if err != nil {
 		return errStyle(err.Error())
 	}
-	if !schedule.Installed() {
+	if !scheduleInstalled() {
 		return caution("scheduled job is missing, run `frost init` or `frost config set schedule.enabled true`")
 	}
-	how := dim("  " + cfg.Schedule.Every + " via " + schedule.Kind())
+	how := dim("  " + cfg.Schedule.Every + " via " + scheduleKind())
 	last, ok := e.LastBackup()
 	if !ok {
 		return "soon" + how
@@ -134,13 +142,17 @@ func printSnapshots(out io.Writer, snaps []snapshot.Snapshot, all bool) {
 		fmt.Fprintln(out, dim("  No snapshots yet. Run `frost backup`."))
 		return
 	}
-	fmt.Fprintln(out, dim(fmt.Sprintf("  %-22s %-18s %8s %10s %10s", "SNAPSHOT", "TAKEN", "FILES", "SIZE", "NEW")))
+	idWidth := 22
+	for _, s := range snaps {
+		idWidth = max(idWidth, len(s.ID))
+	}
+	fmt.Fprintln(out, dim(fmt.Sprintf("  %-*s %-18s %8s %10s %10s", idWidth, "SNAPSHOT", "TAKEN", "FILES", "SIZE", "NEW")))
 	shown := snaps
 	if !all && len(shown) > 10 {
 		shown = shown[:10]
 	}
 	for _, s := range shown {
-		fmt.Fprintf(out, "  %-22s %-18s %8s %10s %10s\n", s.ID, when(s.Time),
+		fmt.Fprintf(out, "  %-*s %-18s %8s %10s %10s\n", idWidth, s.ID, when(s.Time),
 			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes), humanBytes(s.Stats.NewBytes))
 	}
 	if len(shown) < len(snaps) {

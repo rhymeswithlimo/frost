@@ -141,9 +141,7 @@ func (m model) viewSnapshots() string {
 		if s.ID == m.marked {
 			mark = "* "
 		}
-		text := fmt.Sprintf("%s%s  %-22s %9s  %s", mark, s.Time.Local().Format("15:04"), s.ID,
-			fmt.Sprintf("%d files", s.Stats.Files), humanBytes(s.Stats.Bytes))
-		text = truncate(text, inner)
+		text := snapshotListLabel(s, mark, inner)
 		if r.idx == m.snapCur {
 			lines = append(lines, theme.Selected.Render(padPlain(text, inner)))
 		} else if s.ID == m.marked {
@@ -158,6 +156,16 @@ func (m model) viewSnapshots() string {
 	}
 	detail := theme.Box(false).Width(w - listW - theme.Gap - 2).Height(h).Render(m.snapDetail(m.snaps[m.snapCur], w-listW-theme.Gap-4))
 	return lipgloss.JoinHorizontal(lipgloss.Top, list, fill(theme.Gap, h+2), detail)
+}
+
+func snapshotListLabel(s snapshot.Snapshot, mark string, width int) string {
+	prefix := mark + s.Time.Local().Format("15:04") + "  "
+	suffix := fmt.Sprintf("  %d files  %s", s.Stats.Files, humanBytes(s.Stats.Bytes))
+	idWidth := width - lipgloss.Width(prefix) - lipgloss.Width(suffix)
+	if idWidth < 8 {
+		return truncate(prefix+s.ID, width)
+	}
+	return prefix + padPlain(truncate(s.ID, idWidth), idWidth) + suffix
 }
 
 func (m model) snapDetail(s snapshot.Snapshot, w int) string {

@@ -81,6 +81,9 @@ fi
 version="${FROST_VERSION:-}"
 [ -n "$version" ] || version=$(latest_version)
 num="${version#v}"
+case "$num" in
+  "" | *[!0-9A-Za-z.-]*) die "invalid release version" ;;
+esac
 
 ext=tar.gz
 bin=frost
@@ -132,7 +135,12 @@ if [ "$ext" = zip ]; then
   if has unzip; then
     unzip -q "$tmp/$archive" -d "$tmp/x"
   elif has powershell.exe; then
-    powershell.exe -NoProfile -Command "Expand-Archive -Path '$(cygpath -w "$tmp/$archive" 2>/dev/null || echo "$tmp/$archive")' -DestinationPath '$(cygpath -w "$tmp/x" 2>/dev/null || echo "$tmp/x")'"
+    FROST_ARCHIVE_PATH=$(cygpath -w "$tmp/$archive" 2>/dev/null || echo "$tmp/$archive")
+    FROST_EXTRACT_PATH=$(cygpath -w "$tmp/x" 2>/dev/null || echo "$tmp/x")
+    export FROST_ARCHIVE_PATH FROST_EXTRACT_PATH
+    # PowerShell expands these environment variables, not the POSIX shell.
+    # shellcheck disable=SC2016
+    powershell.exe -NoProfile -Command 'Expand-Archive -LiteralPath $env:FROST_ARCHIVE_PATH -DestinationPath $env:FROST_EXTRACT_PATH'
   else
     die "need unzip to extract $archive"
   fi
@@ -156,9 +164,11 @@ if [ -z "$dir" ]; then
 fi
 
 mkdir -p "$dir"
-cp "$tmp/x/$bin" "$dir/$bin.tmp"
-chmod 755 "$dir/$bin.tmp"
-mv -f "$dir/$bin.tmp" "$dir/$bin"
+stage=$(mktemp -d "$dir/.frost-install.XXXXXX")
+trap 'rm -rf "$tmp" "$stage"' EXIT INT TERM
+cp "$tmp/x/$bin" "$stage/$bin"
+chmod 755 "$stage/$bin"
+mv -f "$stage/$bin" "$dir/$bin"
 say "Installed $dir/$bin"
 
 if ! on_path "$dir"; then

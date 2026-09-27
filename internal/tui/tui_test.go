@@ -125,6 +125,11 @@ func TestScreens(t *testing.T) {
 		r := step(t, m, key("r"))
 		shots["7-restore"] = r
 		shots["8-restore-inplace"] = step(t, r, key("2"))
+		failed := r.(model)
+		failed.rs.phase = phaseDone
+		failed.rs.err = fmt.Errorf("missing chunk")
+		failed.rs.res = engine.RestoreResult{Files: 2, Bytes: 100}
+		shots["8-restore-failed"] = failed
 		m = step(t, m, key("esc"))
 		shots["9-diff"] = step(t, m, key("d"))
 
@@ -172,10 +177,6 @@ func TestScreens(t *testing.T) {
 			}
 		}
 	}
-}
-
-func itoa(n int) string {
-	return strings.TrimSpace(strings.Repeat(" ", 0) + string(rune('0'+n/100)) + string(rune('0'+n/10%10)) + string(rune('0'+n%10)))
 }
 
 func lastLine(s string) string {

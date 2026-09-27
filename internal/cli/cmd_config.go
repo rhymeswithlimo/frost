@@ -62,6 +62,9 @@ Changing schedule.enabled or schedule.every updates the OS scheduled job.`,
 				if err != nil {
 					return err
 				}
+				if config.IsSecret(args[1]) && v != "" && !showSecrets {
+					v = "********"
+				}
 				fmt.Fprintln(out, v)
 				return nil
 
@@ -142,6 +145,9 @@ func editFile(path string) error {
 		}
 	}
 	parts := strings.Fields(editor)
+	if len(parts) == 0 {
+		return errors.New("editor command is empty")
+	}
 	c := exec.Command(parts[0], slices.Concat(parts[1:], []string{path})...)
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return c.Run()

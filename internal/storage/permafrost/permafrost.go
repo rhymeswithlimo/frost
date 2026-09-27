@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -42,7 +41,7 @@ type Backend struct {
 // New returns a client for the server at baseURL.
 func New(baseURL, token string) (*Backend, error) {
 	u, err := url.Parse(strings.TrimSuffix(baseURL, "/"))
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("permafrost: invalid url %q", baseURL)
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && isLocal(u.Hostname())) {
@@ -52,10 +51,12 @@ func New(baseURL, token string) (*Backend, error) {
 		return nil, errors.New("permafrost: token is required")
 	}
 	return &Backend{
-		base:   u,
-		token:  token,
-		client: &http.Client{Timeout: 5 * time.Minute},
-		sleep:  sleepCtx,
+		base:  u,
+		token: token,
+		client: &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
+		sleep: sleepCtx,
 	}, nil
 }
 
@@ -98,6 +99,20 @@ func (b *Backend) Put(ctx context.Context, key string, data []byte) error {
 	return err
 }
 
+func (b *Backend) PutNew(ctx context.Context, key string, data []byte) error {
+	sum := sha256.Sum256(data)
+	_, err := b.do(ctx, http.MethodPut, b.objectURL(key), data, map[string]string{
+		"Content-Type":     "application/octet-stream",
+		"X-Content-SHA256": hex.EncodeToString(sum[:]),
+		"If-None-Match":    "*",
+	})
+	var api *APIError
+	if errors.As(err, &api) && api.Status == http.StatusPreconditionFailed {
+		return storage.ErrExists
+	}
+	return err
+}
+
 func (b *Backend) Get(ctx context.Context, key string) ([]byte, error) {
 	resp, err := b.do(ctx, http.MethodGet, b.objectURL(key), nil, nil)
 	if err != nil {
@@ -119,6 +134,7 @@ func (b *Backend) Get(ctx context.Context, key string) ([]byte, error) {
 func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
 	cursor := ""
+	seen := make(map[string]bool)
 	for {
 		q := url.Values{"prefix": {prefix}}
 		if cursor != "" {
@@ -139,6 +155,10 @@ func (b *Backend) List(ctx context.Context, prefix string) ([]string, error) {
 		if page.NextCursor == "" {
 			return keys, nil
 		}
+		if seen[page.NextCursor] {
+			return nil, errors.New("permafrost list: repeated cursor")
+		}
+		seen[page.NextCursor] = true
 		cursor = page.NextCursor
 	}
 }
@@ -183,7 +203,7 @@ func (b *Backend) do(ctx context.Context, method, u string, body []byte, headers
 			}
 			lastErr = fmt.Errorf("permafrost: %w", err)
 		} else {
-			data, readErr := io.ReadAll(resp.Body)
+			data, readErr := storage.ReadBounded(resp.Body, 16<<20)
 			resp.Body.Close()
 			switch {
 			case readErr != nil:
@@ -203,7 +223,7 @@ func (b *Backend) do(ctx context.Context, method, u string, body []byte, headers
 				}
 				lastErr = apiErr
 				if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s >= 0 {
-					wait = time.Duration(s) * time.Second
+					wait = time.Duration(min(s, 60)) * time.Second
 				}
 			}
 		}

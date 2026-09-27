@@ -18,15 +18,15 @@
 <a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4" alt="Latest release"></a>
 <a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI" alt="CI"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4" alt="License: BSD 3-Clause"></a>
-<img src="https://img.shields.io/badge/Go-1.26.4%2B-1926c4?logo=go&logoColor=white" alt="Go 1.26.4+">
+<img src="https://img.shields.io/badge/Go-1.26.6%2B-1926c4?logo=go&logoColor=white" alt="Go 1.26.6+">
 <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1926c4" alt="macOS, Linux, Windows">
 </p>
 
 ---
 
-frost is a single binary that backs up your directories to an S3-compatible bucket or to [Permafrost](https://example.com), on a schedule. Everything is encrypted on your machine before it's uploaded, so the storage only ever sees encrypted blobs.
+frost is a single binary that backs up your directories to an S3-compatible bucket or to [Permafrost](https://example.com), on a schedule. Backup data is encrypted on your machine before it's uploaded.
 
-There's no account, no sign-up, no email, no password. Your key is generated locally and handed to you once as a 24 word recovery phrase.
+frost generates your encryption key locally and shows it as a 24 word recovery phrase. Storage providers may require an account and separate credentials.
 
 - **Client-side encryption**: XChaCha20-Poly1305 with a key that never leaves your machine.
 - **Only uploads what's changed**: content-defined chunking means an edit in the middle of a big file re-uploads a chunk or two, not the whole file.
@@ -41,7 +41,7 @@ There's no account, no sign-up, no email, no password. Your key is generated loc
 curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
 ```
 
-Works on macOS, Linux and Windows (through Git Bash). The installer downloads the right binary, checks its SHA-256 and puts it on your PATH.
+Works on macOS, Linux and Windows (through Git Bash). The installer verifies the signed checksums, checks the archive's SHA-256 and installs the binary. If its directory isn't on your PATH, it prints instructions to add it.
 
 If you prefer doing it by hand, grab an archive from [Releases](https://github.com/rhymeswithlimo/frost/releases), or:
 
@@ -60,7 +60,7 @@ frost restore "2 days ago" ~/Documents/report.pdf
 frost browse                # browse snapshots, diff them, pick files to restore
 ```
 
-Restores go into a new `./frost-restore-<id>` folder by default, so nothing on disk is overwritten unless you pass `--in-place`.
+Restores go into a new `./frost-restore-<id>` folder by default and refuse to reuse that folder. `--in-place` and an explicit `--target` can replace existing files.
 
 > [!IMPORTANT]
 > Save your recovery phrase somewhere safe! It's the only way to decrypt your backups, and there's no way to reset it.
@@ -89,7 +89,7 @@ GLOBAL (every command):
    -h, --help                    show help for a command
 
 BACKUP:
-   -n, --dry-run                 list what would upload; upload and save nothing
+   -n, --dry-run                 list what would upload; don't upload or save a snapshot
    --path string                 back up this directory instead (repeatable)
    --exclude string              also skip this pattern for this run (repeatable)
    --no-verify                   skip the post-backup spot check
@@ -125,6 +125,7 @@ You pick one during `frost init`. Credentials can also come from the environment
 - [CLI reference](docs/CLI.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security model](docs/SECURITY.md)
+- [Security and correctness audit](docs/AUDIT.md)
 - [Permafrost API](docs/PERMAFROST.md)
 - [Changelog](docs/CHANGELOG.md)
 
@@ -139,7 +140,7 @@ go vet ./...                  # static checks
 go run ./internal/tui/demo    # try the TUI against fake data
 ```
 
-The demo takes `-latency 400ms`, `-empty` and `-broken` to simulate slow, empty and failing repositories. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
+The demo takes `-latency 400ms`, `-empty` and `-broken` to simulate slow, empty and failing repositories. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) before opening a pull request, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
 
 ## License
 

@@ -49,6 +49,11 @@ func Kind() string {
 
 // Install creates or replaces the scheduled job.
 func Install(j Job) error {
+	for _, value := range []string{j.Binary, j.ConfigDir, j.LogFile} {
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return errors.New("scheduler paths can't contain line breaks or NUL")
+		}
+	}
 	if j.Every < time.Hour {
 		return errors.New("schedule interval must be at least an hour")
 	}
@@ -79,8 +84,11 @@ func Remove() error {
 		exec.Command("systemctl", "--user", "daemon-reload").Run()
 		return err
 	case "cron":
-		cur, _ := exec.Command("crontab", "-l").Output()
-		return writeCrontab(stripCron(string(cur)))
+		cur, err := readCrontab()
+		if err != nil {
+			return err
+		}
+		return writeCrontab(stripCron(cur))
 	default:
 		out, err := exec.Command("schtasks", "/Delete", "/F", "/TN", taskName).CombinedOutput()
 		if err != nil && !strings.Contains(strings.ToLower(string(out)), "cannot find") {
@@ -203,9 +211,10 @@ func OnCalendar(d time.Duration) string {
 
 // SystemdUnits renders the service and timer for j.
 func SystemdUnits(j Job) (service, timer string) {
-	cmd := strconv.Quote(j.Binary) + " backup --scheduled"
+	quote := func(s string) string { return strconv.Quote(strings.NewReplacer("%", "%%", "$", "$$").Replace(s)) }
+	cmd := quote(j.Binary) + " backup --scheduled"
 	if j.ConfigDir != "" {
-		cmd += " --config-dir " + strconv.Quote(j.ConfigDir)
+		cmd += " --config-dir " + quote(j.ConfigDir)
 	}
 	service = "[Unit]\nDescription=frost backup\n\n[Service]\nType=oneshot\n" +
 		"ExecStart=" + cmd + "\n" +
@@ -259,25 +268,45 @@ func CronLine(j Job) string {
 	if j.ConfigDir != "" {
 		cmd += " --config-dir " + shellQuote(j.ConfigDir)
 	}
-	return fmt.Sprintf("%s %s >> %s 2>&1 %s", CronSpec(j.Every), cmd, shellQuote(j.LogFile), cronMarker)
+	command := cmd + " >> " + shellQuote(j.LogFile) + " 2>&1"
+	return fmt.Sprintf("%s %s %s", CronSpec(j.Every), strings.ReplaceAll(command, "%", `\%`), cronMarker)
 }
 
 func stripCron(crontab string) string {
 	var keep []string
 	for l := range strings.SplitSeq(crontab, "\n") {
-		if l != "" && !strings.Contains(l, cronMarker) {
+		if !strings.HasSuffix(strings.TrimSpace(l), " "+cronMarker) {
 			keep = append(keep, l)
 		}
 	}
-	if len(keep) == 0 {
+	if strings.TrimSpace(strings.Join(keep, "\n")) == "" {
 		return ""
 	}
-	return strings.Join(keep, "\n") + "\n"
+	return strings.TrimRight(strings.Join(keep, "\n"), "\n") + "\n"
 }
 
 func installCron(j Job) error {
-	cur, _ := exec.Command("crontab", "-l").Output() // fails when empty, that's fine
-	return writeCrontab(stripCron(string(cur)) + CronLine(j) + "\n")
+	cur, err := readCrontab()
+	if err != nil {
+		return err
+	}
+	return writeCrontab(stripCron(cur) + CronLine(j) + "\n")
+}
+
+func readCrontab() (string, error) {
+	cmd := exec.Command("crontab", "-l")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 && strings.HasPrefix(strings.TrimSpace(stderr.String()), "no crontab for ") {
+			return "", nil
+		}
+		return "", fmt.Errorf("reading crontab: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
 }
 
 func writeCrontab(content string) error {
@@ -293,9 +322,9 @@ func writeCrontab(content string) error {
 
 // TaskArgs returns the schtasks arguments that create the job.
 func TaskArgs(j Job) []string {
-	run := `"` + j.Binary + `" backup --scheduled`
+	run := windowsQuote(j.Binary) + " backup --scheduled"
 	if j.ConfigDir != "" {
-		run += ` --config-dir "` + j.ConfigDir + `"`
+		run += " --config-dir " + windowsQuote(j.ConfigDir)
 	}
 	args := []string{"/Create", "/F", "/TN", taskName, "/TR", run}
 	h := int(j.Every.Hours())
@@ -307,6 +336,29 @@ func TaskArgs(j Job) []string {
 	default:
 		return append(args, "/SC", "HOURLY", "/MO", strconv.Itoa(max(h, 1)))
 	}
+}
+
+// Windows doubles backslashes before quotes and before the closing quote.
+func windowsQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	slashes := 0
+	for _, r := range s {
+		if r == '\\' {
+			slashes++
+			continue
+		}
+		if r == '"' {
+			b.WriteString(strings.Repeat(`\`, slashes*2+1))
+		} else {
+			b.WriteString(strings.Repeat(`\`, slashes))
+		}
+		b.WriteRune(r)
+		slashes = 0
+	}
+	b.WriteString(strings.Repeat(`\`, slashes*2))
+	b.WriteByte('"')
+	return b.String()
 }
 
 func installTask(j Job) error {

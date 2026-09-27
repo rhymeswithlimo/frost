@@ -82,6 +82,7 @@ last run is uploaded. Use flags to override the config for this run only.`,
 				switch {
 				case err != nil:
 					fmt.Fprintln(out, kv("verified", errStyle("couldn't run: ")+err.Error()))
+					return fmt.Errorf("verification couldn't complete: %w", err)
 				case v.OK():
 					fmt.Fprintln(out, kv("verified", good("ok")+dim(fmt.Sprintf(", %d random objects re-downloaded and checked", v.Checked))))
 				default:
@@ -142,7 +143,7 @@ func printBackup(out io.Writer, res engine.BackupResult) {
 				fmt.Fprintf(out, "    ... and %d more\n", len(s.Warnings)-10)
 				break
 			}
-			fmt.Fprintln(out, "    "+w)
+			fmt.Fprintln(out, "    "+printable(w))
 		}
 	}
 }
@@ -162,7 +163,7 @@ func printDryRun(out io.Writer, res engine.BackupResult) {
 	slices.SortFunc(planned, func(a, b engine.PlannedFile) int { return strings.Compare(a.Path, b.Path) })
 	fmt.Fprintf(out, "\nWould upload new data from %s files:\n\n", humanCount(len(planned)))
 	for _, p := range planned {
-		fmt.Fprintf(out, "  %10s  %s\n", humanBytes(p.NewBytes), tildify(filepath.FromSlash(p.Path)))
+		fmt.Fprintf(out, "  %10s  %s\n", humanBytes(p.NewBytes), printable(tildify(filepath.FromSlash(p.Path))))
 	}
 	fmt.Fprintf(out, "\n%s\n", kv("total", fmt.Sprintf("%s new, in %s chunks, out of %s scanned",
 		bold(humanBytes(s.Stats.NewBytes)), humanCount(s.Stats.NewChunks), humanBytes(s.Stats.Bytes))))
@@ -171,9 +172,24 @@ func printDryRun(out io.Writer, res engine.BackupResult) {
 
 // trimLog keeps the scheduled-run log from growing forever.
 func trimLog() {
-	fi, err := os.Stat(logPath())
-	if err == nil && fi.Size() > 1<<20 {
-		os.Truncate(logPath(), 0)
+	r, err := os.OpenRoot(filepath.Dir(logPath()))
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	name := filepath.Base(logPath())
+	fi, err := r.Lstat(name)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() <= 1<<20 {
+		return
+	}
+	f, err := r.OpenFile(name, os.O_WRONLY, 0)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	current, err := f.Stat()
+	if err == nil && os.SameFile(fi, current) {
+		f.Truncate(0)
 	}
 }
 
