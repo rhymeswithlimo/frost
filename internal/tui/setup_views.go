@@ -679,8 +679,8 @@ func (m setupModel) viewDone(w, h int) string {
 func (m setupModel) checkoutPage(cw int) page {
 	over := "Permafrost"
 	if !m.co.waiting {
-		keys := theme.Key.Render("[r]") + theme.Text.Render(" try again") + theme.Base.Render("     ") +
-			theme.Key.Render("[p]") + theme.Text.Render(" paste a key instead")
+		keys := theme.Bold.Render("[r]") + theme.Text.Render(" try again") + theme.Base.Render("     ") +
+			theme.Bold.Render("[p]") + theme.Text.Render(" paste a key instead")
 		msg := m.co.failed
 		if msg == "" {
 			msg = "checkout stopped"
