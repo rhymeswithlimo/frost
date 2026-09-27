@@ -1,4 +1,4 @@
-# Permafrost HTTP API
+# Permafrost
 
 Permafrost is a hosted storage service for frost. It's a plain object store with four operations. Backup objects are encrypted before upload, same as with S3. Setup also writes and deletes a small plaintext connectivity probe.
 

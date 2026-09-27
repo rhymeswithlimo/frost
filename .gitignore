@@ -12,6 +12,7 @@ Thumbs.db
 
 # Working notes
 CLAUDE.md
+AGENTS.md
 
 # Build output (`go build ./cmd/frost` drops the binary in the repo root)
 /frost
