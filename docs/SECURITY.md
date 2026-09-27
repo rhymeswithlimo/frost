@@ -72,6 +72,10 @@ The regular spot check re-downloads a random sample of chunks after each backup 
 - **Traffic analysis.** Backup timing and sizes are visible, as listed above.
 - **A compromised frost binary.** Install from the official releases. Each release's `checksums.txt` is signed with the maintainer's release key (`checksums.txt.sig`), and the install script checks that signature against the public key in the repository (`install/release-signing.pub`) before checking the archive against the checksums. That catches corrupted, swapped or tampered downloads. It can't help if the release key itself is stolen, or if someone can change the install script in the repository.
 
+## Getting a Permafrost key in setup
+
+The browser hands the key back to frost on `127.0.0.1`, checked against a random `state`. See [PERMAFROST.md](PERMAFROST.md#getting-a-key).
+
 ## Where things live
 
 | File | Contains | Permissions |

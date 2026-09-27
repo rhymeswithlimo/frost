@@ -70,6 +70,30 @@ Pass `next_cursor` back as `cursor` to get the next page. An empty or missing `n
 
 Responses: `200`.
 
+## Getting a key
+
+`frost init` can get an access key in the browser, the same way desktop apps sign in.
+
+1. frost listens on `127.0.0.1` on a free port and opens the checkout page with two parameters added:
+
+   | Parameter | Meaning |
+   |---|---|
+   | `redirect_uri` | `http://127.0.0.1:{port}/callback` |
+   | `state` | A random value, 32 bytes, base64url |
+
+   For the default server the page is on the frost website. For a custom server it's `{base}/checkout`. It's a web page for a person, not part of the API: it isn't under `/v1` and doesn't take a token.
+
+2. Once the person has a key, the page sends the browser to `redirect_uri` with `state` and `token`, as a query string (`GET`) or a form (`POST`, `application/x-www-form-urlencoded`). A POST keeps the key out of the browser's history. If they cancel, send `state` and `error=cancelled` instead.
+
+3. frost ignores requests to other paths and callbacks without a `state`. A callback whose `state` doesn't match ends the wait with an error. Otherwise frost saves `token` as the access key and stops listening. It waits 25 minutes at most.
+
+The page must:
+
+- Only send the key to a `redirect_uri` on `127.0.0.1` or `localhost`. Anything else would let a crafted link send someone's key to another site.
+- Show the key once it's issued, with or without a `redirect_uri`. The redirect can't reach frost when the browser is on another machine or frost has stopped waiting, and people who come straight from the website have no frost waiting at all.
+
+frost checks that the redirect carries the `state` it generated, so another page can't feed it a key of its own. Only this machine can receive the redirect.
+
 ## Errors
 
 Every non-2xx response has this body:

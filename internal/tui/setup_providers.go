@@ -22,9 +22,6 @@ type provider struct {
 	match  func(s config.Storage) bool
 }
 
-// permafrostLink is where to send someone who doesn't have a key yet.
-const permafrostLink = "getfro.st/perma"
-
 // projectLink is on the welcome screen.
 const projectLink = "github.com/rhymeswithlimo/frost"
 

@@ -41,7 +41,7 @@ once. On storage that already has backups it asks for the phrase instead.`,
 
 func runInit(cmd *cobra.Command, _ []string) error {
 	cfg, err := config.LoadFile()
-	existing := err == nil
+	existing := err == nil && len(cfg.Paths) > 0 // a key saved mid-setup doesn't count
 	if err != nil && !errors.Is(err, config.ErrNoConfig) {
 		return err
 	}
@@ -71,6 +71,7 @@ func runSetupScreens(cmd *cobra.Command, cfg config.Config, existing bool, local
 		Finish:    finishSetup,
 		PickWords: pickWords,
 		DirExists: func(p string) bool { return len(missingDirs([]string{p})) == 0 },
+		Checkout:  checkout,
 	}
 	res, err := tui.Setup(cmd.Context(), deps, cfg, existing)
 	if err != nil {
@@ -142,7 +143,7 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 	var b storage.Backend
 	var state tui.RepoState
 	for {
-		if err := askStorage(p, &cfg); err != nil {
+		if err := askStorage(ctx, p, &cfg); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "%s ... ", dim("Connecting"))
@@ -253,7 +254,7 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 	return nil
 }
 
-func askStorage(p *prompter, cfg *config.Config) error {
+func askStorage(ctx context.Context, p *prompter, cfg *config.Config) error {
 	options := []string{
 		"Permafrost " + dim("(one access key, nothing else to set up)"),
 		"S3-compatible bucket " + dim("(AWS, Backblaze B2, Cloudflare R2, Wasabi, MinIO, ...)"),
@@ -273,6 +274,20 @@ func askStorage(p *prompter, cfg *config.Config) error {
 	switch i {
 	case 0:
 		s.Backend = "permafrost"
+		if s.Permafrost.Token == "" {
+			have, err := p.choose("  Do you have a Permafrost access key?", []string{"I have a key", "I don't have a key yet"}, 0)
+			if err != nil {
+				return err
+			}
+			if have == 1 {
+				if err := getToken(ctx, p, s); err != nil {
+					return err
+				}
+				if s.Permafrost.Token != "" {
+					return nil
+				}
+			}
+		}
 		if s.Permafrost.Token, err = p.secret("  Access key", s.Permafrost.Token); err != nil {
 			return err
 		}
@@ -296,6 +311,33 @@ func askStorage(p *prompter, cfg *config.Config) error {
 		if s.S3.SecretAccessKey, err = p.secret("  Secret access key", s.S3.SecretAccessKey); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// getToken opens the page for getting a key and waits for it to come back.
+// On failure it says why, and the caller asks for a key to paste instead.
+func getToken(ctx context.Context, p *prompter, s *config.Storage) error {
+	page, wait, err := checkout(ctx, *s)
+	if err != nil {
+		fmt.Fprintln(p.out, caution("  "+err.Error()))
+		return nil
+	}
+	fmt.Fprintln(p.out, "  Grab one in your browser.")
+	fmt.Fprintf(p.out, "  %s %s%s\n", dim("If it didn't open, go to"), bold(page), dim(", then paste the key below."))
+	fmt.Fprintf(p.out, "  %s ... ", dim("Waiting"))
+	token, err := wait()
+	if token != "" {
+		s.Permafrost.Token = token
+		fmt.Fprintln(p.out, good("got your access key"))
+	} else {
+		fmt.Fprintln(p.out, errStyle("stopped"))
+	}
+	if err != nil {
+		fmt.Fprintln(p.out, caution("  "+err.Error()))
+	}
+	if token == "" {
+		fmt.Fprintln(p.out, dim("  Paste your access key, or press ctrl+c and run frost init again to retry."))
 	}
 	return nil
 }

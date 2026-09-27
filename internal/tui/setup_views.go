@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
@@ -105,8 +106,13 @@ func (m setupModel) setupHints() []string {
 			return []string{h("enter", "review settings"), quit}
 		}
 		return []string{h("enter", "start"), quit}
-	case stStorage, stSchedule:
+	case stStorage, stSchedule, stPermaChoice:
 		return []string{h("enter", "next"), h("↑↓", "choose"), h("esc", "back"), quit}
+	case stCheckout:
+		if m.co.waiting {
+			return []string{h("p", "paste a key instead"), h("esc", "cancel"), quit}
+		}
+		return []string{h("r", "try again"), h("p", "paste a key"), h("esc", "back"), quit}
 	case stDetails:
 		enter := "next"
 		if m.details.focus == len(m.details.fields)-1 {
@@ -270,12 +276,23 @@ func (m setupModel) page(w, h int) page {
 		}
 		pg := page{over: over, question: f.question, body: []string{inputBox(f, d.reveal, true, cw)}, help: f.help}
 		if m.prov == 0 {
-			link := theme.Text.Bold(true).Underline(true)
-			pg.extra = []string{
-				theme.Text.Render("Don't have a key yet? Head to ") + link.Render(permafrostLink) + theme.Text.Render(" to learn more."),
-			}
+			pg.extra = []string{theme.Text.Render("No key yet? Press ") + theme.Bold.Render("[esc]") + theme.Text.Render(" to get one.")}
 		}
 		return pg
+
+	case stPermaChoice:
+		return page{
+			over:     "Permafrost",
+			question: "Do you have a Permafrost access key?",
+			sub:      "It's the only thing frost needs to connect.",
+			body: []string{
+				choice(m.permaCur == 0, "I have a key", "", 26, cw),
+				choice(m.permaCur == 1, "I don't have a key yet", "get one in your browser", 26, cw),
+			},
+		}
+
+	case stCheckout:
+		return m.checkoutPage(cw)
 
 	case stFolders:
 		return m.fitList(w, h, m.foldersPage)
@@ -606,12 +623,12 @@ func viewQuit(w, h int) string {
 	row := func(s string) string {
 		return lipgloss.PlaceHorizontal(w, lipgloss.Center, s, lipgloss.WithWhitespaceBackground(theme.Bg))
 	}
-	keys := theme.Key.Render("[y]") + theme.Text.Render(" yes") + theme.Base.Render("     ") +
-		theme.Key.Render("[n]") + theme.Text.Render(" no")
+	keys := theme.Bold.Render("[y]") + theme.Text.Render(" yes") + theme.Base.Render("     ") +
+		theme.Bold.Render("[n]") + theme.Text.Render(" no")
 	block := stack(
 		row(theme.Bold.Render("Are you sure you want to quit?")),
 		blank(w),
-		row(theme.Dim.Render("Nothing is saved until you finish setup.")),
+		row(theme.Dim.Render("Unsaved changes will be lost.")),
 		fill(w, 2),
 		row(keys),
 	)
@@ -654,4 +671,43 @@ func (m setupModel) viewDone(w, h int) string {
 		row(stack(list...)),
 	)
 	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, block, lipgloss.WithWhitespaceBackground(theme.Bg))
+}
+
+// ---- Permafrost checkout ----
+
+// checkoutPage is the wait for the browser, or what went wrong with it.
+func (m setupModel) checkoutPage(cw int) page {
+	over := "Permafrost"
+	if !m.co.waiting {
+		keys := theme.Key.Render("[r]") + theme.Text.Render(" try again") + theme.Base.Render("     ") +
+			theme.Key.Render("[p]") + theme.Text.Render(" paste a key instead")
+		msg := m.co.failed
+		if msg == "" {
+			msg = "checkout stopped"
+		}
+		return page{
+			over:     over,
+			question: "Checkout didn't finish.",
+			body:     []string{para(theme.Caution, sentence(msg), cw), blank(cw), pad(keys, cw)},
+		}
+	}
+	spin := theme.Bold.Render(m.spin.View())
+	status := spin + theme.Text.Render(" Waiting for checkout")
+	if m.co.page == "" {
+		status = spin + theme.Text.Render(" Opening your browser")
+	}
+	left := max(time.Until(m.co.until).Round(time.Second), 0)
+	clock := theme.Dim.Render(fmt.Sprintf("%d:%02d left", int(left.Minutes()), int(left.Seconds())%60))
+	iw := cw - 4
+	line := status + fill(max(iw-lipgloss.Width(status)-lipgloss.Width(clock), 1), 1) + clock
+	pg := page{
+		over:     over,
+		question: "Get your access key in your browser.",
+		sub:      "Grab one there.",
+		body:     []string{theme.Box(true).Width(cw - 2).Render(pad(line, iw))},
+	}
+	if m.co.page != "" {
+		pg.help = "Browser didn't open? Go to " + m.co.page + ", then press [p] to paste your key."
+	}
+	return pg
 }

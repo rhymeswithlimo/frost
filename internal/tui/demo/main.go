@@ -5,7 +5,7 @@
 //	go run ./internal/tui/demo -latency 400ms   # see the loading states
 //	go run ./internal/tui/demo -empty           # a repository with no snapshots
 //	go run ./internal/tui/demo -broken          # a failed backup and a failed health check
-//	go run ./internal/tui/demo -setup           # the `frost init` screens (Permafrost key: demo)
+//	go run ./internal/tui/demo -setup           # the `frost init` screens (Permafrost key: demo, checkout returns it)
 //
 // Everything lives in memory and a temp directory. Restores are written into
 // that temp directory, and its path is printed when you quit.
@@ -133,6 +133,17 @@ func runSetup(latency time.Duration) error {
 				j++
 			}
 			return min(i, j), max(i, j)
+		},
+		// Checkout pretends the browser came back with the demo key.
+		Checkout: func(ctx context.Context, _ config.Storage) (string, func() (string, error), error) {
+			return "getfro.st/perma", func() (string, error) {
+				select {
+				case <-time.After(max(latency, 4*time.Second)):
+					return "demo", nil
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}, nil
 		},
 		DirExists: func(p string) bool {
 			_, err := os.Stat(config.Expand(p))

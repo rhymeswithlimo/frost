@@ -11,12 +11,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/crypto"
+	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 	"github.com/rhymeswithlimo/frost/internal/theme"
 )
 
@@ -41,6 +43,12 @@ type SetupDeps struct {
 	Finish    func(ctx context.Context, cfg config.Config, key *crypto.Key, newRepo bool) ([][2]string, error)
 	PickWords func() (int, int)
 	DirExists func(path string) bool
+	// Checkout opens the page for getting a Permafrost key. page is its
+	// address, to show in case the browser didn't open. wait blocks until
+	// the access key comes back and is saved, or ctx is cancelled. It
+	// returns the key whenever there is one, even with an error saying it
+	// couldn't be saved.
+	Checkout func(ctx context.Context, s config.Storage) (page string, wait func() (string, error), err error)
 }
 
 // ConnectError is a connect failure caused by one answer in particular, so
@@ -78,6 +86,8 @@ type setupStep int
 const (
 	stWelcome setupStep = iota
 	stStorage
+	stPermaChoice // Permafrost: have a key, or get one
+	stCheckout    // waiting on the browser
 	stDetails
 	stFolders
 	stSkip
@@ -92,7 +102,7 @@ const (
 // stepOf places a screen in the progress bar. 0 means it isn't counted.
 func stepOf(s setupStep) int {
 	switch s {
-	case stStorage, stDetails:
+	case stStorage, stPermaChoice, stCheckout, stDetails:
 		return 1
 	case stFolders, stSkip:
 		return 2
@@ -133,6 +143,10 @@ type setupModel struct {
 	connected bool
 	state     RepoState
 	autoTried bool // a saved config gets one silent connect
+
+	// Permafrost without a key: getting one in the browser
+	permaCur int // 0 has a key, 1 doesn't
+	co       checkoutRun
 
 	// folders and skip: the input box has focus while the selection is -1
 	folderIn  form
@@ -189,6 +203,30 @@ type connectMsg struct {
 type unlockMsg struct {
 	key *crypto.Key
 	err error
+}
+
+// checkoutRun is the checkout in progress, or the last one.
+type checkoutRun struct {
+	id      int // results from an earlier run are ignored
+	page    string
+	until   time.Time
+	cancel  context.CancelFunc
+	waiting bool
+	failed  string
+}
+
+type checkoutStartedMsg struct {
+	id     int
+	page   string
+	wait   func() (string, error)
+	cancel context.CancelFunc
+	err    error
+}
+
+type checkoutMsg struct {
+	id    int
+	token string
+	err   error
 }
 
 type finishMsg struct {
@@ -287,7 +325,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.busy == "" {
+		if m.busy == "" && !m.co.waiting {
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -299,7 +337,11 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			// Straight from a saved config: show the questions so it can be fixed.
 			if m.step != stDetails {
-				m = m.openDetails(matchProvider(m.pending))
+				p := matchProvider(m.pending)
+				m = m.openDetails(p)
+				if p == 0 { // so esc offers getting a key
+					m.back, m.step = append(m.back, m.step), stPermaChoice
+				}
 				m = m.goTo(stDetails)
 			}
 			// Go back to the question the problem is about, if there's one.
@@ -332,6 +374,46 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.key, m.newRepo, m.keyReady = msg.key, false, true
 		return m.advance()
+
+	case checkoutStartedMsg:
+		if msg.id != m.co.id { // cancelled while the browser was opening
+			msg.cancel()
+			if wait := msg.wait; wait != nil {
+				return m, func() tea.Msg { wait(); return nil } // closes the listener
+			}
+			return m, nil
+		}
+		if msg.err != nil {
+			msg.cancel()
+			m.co.waiting, m.co.failed = false, msg.err.Error()
+			return m, nil
+		}
+		m.co.page, m.co.cancel = msg.page, msg.cancel
+		id, wait := msg.id, msg.wait
+		return m, func() tea.Msg {
+			token, err := wait()
+			return checkoutMsg{id, token, err}
+		}
+
+	case checkoutMsg:
+		if msg.id != m.co.id || !m.co.waiting {
+			return m, nil
+		}
+		m.co.waiting = false
+		if msg.token == "" {
+			m.co.failed = msg.err.Error()
+			if errors.Is(msg.err, context.Canceled) {
+				m.co.failed = ""
+			}
+			return m, nil
+		}
+		if msg.err != nil {
+			m.note = msg.err.Error()
+		}
+		m = m.pasteKey(msg.token)
+		st := m.cfg.Storage
+		providers[0].apply([]string{msg.token}, &st)
+		return m.connect(st)
 
 	case finishMsg:
 		m.busy = ""
@@ -405,6 +487,10 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			m.provCur = min(m.provCur+1, len(providers)-1)
 		case "enter":
+			if m.provCur == 0 {
+				m.permaCur = 0
+				return m.goTo(stPermaChoice), nil
+			}
 			m = m.openDetails(m.provCur)
 			return m.goTo(stDetails), nil
 		case "esc":
@@ -413,6 +499,34 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if n := int(s[0]) - '1'; len(s) == 1 && n >= 0 && n < len(providers) {
 				m.provCur = n
 			}
+		}
+
+	case stPermaChoice:
+		switch s {
+		case "up", "k", "1":
+			m.permaCur = 0
+		case "down", "j", "2":
+			m.permaCur = 1
+		case "esc":
+			return m.goBack(), nil
+		case "enter":
+			if m.permaCur == 1 {
+				m = m.goTo(stCheckout)
+				return m.startCheckout()
+			}
+			m = m.openDetails(0)
+			return m.goTo(stDetails), nil
+		}
+
+	case stCheckout:
+		switch {
+		case s == "p":
+			return m.pasteKey(""), nil
+		case s == "r" && !m.co.waiting:
+			return m.startCheckout()
+		case s == "esc":
+			m = m.stopCheckout()
+			return m.goBack(), nil
 		}
 
 	case stDetails:
@@ -581,6 +695,46 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// startCheckout opens the browser and waits for it to come back, on the
+// checkout screen.
+func (m setupModel) startCheckout() (tea.Model, tea.Cmd) {
+	m = m.stopCheckout()
+	id := m.co.id + 1
+	m.co = checkoutRun{id: id, waiting: true, until: time.Now().Add(permafrost.CheckoutTimeout)}
+	ctx, cancel := context.WithCancel(m.ctx)
+	fn, st := m.deps.Checkout, m.cfg.Storage
+	return m, tea.Batch(m.spin.Tick, func() tea.Msg {
+		page, wait, err := fn(ctx, st)
+		return checkoutStartedMsg{id, page, wait, cancel, err}
+	})
+}
+
+// stopCheckout gives up on a checkout that's still waiting.
+func (m setupModel) stopCheckout() setupModel {
+	if m.co.cancel != nil {
+		m.co.cancel()
+	}
+	m.co.id++
+	m.co.waiting, m.co.cancel = false, nil
+	return m
+}
+
+// pasteKey moves from getting a key to the question that asks for one,
+// filled in with token. esc from there goes back to the have-a-key choice.
+func (m setupModel) pasteKey(token string) setupModel {
+	m = m.stopCheckout()
+	m = m.openDetails(0)
+	m.details.fields[0].value = token
+	for i := len(m.back) - 1; i >= 0; i-- {
+		if m.back[i] == stPermaChoice {
+			m.back = m.back[:i+1]
+			break
+		}
+	}
+	m.step, m.permaCur = stDetails, 1
+	return m
 }
 
 // foldersKey: the input box adds a folder, and up moves into the list
@@ -910,6 +1064,9 @@ func (m setupModel) openDetails(i int) setupModel {
 		for j, v := range p.read(m.cfg.Storage) {
 			fields[j].value = v
 		}
+	}
+	if i == 0 && fields[0].value == "" { // a key from earlier, while on other storage
+		fields[0].value = m.cfg.Storage.Permafrost.Token
 	}
 	m.details = form{fields: fields}
 	return m

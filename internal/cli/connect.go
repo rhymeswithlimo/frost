@@ -109,7 +109,7 @@ func explainConnect(err error) error {
 	if errors.As(err, &api) {
 		switch api.Status {
 		case 401:
-			return about("key", "Permafrost didn't accept that access key. Check you copied all of it.")
+			return about("key", "Permafrost didn't accept that access key. Check you copied all of it, or it may have expired.")
 		case 403:
 			return about("key", "That access key can't store backups. Check its permissions in your Permafrost account.")
 		case 507:
