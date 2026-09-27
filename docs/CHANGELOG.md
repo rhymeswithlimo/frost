@@ -38,7 +38,7 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 ### Improved
 
-- By default, **restores never overwrite.** Files go into a new `frost-restore-<id>` folder unless you ask for `--in-place`. Each file is written to a temp file first, so a failed restore can't leave a half-written file behind.
+- **Default restores require a new directory.** Files go into `frost-restore-<id>` unless you choose `--target` or `--in-place`, which can replace existing files. Each file is checked and written to a temporary file before replacement.
 
 - **Interrupted backups resume cheaply.** Uploaded chunks are recorded as the run goes, not just at the end. If a backup is cut off, the next run skips everything that already made it up the chain.
 

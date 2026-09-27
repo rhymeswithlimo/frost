@@ -23,9 +23,9 @@ A vulnerability is anything that lets someone other than the key holder read bac
 | Chunk boundaries | FastCDC with a gear table derived from the key |
 | Compression | zstd, before encryption, only when it shrinks the data |
 
-Everything uploaded is encrypted. Including file contents, file names, folder structure, sizes and timestamps inside snapshots, and the snapshot list itself. Encryption happens before a single piece of data ever leaves the machine.
+Backup object bodies are encrypted, including file contents and snapshot metadata. Object names, snapshot IDs, ciphertext sizes and storage listings are visible to the provider. Setup also sends a small plaintext connectivity probe, which contains no user file data.
 
-The key is never sent anywhere. Not to the storage backend, not to Permafrost, not to us. There's no account and no key escrow.
+The encryption key isn't sent to the storage backend, Permafrost or the frost authors. There's no key escrow. Storage services use separate credentials and may require an account.
 
 **If you lose the recovery phrase and the machine, your backups are gone.**
 
@@ -38,7 +38,7 @@ The provider (an S3 host or Permafrost) can see:
 - When you back up and restore, and from which IP address.
 - Snapshot IDs (random words and carry no information).
 
-It can't see *anything* but that just mentioned.
+Repeated chunk IDs also reveal reuse of the same content within a repository.
 
 Large files are split into chunks, so their sizes are hidden. A small file is a single chunk, so the provider can see roughly how big it is (after compression), but not what it is or what it's called.
 
@@ -50,9 +50,9 @@ Compression before encryption means an object's size depends a little on how com
 
 Every object is authenticated. Decryption fails if a single bit changes, if the wrong key is used, or if an object is moved to a different name (because the name is the associated data). On restore and verify, each chunk's plaintext is also re-hashed and compared with its ID.
 
-So a provider can't make frost restore wrong data. It can only make a restore fail, which frost reports.
+Authentication prevents a provider from forging new content without the key. It doesn't prevent withholding objects or replaying an older authentic object under the same name.
 
-The regular spot check re-downloads a random sample of chunks after each backup so missing or damaged data is found early.
+The regular spot check re-downloads a random sample of chunks after each backup. It can catch missing or damaged data early, but unsampled corruption can remain undetected.
 
 ## Threat model
 
@@ -62,12 +62,12 @@ The regular spot check re-downloads a random sample of chunks after each backup 
 - An attacker who gets a copy of the bucket
 - Someone on the network between you and the storage (TLS, and every object is authenticated anyway)
 - Tampering, truncation or swapping of stored objects (detected, never silently accepted)
-- A malicious snapshot trying to make a restore write outside the target directory (paths with `..` are rejected)
+- Restore path traversal and symlink parents under an explicit target, using confined directory handles and path validation
 
 **Not protected against:**
 
 - **Someone with access to your machine.** The key file sits unencrypted in your config directory, readable only by your user. It has to be, so scheduled backups can run without you. Anyone who can read it, or run code as you, can read your backups. Use full disk encryption and a locked screen.
-- **Losing data.** A provider can delete or withhold your objects. frost will notice (verification fails, restores fail) but can't stop it. Keep a second copy somewhere independent for anything irreplaceable.
+- **Losing data.** A provider can delete or withhold your objects. Verification can detect this, and restoring affected files fails, but frost can't prevent deletion. Keep a second copy somewhere independent for anything irreplaceable.
 - **Rollback.** A provider could hide the newest snapshots and serve only older ones. frost doesn't detect this yet. Each snapshot it does serve is still authentic.
 - **Traffic analysis.** Backup timing and sizes are visible, as listed above.
 - **A compromised frost binary.** Install from the official releases. Each release's `checksums.txt` is signed with the maintainer's release key (`checksums.txt.sig`), and the install script checks that signature against the public key in the repository (`install/release-signing.pub`) before checking the archive against the checksums. That catches corrupted, swapped or tampered downloads. It can't help if the release key itself is stolen, or if someone can change the install script in the repository.
@@ -87,6 +87,8 @@ The browser hands the key back to frost on `127.0.0.1`, checked against a random
 The manifest holds file paths in plain text, same as your file system does. It never leaves the machine.
 
 On Windows these files are protected by your user profile's default permissions rather than Unix modes.
+
+Restore replaces files individually after checking their data and size. If a later file fails, earlier replacements remain. Restored symlinks retain their original targets, which can point outside the restore directory when you open them later. Restore isn't a sandbox against another process running as your user and concurrently changing filesystem paths. Neither restore nor a successful spot check guarantees survival of hardware failure or abrupt power loss.
 
 ## Verifying a download by hand
 

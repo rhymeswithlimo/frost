@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -62,14 +64,26 @@ func connect(ctx context.Context, s config.Storage, local *crypto.Key) (storage.
 
 // probe checks the backend is reachable and writable.
 func probe(ctx context.Context, b storage.Backend) error {
-	const k = "frost.probe"
-	if err := b.Put(ctx, k, []byte("ok")); err != nil {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
-	if _, err := b.Get(ctx, k); err != nil {
+	k := "frost.probe-" + hex.EncodeToString(nonce[:])
+	if err := b.PutNew(ctx, k, []byte("ok")); err != nil {
 		return err
 	}
-	return b.Delete(ctx, k)
+	defer b.Delete(ctx, k)
+	if err := b.PutNew(ctx, k, []byte("overwrite")); !errors.Is(err, storage.ErrExists) {
+		return errors.New("storage must support conditional object creation (If-None-Match)")
+	}
+	data, err := b.Get(ctx, k)
+	if err != nil {
+		return err
+	}
+	if string(data) != "ok" {
+		return errors.New("storage probe data changed")
+	}
+	return nil
 }
 
 // unlock checks phrase is a valid recovery phrase that opens the repository

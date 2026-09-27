@@ -82,7 +82,10 @@ func ParseTime(s string, now time.Time) (time.Time, error) {
 	}
 
 	if m := relRE.FindStringSubmatch(s); m != nil {
-		n, _ := strconv.Atoi(m[1])
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n > 100000 {
+			return time.Time{}, fmt.Errorf("relative time %q is too large", s)
+		}
 		switch m[2] {
 		case "month", "mo":
 			return now.AddDate(0, -n, 0), nil
@@ -90,6 +93,9 @@ func ParseTime(s string, now time.Time) (time.Time, error) {
 			return now.AddDate(-n, 0, 0), nil
 		}
 		if u, ok := units[m[2]]; ok {
+			if int64(n) > (1<<63-1)/int64(u) {
+				return time.Time{}, fmt.Errorf("relative time %q is too large", s)
+			}
 			return now.Add(-time.Duration(n) * u), nil
 		}
 	}

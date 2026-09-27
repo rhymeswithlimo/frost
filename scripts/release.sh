@@ -475,7 +475,7 @@ for t in $TARGETS; do
   os="${t%/*}" arch="${t#*/}" goarch="${t#*/}" goarm=""
   if [ "$arch" = armv7 ]; then goarch=arm goarm=7; fi
   file="$(artifact "$t")"
-  stage="$OUT/.stage/${file%%.*}"
+  stage="$OUT/.stage/${os}_${arch}"
   bin="$NAME"
   [ "$os" = windows ] && bin="$NAME.exe"
   mkdir -p "$stage"

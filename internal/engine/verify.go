@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/rhymeswithlimo/frost/internal/crypto"
 )
 
 // VerifyResult is the outcome of a verification pass.
@@ -22,6 +24,27 @@ func (v VerifyResult) OK() bool { return len(v.Failures) == 0 }
 // decrypts and matches its ID. It also checks the newest snapshot's file
 // list opens. The result is saved for `frost status`.
 func (e *Engine) Verify(ctx context.Context, n int) (VerifyResult, error) {
+	if n < 0 {
+		return VerifyResult{}, fmt.Errorf("verification sample can't be negative")
+	}
+	ids, err := e.Repo.ChunkIDs(ctx)
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	known := make(map[crypto.ID]int, len(ids))
+	for _, id := range ids {
+		known[id] = 0
+	}
+	if err := e.Manifest.AddChunks(known); err != nil {
+		return VerifyResult{}, err
+	}
+	remote, err := e.Repo.Snapshots(ctx, e.Manifest.Snapshots())
+	if err != nil {
+		return VerifyResult{}, err
+	}
+	if err := e.Manifest.SetSnapshots(remote); err != nil {
+		return VerifyResult{}, err
+	}
 	res := VerifyResult{Time: time.Now(), Total: e.Manifest.ChunkCount()}
 
 	for _, id := range e.Manifest.SampleChunks(n) {
@@ -44,8 +67,22 @@ func (e *Engine) Verify(ctx context.Context, n int) (VerifyResult, error) {
 	}
 	if newest != "" {
 		res.Checked++
-		if _, err := e.Repo.LoadTree(ctx, newest); err != nil {
+		tree, err := e.Repo.LoadTree(ctx, newest)
+		if err != nil {
 			res.Failures = append(res.Failures, fmt.Sprintf("snapshot %s file list: %v", newest, err))
+		} else {
+			missing := make(map[string]bool)
+			for _, f := range tree.Files {
+				for _, c := range f.Chunks {
+					id, err := crypto.ParseID(c)
+					if _, ok := known[id]; err != nil || !ok {
+						missing[c] = true
+					}
+				}
+			}
+			if len(missing) > 0 {
+				res.Failures = append(res.Failures, fmt.Sprintf("snapshot %s references %d missing or invalid chunks", newest, len(missing)))
+			}
 		}
 	}
 

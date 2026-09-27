@@ -63,7 +63,11 @@ func TestChunkIDKeyed(t *testing.T) {
 	if a.ChunkID(d) == b.ChunkID(d) {
 		t.Fatal("chunk IDs should differ across keys")
 	}
-	if a.ChunkID(d) != a.ChunkID(d) {
+	reloaded, err := KeyFromPhrase(a.Phrase())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ChunkID(d) != reloaded.ChunkID(d) {
 		t.Fatal("chunk IDs should be deterministic")
 	}
 }

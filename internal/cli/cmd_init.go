@@ -119,7 +119,7 @@ func finishSetup(ctx context.Context, cfg config.Config, key *crypto.Key, newRep
 	case err != nil:
 		rows = append(rows, [2]string{"schedule", "not installed: " + err.Error()})
 	case cfg.Schedule.Enabled:
-		rows = append(rows, [2]string{"schedule", cfg.Schedule.Every + " via " + schedule.Kind()})
+		rows = append(rows, [2]string{"schedule", cfg.Schedule.Every + " via " + scheduleKind()})
 	default:
 		rows = append(rows, [2]string{"schedule", "off"})
 	}
@@ -463,7 +463,11 @@ func phraseGrid(phrase string) string {
 
 // syncSchedule makes the OS scheduler match the config. It's a variable so
 // tests can stub it out and never touch the real scheduler.
-var syncSchedule = installSchedule
+var (
+	syncSchedule      = installSchedule
+	scheduleKind      = schedule.Kind
+	scheduleInstalled = schedule.Installed
+)
 
 func installSchedule(cfg config.Config) error {
 	if !cfg.Schedule.Enabled {
@@ -480,10 +484,19 @@ func installSchedule(cfg config.Config) error {
 	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
 		bin = resolved
 	}
-	os.MkdirAll(config.CacheDir(), 0o700)
-	job := schedule.Job{Binary: bin, Every: every, LogFile: logPath()}
+	if err := os.MkdirAll(config.CacheDir(), 0o700); err != nil {
+		return err
+	}
+	log, err := filepath.Abs(logPath())
+	if err != nil {
+		return err
+	}
+	job := schedule.Job{Binary: bin, Every: every, LogFile: log}
 	if d := os.Getenv("FROST_CONFIG_DIR"); d != "" {
-		job.ConfigDir = d
+		job.ConfigDir, err = filepath.Abs(d)
+		if err != nil {
+			return err
+		}
 	}
 	return schedule.Install(job)
 }

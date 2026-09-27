@@ -410,7 +410,7 @@ func TestSetupExistingRepoAsksForPhrase(t *testing.T) {
 	if sm(m).step != stReview {
 		t.Fatalf("step %d, err %q", sm(m).step, sm(m).err)
 	}
-	m = step(t, m, key("s"))
+	step(t, m, key("s"))
 	if f.finished == nil || f.newRepo {
 		t.Fatal("saved as a new repository")
 	}
@@ -482,7 +482,7 @@ func TestSetupSavedConfigGoesToReview(t *testing.T) {
 	if sm(m).step != stReview {
 		t.Fatalf("after reconnecting: step %d, err %q", sm(m).step, sm(m).err)
 	}
-	m = step(t, m, key("s"))
+	step(t, m, key("s"))
 	if f.finished == nil || f.finished.Storage.S3.SecretAccessKey != "shh-secret" || f.finished.Storage.S3.Region != "us-west-004" {
 		t.Fatalf("saved %+v", f.finished)
 	}

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rhymeswithlimo/frost/internal/chunker"
 	"github.com/rhymeswithlimo/frost/internal/crypto"
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
 	"github.com/rhymeswithlimo/frost/internal/storage"
@@ -60,6 +61,15 @@ func Init(ctx context.Context, b storage.Backend, k *crypto.Key) (*Repo, error) 
 		return nil, fmt.Errorf("%s already has a frost repository (use `frost key import` to connect to it)", b)
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return nil, err
+	}
+	keys, err := b.List(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		if strings.HasPrefix(key, "chunks/") || strings.HasPrefix(key, "snapshots/") || strings.HasPrefix(key, "trees/") {
+			return nil, errors.New("backup objects exist without frost.repo; refusing to initialize over them")
+		}
 	}
 	var id [8]byte
 	if _, err := rand.Read(id[:]); err != nil {
@@ -102,6 +112,9 @@ func Open(ctx context.Context, b storage.Backend, k *crypto.Key) (*Repo, error) 
 	if info.Version != layoutVersion {
 		return nil, fmt.Errorf("repository format v%d isn't supported by this frost (wants v%d)", info.Version, layoutVersion)
 	}
+	if id, err := hex.DecodeString(info.ID); err != nil || len(id) != 8 {
+		return nil, errors.New("invalid repository ID")
+	}
 	return &Repo{Backend: b, Key: k, Info: info}, nil
 }
 
@@ -113,6 +126,9 @@ func ChunkKey(id crypto.ID) string {
 
 // PutChunk encrypts and uploads a chunk and returns the number of bytes sent.
 func (r *Repo) PutChunk(ctx context.Context, id crypto.ID, plaintext []byte) (int, error) {
+	if len(plaintext) > chunker.MaxSize || r.Key.ChunkID(plaintext) != id {
+		return 0, ErrCorrupt
+	}
 	key := ChunkKey(id)
 	blob := r.Key.Seal(plaintext, key)
 	return len(blob), r.Backend.Put(ctx, key, blob)
@@ -132,6 +148,9 @@ func (r *Repo) GetChunk(ctx context.Context, id crypto.ID) ([]byte, error) {
 	if r.Key.ChunkID(pt) != id {
 		return nil, fmt.Errorf("chunk %s: %w", id.String()[:12], ErrCorrupt)
 	}
+	if len(pt) > chunker.MaxSize {
+		return nil, ErrCorrupt
+	}
 	return pt, nil
 }
 
@@ -144,7 +163,7 @@ func (r *Repo) ChunkIDs(ctx context.Context) ([]crypto.ID, error) {
 	ids := make([]crypto.ID, 0, len(keys))
 	for _, k := range keys {
 		id, err := crypto.ParseID(k[strings.LastIndexByte(k, '/')+1:])
-		if err != nil {
+		if err != nil || k != ChunkKey(id) {
 			continue // not ours, ignore
 		}
 		ids = append(ids, id)
@@ -155,6 +174,14 @@ func (r *Repo) ChunkIDs(ctx context.Context) ([]crypto.ID, error) {
 // SaveSnapshot uploads the tree first and the header second, so a snapshot
 // never shows up in listings before its file list exists.
 func (r *Repo) SaveSnapshot(ctx context.Context, s snapshot.Snapshot, t *snapshot.Tree) error {
+	if !snapshot.ValidID(s.ID) {
+		return fmt.Errorf("invalid snapshot id %q", s.ID)
+	}
+	if _, err := r.Backend.Get(ctx, "snapshots/"+s.ID); err == nil {
+		return fmt.Errorf("snapshot %s already exists", s.ID)
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		return err
+	}
 	if err := r.putJSON(ctx, "trees/"+s.ID, t); err != nil {
 		return fmt.Errorf("saving file list: %w", err)
 	}
@@ -171,6 +198,9 @@ func (r *Repo) LoadSnapshot(ctx context.Context, id string) (snapshot.Snapshot, 
 		return s, fmt.Errorf("invalid snapshot id %q", id)
 	}
 	err := r.getJSON(ctx, "snapshots/"+id, &s)
+	if err == nil && s.ID != id {
+		err = errors.New("snapshot header ID doesn't match its object name")
+	}
 	return s, err
 }
 
@@ -221,9 +251,15 @@ func (r *Repo) Snapshots(ctx context.Context, known map[string]snapshot.Snapshot
 			continue
 		}
 		wg.Add(1)
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			wg.Wait()
+			return nil, ctx.Err()
+		}
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 			s, err := r.LoadSnapshot(ctx, id)
 			mu.Lock()
@@ -243,7 +279,10 @@ func (r *Repo) putJSON(ctx context.Context, key string, v any) error {
 	if err != nil {
 		return err
 	}
-	return r.Backend.Put(ctx, key, r.Key.Seal(pt, key))
+	if len(pt) > crypto.MaxPlaintextSize {
+		return errors.New("snapshot metadata exceeds 256 MiB limit")
+	}
+	return r.Backend.PutNew(ctx, key, r.Key.Seal(pt, key))
 }
 
 func (r *Repo) getJSON(ctx context.Context, key string, v any) error {

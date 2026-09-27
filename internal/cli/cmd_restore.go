@@ -74,6 +74,7 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				include = append(include, filepath.ToSlash(abs))
 			}
 
+			newTarget := !inPlace && target == ""
 			switch {
 			case inPlace:
 				target = ""
@@ -104,8 +105,9 @@ With no arguments in a terminal, opens the snapshot browser.`,
 
 			live := liveOutput()
 			res, err := a.engine.Restore(cmd.Context(), snap.ID, engine.RestoreOptions{
-				Target:  target,
-				Include: include,
+				Target:    target,
+				NewTarget: newTarget,
+				Include:   include,
 				Progress: func(p string, done, total int) {
 					if live {
 						statusLine(out, fmt.Sprintf("  %d/%d  %s", done, total, dim(printable(path.Base(p)))))

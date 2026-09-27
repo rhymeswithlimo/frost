@@ -67,11 +67,7 @@ func saveKey(k *crypto.Key) error {
 	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
 		return err
 	}
-	tmp := config.KeyPath() + ".tmp"
-	if err := os.WriteFile(tmp, []byte(k.Phrase()+"\n"), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, config.KeyPath())
+	return config.WritePrivate(config.KeyPath(), []byte(k.Phrase()+"\n"))
 }
 
 // app is everything a command needs once frost is set up.

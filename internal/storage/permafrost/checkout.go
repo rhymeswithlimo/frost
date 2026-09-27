@@ -31,8 +31,6 @@ var CheckoutTimeout = 25 * time.Minute
 var (
 	// ErrCheckoutTimeout means nothing came back from the browser in time.
 	ErrCheckoutTimeout = errors.New("checkout timed out")
-	// ErrStateMismatch means the browser came back with someone else's state.
-	ErrStateMismatch = errors.New("checkout state doesn't match")
 	// ErrCheckoutCancelled means the checkout page said the person cancelled.
 	ErrCheckoutCancelled = errors.New("checkout cancelled")
 )
@@ -58,7 +56,7 @@ type checkoutResult struct {
 // the person back with a key. Call Wait for the key, or Close to give up.
 func StartCheckout(pageURL string) (*Checkout, error) {
 	page, err := url.Parse(pageURL)
-	if err != nil || page.Host == "" {
+	if err != nil || page.Host == "" || page.User != nil || (page.Scheme != "https" && !(page.Scheme == "http" && isLocal(page.Hostname()))) {
 		return nil, fmt.Errorf("permafrost: invalid checkout url %q", pageURL)
 	}
 	raw := make([]byte, 32)
@@ -83,7 +81,7 @@ func StartCheckout(pageURL string) (*Checkout, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", c.callback)
-	c.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	c.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	go c.srv.Serve(ln)
 	return c, nil
 }
@@ -91,6 +89,15 @@ func StartCheckout(pageURL string) (*Checkout, error) {
 // callback is where the checkout page sends the browser. Only a request
 // with a state counts: anything else, like a favicon, is ignored.
 func (c *Checkout) callback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid callback", http.StatusBadRequest)
+		return
+	}
 	state := r.FormValue("state")
 	if state == "" {
 		http.Error(w, "missing state", http.StatusBadRequest)
@@ -100,8 +107,8 @@ func (c *Checkout) callback(w http.ResponseWriter, r *http.Request) {
 	var res checkoutResult
 	switch {
 	case subtle.ConstantTimeCompare([]byte(state), []byte(c.state)) != 1:
-		res.err = ErrStateMismatch
-		donePage(w, http.StatusBadRequest, "This doesn't match the checkout frost started.", "frost has stopped waiting. Go back to your terminal to try again.")
+		donePage(w, http.StatusBadRequest, "This doesn't match the checkout frost started.", "frost is still waiting for the original checkout.")
+		return
 	case r.FormValue("error") != "":
 		res.err = ErrCheckoutCancelled
 		donePage(w, http.StatusOK, "Checkout cancelled.", "Go back to your terminal to try again or paste a key.")
@@ -147,5 +154,7 @@ func (c *Checkout) Wait(ctx context.Context) (string, error) {
 func (c *Checkout) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	c.srv.Shutdown(ctx)
+	if err := c.srv.Shutdown(ctx); err != nil {
+		c.srv.Close()
+	}
 }

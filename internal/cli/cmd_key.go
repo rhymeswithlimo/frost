@@ -68,17 +68,24 @@ func keyVerify(cmd *cobra.Command) error {
 		return err
 	}
 	fmt.Fprintln(p.out, good("valid phrase ")+dim("fingerprint "+k.Fingerprint()))
+	var mismatch error
 
 	if local, err := loadKey(); err == nil {
-		if local.Fingerprint() == k.Fingerprint() {
+		if local.Equal(k) {
 			fmt.Fprintln(p.out, good("matches ")+"the key on this machine")
 		} else {
 			fmt.Fprintln(p.out, errStyle("does NOT match ")+"the key on this machine "+dim("("+local.Fingerprint()+")"))
+			mismatch = errors.New("phrase doesn't match the local key")
 		}
+	} else if !errors.Is(err, ErrNoKey) {
+		return err
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		return nil // nothing more to check against
+		if errors.Is(err, config.ErrNoConfig) {
+			return mismatch
+		}
+		return err
 	}
 	b, err := newBackend(cfg.Storage)
 	if err != nil {
@@ -92,8 +99,9 @@ func keyVerify(cmd *cobra.Command) error {
 		return errors.New("key doesn't match")
 	default:
 		fmt.Fprintln(p.out, caution("couldn't check the repository: ")+err.Error())
+		return err
 	}
-	return nil
+	return mismatch
 }
 
 func keyImport(cmd *cobra.Command) error {
@@ -111,7 +119,7 @@ func keyImport(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	if local != nil && local.Fingerprint() == k.Fingerprint() {
+	if local.Equal(k) {
 		fmt.Fprintln(p.out, good("That's already the key on this machine."))
 		return nil
 	}
@@ -126,6 +134,9 @@ func keyImport(cmd *cobra.Command) error {
 		}
 		fmt.Fprintln(p.out, good("opens ")+"the repository at "+b.String())
 	} else {
+		if !errors.Is(err, config.ErrNoConfig) {
+			return err
+		}
 		fmt.Fprintln(p.out, dim("No config yet, so the phrase wasn't checked against any storage. Run `frost init` next."))
 	}
 

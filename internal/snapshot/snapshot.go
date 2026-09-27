@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -71,7 +72,7 @@ func (t *Tree) Sort() {
 	slices.SortFunc(t.Files, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
 }
 
-// NewID returns a short, readable ID like "maple-otter-3f1c".
+// NewID returns a readable ID with 64 random bits across two words and a suffix.
 func NewID() string {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -80,7 +81,7 @@ func NewID() string {
 	n := binary.LittleEndian.Uint64(b[:])
 	w1 := bip39.Words[n%2048]
 	w2 := bip39.Words[(n>>11)%2048]
-	return fmt.Sprintf("%s-%s-%04x", w1, w2, (n>>22)&0xffff)
+	return fmt.Sprintf("%s-%s-%011x", w1, w2, n>>22)
 }
 
 // ValidID reports whether s looks like a snapshot ID. It guards object keys
@@ -101,7 +102,7 @@ func ValidID(s string) bool {
 // under a restore target. It strips the root and any drive letter and
 // rejects anything containing "..".
 func SafeRel(p string) (string, error) {
-	if i := strings.IndexByte(p, ':'); i == 1 {
+	if len(p) >= 3 && p[1] == ':' && p[2] == '/' && ((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) {
 		p = p[:1] + p[2:] // "C:/x" -> "C/x", keeps drives apart
 	}
 	p = strings.TrimLeft(p, "/")
@@ -112,6 +113,16 @@ func SafeRel(p string) (string, error) {
 		return "", fmt.Errorf("unsafe path %q", p)
 	}
 	clean := path.Clean(p)
+	if !filepath.IsLocal(filepath.FromSlash(clean)) || strings.IndexByte(clean, 0) >= 0 {
+		return "", fmt.Errorf("unsafe path %q", p)
+	}
+	if runtime.GOOS == "windows" {
+		for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
+			if strings.Contains(part, ":") || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
+				return "", fmt.Errorf("unsafe Windows path %q", p)
+			}
+		}
+	}
 	if clean == "." || clean == "" || strings.HasPrefix(clean, "../") || clean == ".." {
 		return "", fmt.Errorf("unsafe path %q", p)
 	}

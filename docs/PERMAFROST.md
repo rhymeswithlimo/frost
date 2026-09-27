@@ -1,6 +1,6 @@
 # Permafrost HTTP API
 
-Permafrost is a hosted storage service for frost. It's a plain object store with four operations. It never sees plaintext: frost encrypts everything before upload, same as with S3.
+Permafrost is a hosted storage service for frost. It's a plain object store with four operations. Backup objects are encrypted before upload, same as with S3. Setup also writes and deletes a small plaintext connectivity probe.
 
 This document is the contract. frost's `permafrost` backend (`internal/storage/permafrost`) is a client for it, and its tests run against a reference server built from this document. Anyone can run a compatible server.
 
@@ -36,8 +36,11 @@ Stores the request body under `key`, replacing any existing object.
 |---|---|---|
 | `Content-Length` | yes | Body size |
 | `X-Content-SHA256` | yes | Lowercase hex SHA-256 of the body. The server rejects the upload with `400 checksum_mismatch` if it doesn't match |
+| `If-None-Match` | no | When `*`, atomically create only if the key is absent. Otherwise return `412 already_exists` without changing the existing object |
 
-Responses: `204` stored, `400`, `401`, `403`, `413` object too large, `507` account storage full.
+Responses: `204` stored, `400`, `401`, `403`, `412 already_exists`, `413` object too large, `507` account storage full.
+
+Conditional writes are required for `frost.repo`, snapshot headers and trees. Servers must enforce them atomically, including requests from different clients. An existing object must never be overwritten by a conditional request.
 
 Max object size is 16 MiB. frost chunks are at most 8 MiB before encryption.
 
@@ -68,6 +71,8 @@ Lists keys that start with `prefix` (may be empty). Results are paged, up to 100
 
 Pass `next_cursor` back as `cursor` to get the next page. An empty or missing `next_cursor` means this was the last page.
 
+Cursor values must not repeat within a listing. frost rejects cursor cycles.
+
 Responses: `200`.
 
 ## Getting a key
@@ -92,7 +97,7 @@ The page must:
 - Only send the key to a `redirect_uri` on `127.0.0.1` or `localhost`. Anything else would let a crafted link send someone's key to another site.
 - Show the key once it's issued, with or without a `redirect_uri`. The redirect can't reach frost when the browser is on another machine or frost has stopped waiting, and people who come straight from the website have no frost waiting at all.
 
-frost checks that the redirect carries the `state` it generated, so another page can't feed it a key of its own. Only this machine can receive the redirect.
+frost checks that the redirect carries the `state` it generated, so another page can't feed it a key of its own. A wrong state is rejected without cancelling the original checkout. Callback bodies are limited to 16 KiB. Only this machine can receive the redirect.
 
 ## Errors
 
@@ -116,7 +121,9 @@ Every non-2xx response has this body:
 
 ## Retries
 
-Clients retry `429` and `5xx` responses (except `507`) and network errors, up to 4 attempts in total, with exponential backoff starting at 500 ms. If the server sends `Retry-After` (in seconds), clients wait that long instead. `PUT` and `DELETE` are idempotent, so retrying them is always safe.
+Clients retry `429` and `5xx` responses (except `507`) and network errors, up to 4 attempts in total, with exponential backoff starting at 500 ms. `Retry-After` accepts seconds, capped at 60 seconds. Retrying a conditional PUT after a lost response can return `412` even if the first request succeeded; the client reports failure rather than overwriting the object.
+
+API redirects aren't followed. Configure the final HTTPS endpoint directly. Base URLs must not contain credentials, a query or a fragment.
 
 ## What the server can see
 

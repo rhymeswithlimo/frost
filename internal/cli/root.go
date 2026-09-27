@@ -58,7 +58,7 @@ func Execute() int {
 	defer stop()
 	defer enableANSI()()
 	if err := NewRoot().ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, errStyle("error:"), plainError(err))
+		fmt.Fprintln(os.Stderr, errStyle("error:"), printable(plainError(err).Error()))
 		return 1
 	}
 	return 0
@@ -68,7 +68,7 @@ func Execute() int {
 // that say what. Anything else comes back unchanged.
 func plainError(err error) error {
 	if errors.Is(err, permafrost.ErrUnauthorized) {
-		return errors.New("Permafrost didn't accept your access key, it may be wrong or expired. Run `frost init` and set up storage again to get a working one")
+		return errors.New("the Permafrost access key was rejected, it may be wrong or expired. Run `frost init` and set up storage again to get a working one")
 	}
 	return err
 }

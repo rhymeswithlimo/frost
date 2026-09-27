@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -72,6 +73,7 @@ func run(latency time.Duration, empty, broken bool) error {
 	if err != nil {
 		return err
 	}
+	defer m.Close()
 	e := &engine.Engine{Repo: r, Manifest: m}
 
 	if !empty {
@@ -208,8 +210,8 @@ func buildHistory(ctx context.Context, e *engine.Engine, src string) error {
 		}
 	}
 
-	// Backups just ran, so they're all timestamped "now". Rewrite their
-	// times to look like a couple of weeks of history.
+	// Backdate the demo's in-memory headers directly. SaveSnapshot deliberately
+	// refuses to overwrite committed snapshots; their trees stay unchanged.
 	snaps, err := e.Repo.Snapshots(ctx, nil)
 	if err != nil {
 		return err
@@ -220,11 +222,12 @@ func buildHistory(ctx context.Context, e *engine.Engine, src string) error {
 	sortByTime(snaps)
 	for i := range snaps {
 		snaps[i].Time = now.Add(-ages[i%len(ages)]).UTC()
-		tree, err := e.Repo.LoadTree(ctx, snaps[i].ID)
+		raw, err := json.Marshal(snaps[i])
 		if err != nil {
 			return err
 		}
-		if err := e.Repo.SaveSnapshot(ctx, snaps[i], tree); err != nil {
+		objectKey := "snapshots/" + snaps[i].ID
+		if err := e.Repo.Backend.Put(ctx, objectKey, e.Repo.Key.Seal(raw, objectKey)); err != nil {
 			return err
 		}
 	}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/crypto"
+	"github.com/rhymeswithlimo/frost/internal/schedule"
 	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 )
 
@@ -65,11 +66,15 @@ func setup(t *testing.T) *fixture {
 	f.phrase = strings.Fields(f.key.Phrase())
 
 	syncSchedule = func(c config.Config) error { f.sched = append(f.sched, c); return nil }
+	scheduleKind = func() string { return "test scheduler" }
+	scheduleInstalled = func() bool { return true }
 	newKey = func() (*crypto.Key, error) { return f.key, nil }
 	pickWords = func() (int, int) { return 2, 17 }
 	openBrowser = func(string) error { return errors.New("no browser in tests") }
 	t.Cleanup(func() {
 		syncSchedule = installSchedule
+		scheduleKind = schedule.Kind
+		scheduleInstalled = schedule.Installed
 		newKey = crypto.NewKey
 		pickWords = randomWords
 		openBrowser = openDefaultBrowser
@@ -268,6 +273,10 @@ func permafrostServer(t *testing.T, token string) string {
 		key := strings.TrimPrefix(r.URL.Path, "/v1/objects/")
 		switch r.Method {
 		case http.MethodPut:
+			if _, exists := objs[key]; exists && r.Header.Get("If-None-Match") == "*" {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
 			objs[key], _ = io.ReadAll(r.Body)
 			w.WriteHeader(204)
 		case http.MethodGet:

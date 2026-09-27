@@ -67,10 +67,11 @@ func TestCheckoutGetsToken(t *testing.T) {
 }
 
 func TestCheckoutStateMismatch(t *testing.T) {
-	c, back, _ := startTest(t)
+	c, back, state := startTest(t)
 	visit(t, back+"?"+url.Values{"state": {"someone-else"}, "token": {"pf_evil"}}.Encode())
-	if token, err := c.Wait(context.Background()); !errors.Is(err, ErrStateMismatch) || token != "" {
-		t.Fatalf("Wait = %q, %v, want a state mismatch", token, err)
+	visit(t, back+"?"+url.Values{"state": {state}, "token": {"pf_good"}}.Encode())
+	if token, err := c.Wait(context.Background()); err != nil || token != "pf_good" {
+		t.Fatalf("Wait = %q, %v, want original checkout to remain usable", token, err)
 	}
 }
 

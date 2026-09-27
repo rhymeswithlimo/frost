@@ -26,6 +26,9 @@ import (
 // KeySize is the size of the master key in bytes (a 24 word phrase).
 const KeySize = 32
 
+// MaxPlaintextSize bounds decompression of a single object.
+const MaxPlaintextSize = 256 << 20
+
 // blobVersion is the first byte of every sealed blob.
 const blobVersion = 1
 
@@ -46,6 +49,9 @@ func (id ID) String() string { return hex.EncodeToString(id[:]) }
 // ParseID parses a hex chunk ID.
 func ParseID(s string) (ID, error) {
 	var id ID
+	if len(s) != 64 {
+		return id, errors.New("invalid chunk id length")
+	}
 	b, err := hex.DecodeString(s)
 	if err != nil || len(b) != len(id) {
 		return id, fmt.Errorf("invalid chunk id %q", s)
@@ -118,6 +124,11 @@ func (k *Key) Fingerprint() string {
 	return hex.EncodeToString(out[:])
 }
 
+// Equal compares complete master keys, rather than their display labels.
+func (k *Key) Equal(other *Key) bool {
+	return k != nil && other != nil && hmac.Equal(k.master[:], other.master[:])
+}
+
 // ChunkerSeed seeds the content-defined chunker so chunk boundaries depend on
 // the key. With a public gear table, chunk sizes alone could fingerprint files.
 func (k *Key) ChunkerSeed() uint64 { return k.gear }
@@ -134,7 +145,7 @@ func (k *Key) ChunkID(data []byte) ID {
 
 var (
 	zenc, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
-	zdec, _ = zstd.NewReader(nil)
+	zdec, _ = zstd.NewReader(nil, zstd.WithDecoderMaxMemory(MaxPlaintextSize))
 )
 
 // Seal compresses (when it helps) and encrypts plaintext with
@@ -175,6 +186,9 @@ func (k *Key) Open(blob []byte, ad string) ([]byte, error) {
 	}
 	switch body[0] {
 	case flagRaw:
+		if len(body)-1 > MaxPlaintextSize {
+			return nil, ErrDecrypt
+		}
 		return body[1:], nil
 	case flagZstd:
 		out, err := zdec.DecodeAll(body[1:], nil)

@@ -114,6 +114,8 @@ func StateFrom(e *engine.Engine) State {
 // Run opens the browser and blocks until the user quits. It only talks to
 // the repository, never the manifest.
 func Run(ctx context.Context, r *repo.Repo, cfg config.Config, st State) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	m := newModel(ctx, r, cfg, st)
 	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	return programErr(ctx, err)
@@ -149,7 +151,6 @@ type model struct {
 
 	snaps   []snapshot.Snapshot // newest first
 	snapCur int
-	snapTop int
 	marked  string // snapshot ID marked as the "from" side of a diff
 
 	// files screen

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -58,8 +59,27 @@ func newRestoreState(s snapshot.Snapshot, paths []string, t *tree) restoreState 
 			rs.bytes += f.Size
 		}
 	}
-	rs.folder, _ = filepath.Abs("frost-restore-" + s.ID)
+	rs.folder, rs.err = filepath.Abs("frost-restore-" + s.ID)
+	if rs.err == nil {
+		rs.folder, rs.err = unusedRestoreFolder(rs.folder)
+	}
 	return rs
+}
+
+// The engine still creates the directory exclusively, so a race cannot overwrite it.
+func unusedRestoreFolder(base string) (string, error) {
+	for n := 0; n < 10000; n++ {
+		candidate := base
+		if n > 0 {
+			candidate = fmt.Sprintf("%s-%d", base, n)
+		}
+		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		} else if err != nil {
+			return base, err
+		}
+	}
+	return base, fmt.Errorf("no unused restore folder found beside %s", base)
 }
 
 func (m model) restoreKey(key string) (tea.Model, tea.Cmd) {
@@ -75,6 +95,22 @@ func (m model) restoreKey(key string) (tea.Model, tea.Cmd) {
 		case "up", "down", "tab", "k", "j":
 			m.rs.inPlace = !m.rs.inPlace
 		case "enter", "y":
+			if !m.rs.inPlace {
+				if m.rs.err != nil {
+					m.rs.phase = phaseDone
+					return m, nil
+				}
+				folder, err := unusedRestoreFolder(m.rs.folder)
+				if err != nil {
+					m.rs.err, m.rs.phase = err, phaseDone
+					return m, nil
+				}
+				if folder != m.rs.folder {
+					m.rs.folder = folder
+					m.flash = "That folder now exists. Review the new destination and press [enter]."
+					return m, nil
+				}
+			}
 			if m.rs.inPlace && key != "y" {
 				m.flash = "Restoring in place replaces existing files. Press [y] to confirm."
 				return m, nil
@@ -111,11 +147,15 @@ func (m *model) startRestore() tea.Cmd {
 	}
 	if !m.rs.inPlace {
 		opts.Target = m.rs.folder
+		opts.NewTarget = true
 	}
 	eng, ctx, id := &engine.Engine{Repo: m.repo}, m.ctx, m.rs.snap.ID
 	go func() {
 		res, err := eng.Restore(ctx, id, opts)
-		ch <- restoreDoneMsg{res, err}
+		select {
+		case ch <- restoreDoneMsg{res, err}:
+		case <-ctx.Done():
+		}
 		close(ch)
 	}()
 	return tea.Batch(m.spin.Tick, waitFor(ch))
@@ -208,13 +248,18 @@ func (m model) viewRestore() string {
 		)
 
 	case phaseDone:
-		if rs.err != nil {
-			lines = append(lines, line(theme.Error.Render("Restore failed")), fill(w, 1), wrap(theme.Text.Render(printable(rs.err.Error())), w))
-			break
-		}
 		where := "their original locations"
 		if !rs.inPlace {
 			where = shortPath(rs.folder, w-10)
+		}
+		if rs.err != nil {
+			lines = append(lines,
+				line(theme.Error.Render("Restore failed")),
+				line(theme.Text.Render(fmt.Sprintf("%d files completed (%s)", rs.res.Files, humanBytes(rs.res.Bytes)))),
+				line(theme.Dim.Render("to ")+theme.Text.Render(where)),
+				wrap(theme.Caution.Render("Earlier changes remain. A file may have been written before a metadata error."), w),
+				fill(w, 1), wrap(theme.Text.Render(printable(rs.err.Error())), w))
+			break
 		}
 		lines = append(lines,
 			line(theme.Good.Render("Restored ")+theme.Text.Render(fmt.Sprintf("%d files (%s)", rs.res.Files, humanBytes(rs.res.Bytes)))),
