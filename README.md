@@ -56,11 +56,11 @@ frost init                  # pick directories, schedule and storage; save your 
 frost backup --dry-run      # see exactly what would be uploaded
 frost backup                # back up now
 frost status                # recent snapshots, next run, health
-frost restore "2 days ago" ~/Documents/report.pdf
+frost restore "2 days ago" ~/Documents/report.pdf --beside
 frost browse                # browse snapshots, diff them, pick files to restore
 ```
 
-Restores go into a new `./frost-restore-<id>` folder by default and refuse to reuse that folder. `--in-place` and an explicit `--target` can replace existing files.
+Every restore says where it goes: `--beside` (a new folder next to the originals), `--to <dir>` (a new folder inside `<dir>`) or `--overwrite` (back over the originals, asks first). Only `--overwrite` can replace existing files.
 
 > [!IMPORTANT]
 > Save your recovery phrase somewhere safe! It's the only way to decrypt your backups, and there's no way to reset it.
@@ -95,9 +95,10 @@ BACKUP:
    --no-verify                   skip the post-backup spot check
 
 RESTORE:
-   -t, --target string           restore into this directory (default ./frost-restore-<id>)
-   --in-place                    restore over the original locations (asks first)
-   -y, --yes                     don't ask
+   --beside                      restore into a new folder next to the originals
+   --to string                   restore into a new folder inside this directory
+   --overwrite                   restore over the originals (asks first)
+   -y, --yes                     don't ask before overwriting
 
 STATUS:
    --verify                      run a fresh verification first

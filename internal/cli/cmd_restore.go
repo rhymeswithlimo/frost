@@ -18,9 +18,8 @@ import (
 
 func newRestoreCmd() *cobra.Command {
 	var (
-		target  string
-		inPlace bool
-		yes     bool
+		beside, overwrite, yes bool
+		to                     string
 	)
 	cmd := &cobra.Command{
 		Use:   "restore [snapshot] [paths...]",
@@ -29,15 +28,20 @@ func newRestoreCmd() *cobra.Command {
 of its ID, by "latest", or by time: "3 days ago", "12h", "yesterday",
 "2026-09-20". A time picks the newest snapshot at or before it.
 
-By default files go into a new folder, ./frost-restore-<id>, at their full
-original path, so nothing on your disk is overwritten. Use --in-place to put
-them back where they came from.
+Say where the files go with exactly one of:
+
+  --beside      a new frost-restore-<id> folder next to the originals
+  --to <dir>    a new frost-restore-<id> folder inside <dir>
+  --overwrite   back where they came from, replacing what's there
+
+In a new folder, what you restore keeps its name: restoring ~/Documents/taxes
+with --beside gives ~/Documents/frost-restore-<id>/taxes.
 
 With no arguments in a terminal, opens the snapshot browser.`,
-		Example: `  frost restore latest
-  frost restore "3 days ago" ~/Documents/taxes
-  frost restore maple-otter --target /tmp/r
-  frost restore latest ~/notes.txt --in-place`,
+		Example: `  frost restore latest --beside
+  frost restore "3 days ago" ~/Documents/taxes --beside
+  frost restore maple-otter --to ~/Desktop
+  frost restore latest ~/notes.txt --overwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				if !isTerminal(os.Stdin) {
@@ -45,8 +49,21 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				}
 				return runBrowser(cmd.Context())
 			}
-			if inPlace && target != "" {
-				return errors.New("--in-place and --target can't be used together")
+			switch n := btoi(beside) + btoi(overwrite) + btoi(to != ""); {
+			case n == 0:
+				return errors.New("choose where to restore: --beside, --to <dir> or --overwrite")
+			case n > 1:
+				return errors.New("choose only one of --beside, --to and --overwrite")
+			}
+			if to != "" {
+				abs, err := filepath.Abs(config.Expand(to))
+				if err != nil {
+					return err
+				}
+				if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+					return fmt.Errorf("there's no folder at %s", tildify(abs))
+				}
+				to = abs
 			}
 
 			a, err := openApp(cmd.Context())
@@ -74,18 +91,38 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				include = append(include, filepath.ToSlash(abs))
 			}
 
-			newTarget := !inPlace && target == ""
+			// A new folder holds what was backed up, relative to the folder
+			// it all shares. The whole snapshot is its backed-up folders.
+			if len(include) == 0 && !overwrite {
+				include = snap.Paths
+			}
+			base := snapshot.RestoreBase(include)
+			var target string
 			switch {
-			case inPlace:
-				target = ""
-			case target == "":
-				target = "frost-restore-" + snap.ID
+			case beside:
+				target, err = engine.BesideFolder(base, snap.ID)
+				if err != nil {
+					return fmt.Errorf("can't restore beside the originals: %w. Use --to <dir> instead", err)
+				}
+			case to != "":
+				if target, err = engine.NewRestoreFolder(to, snap.ID); err != nil {
+					return err
+				}
+			default:
+				// Say so before asking, not after.
+				check := include
+				if len(check) == 0 {
+					check = snap.Paths
+				}
+				if err := engine.CanOverwrite(check); err != nil {
+					return fmt.Errorf("can't overwrite the originals: %w. Use --beside or --to <dir> instead", err)
+				}
 			}
 			where := "original locations " + caution("(existing files will be replaced)")
 			if target != "" {
-				abs, _ := filepath.Abs(target)
-				target = abs
-				where = tildify(abs)
+				where = tildify(target)
+			} else {
+				base = ""
 			}
 
 			fmt.Fprintf(out, "%s %s %s\n", heading("restore "+snap.ID), dim(when(snap.Time)), dim("("+ago(snap.Time)+")"))
@@ -96,7 +133,7 @@ With no arguments in a terminal, opens the snapshot browser.`,
 			}
 			fmt.Fprintln(out, kv("into", where))
 
-			if inPlace && !yes {
+			if overwrite && !yes {
 				ok, err := newPrompter(cmd).yesNo("Go ahead?", false)
 				if err != nil || !ok {
 					return errors.Join(err, errors.New("cancelled"))
@@ -106,7 +143,8 @@ With no arguments in a terminal, opens the snapshot browser.`,
 			live := liveOutput()
 			res, err := a.engine.Restore(cmd.Context(), snap.ID, engine.RestoreOptions{
 				Target:    target,
-				NewTarget: newTarget,
+				NewTarget: target != "",
+				Base:      base,
 				Include:   include,
 				Progress: func(p string, done, total int) {
 					if live {
@@ -125,8 +163,16 @@ With no arguments in a terminal, opens the snapshot browser.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&target, "target", "t", "", "restore into this directory (default ./frost-restore-<id>)")
-	cmd.Flags().BoolVar(&inPlace, "in-place", false, "restore over the original locations")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "don't ask for confirmation")
+	cmd.Flags().BoolVar(&beside, "beside", false, "restore into a new folder next to the originals")
+	cmd.Flags().StringVar(&to, "to", "", "restore into a new folder inside this directory")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "restore over the originals, replacing what's there (asks first)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "don't ask before overwriting")
 	return cmd
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

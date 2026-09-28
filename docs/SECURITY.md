@@ -63,6 +63,7 @@ The regular spot check re-downloads a random sample of chunks after each backup.
 - Someone on the network between you and the storage (TLS, and every object is authenticated anyway)
 - Tampering, truncation or swapping of stored objects (detected, never silently accepted)
 - Restore path traversal and symlink parents under an explicit target, using confined directory handles and path validation
+- An in-place restore being redirected by another user's link on the path to your files (links owned by root or by you are followed; on Windows no link is)
 
 **Not protected against:**
 

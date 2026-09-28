@@ -32,13 +32,17 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 - **Snapshot browser.** `frost browse` opens a terminal UI for browsing snapshots by date, walking the files as they were, comparing two snapshots and picking files to restore.
 
+- **Pick a restore folder in the browser.** "Restore to new location" in `frost browse` opens Finder, Explorer or the Linux folder picker. Without one, you type the folder instead.
+
+- **Restores open in your file manager.** When a restore from `frost browse` finishes, frost opens Finder, Explorer or your Linux file manager at what it restored. Nothing opens over SSH or when the restore fails.
+
 - **Key management.** `frost key` shows your recovery phrase behind a confirmation, checks a phrase against your backups, or imports one on a new machine.
 
 - **One-line install.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, downloads the right binary and checks its SHA-256 before installing it.
 
 ### Improved
 
-- **Default restores require a new directory.** Files go into `frost-restore-<id>` unless you choose `--target` or `--in-place`, which can replace existing files. Each file is checked and written to a temporary file before replacement.
+- **Restores say where they go.** Choose `--beside` for a new folder next to the originals, `--to <dir>` for a new folder somewhere else, or `--overwrite` to replace the originals. Only `--overwrite` can replace files, and each file is checked and written to a temporary file before it lands.
 
 - **Interrupted backups resume cheaply.** Uploaded chunks are recorded as the run goes, not just at the end. If a backup is cut off, the next run skips everything that already made it up the chain.
 

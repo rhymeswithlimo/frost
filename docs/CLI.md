@@ -58,19 +58,30 @@ Restores files from a snapshot.
 
 **Paths** limit the restore to those files or folders. Without paths, the whole snapshot is restored.
 
-| Flag | Does |
+**Where to** is required, exactly one of:
+
+| Flag | Browser option | Does |
+|---|---|---|
+| `--beside` | Restore to original location | A new `frost-restore-<id>` folder next to the originals |
+| `--to <dir>` | Restore to new location | A new `frost-restore-<id>` folder inside `<dir>`, which must exist |
+| `--overwrite` | Overwrite original files | Back where they came from, replacing what's there. Asks first |
+| `-y`, `--yes` | | Don't ask before overwriting |
+
+In a new folder, what you restore keeps its own name, relative to the folder the selection shares:
+
+| You restore | `--beside` gives |
 |---|---|
-| `-t`, `--target <dir>` | Restore into this directory. Default: `./frost-restore-<id>` |
-| `--in-place` | Restore over the original locations. Asks first |
-| `-y`, `--yes` | Don't ask |
+| `~/Documents/taxes` | `~/Documents/frost-restore-<id>/taxes/...` |
+| `~/notes.txt` | `~/frost-restore-<id>/notes.txt` |
+| `~/Documents/a` and `~/Pictures/b` | `~/frost-restore-<id>/Documents/a` and `.../Pictures/b` |
 
-Files land under the target at their full original path, e.g. `frost-restore-maple-otter-3f1c/Users/me/Documents/report.pdf`. Every chunk is decrypted and checked against its ID before it's written, and each file is written to a temp file then renamed, so a failed restore never leaves a half-written file behind.
+Without paths, the selection is the snapshot's backed-up folders. `--beside` doesn't work when the selection only shares the top of a drive, when that folder isn't on this computer (a snapshot from another machine), or when you can't write to it (backing up your whole home folder puts the new folder in `/Users` or `/home`). Use `--to` then.
 
-With no arguments in a terminal, `restore` opens the snapshot browser.
+The new folder never overwrites anything. If `frost-restore-<id>` is taken, frost uses `-1`, `-2` and so on. Every chunk is decrypted and checked against its ID before it's written, and each file is written to a temp file then renamed, so a failed restore never leaves a half-written file behind. Files restored before a later failure remain restored.
 
-The browser chooses an unused new folder, adding `-1`, `-2`, and so on when the default name already exists. It shows the destination before confirmation. A failed restore reports completed files; earlier changes aren't rolled back.
+`--overwrite` requires paths from the current OS. It follows links in the folders above a file only when they belong to you or to root (macOS's `/var`, a `~/Dropbox` pointing at another drive); a link owned by anyone else is refused. On Windows any link or junction there is refused. It checks this before asking, and the browser greys out "Overwrite original files" with the reason.
 
-The default folder must not already exist. Choose a different folder or explicitly use `--target` to restore into an existing one, where matching files can be replaced. Existing symlink parents are refused. In-place restore requires paths from the current OS and refuses symlinked parent paths. Files restored before a later failure remain restored.
+With no arguments in a terminal, `restore` opens the snapshot browser. There, "Restore to new location" opens your system's folder picker (Finder, Explorer, or zenity/qarma on Linux), then shows where everything will land so you can restore, change the location or cancel. Over SSH, or on Linux without one of those, you type the folder instead. Press `[t]` while the picker is open to type it anyway.
 
 ## `frost status`
 
@@ -95,6 +106,8 @@ Opens the snapshot browser.
 | Everywhere | `[h]` help, `[s]` settings, `[v]` show or hide the key fingerprint (hidden by default), `[esc]` back, `[q]` quit |
 
 Arrow keys or `j`/`k` move, `pgup`/`pgdn` page, `g`/`G` jump to top and bottom.
+
+After a successful restore, the browser opens the result in Finder, Explorer or your Linux file manager: a single file is shown selected (on Linux, its folder opens), otherwise the deepest folder holding everything restored. Nothing opens over SSH, without a display, or when the restore fails.
 
 ## `frost config`
 
