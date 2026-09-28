@@ -416,7 +416,8 @@ func inPlaceBase(dir string) (string, []string, error) {
 	for {
 		info, err := os.Lstat(base)
 		if err == nil {
-			if info.Mode()&os.ModeSymlink == 0 && !info.IsDir() {
+			// Links, and junctions on Windows, are for resolveParent to judge.
+			if info.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 && !info.IsDir() {
 				return "", nil, fmt.Errorf("%s isn't a folder", base)
 			}
 			break
