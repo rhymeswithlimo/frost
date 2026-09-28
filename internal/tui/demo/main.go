@@ -61,6 +61,11 @@ func run(latency time.Duration, empty, broken bool) error {
 	if err != nil {
 		return err
 	}
+	// The temp dir is under a link on macOS (/var is /private/var). Back up
+	// the real path, like a home folder, so the demo shows what users see.
+	if work, err = filepath.EvalSymlinks(work); err != nil {
+		return err
+	}
 	src := filepath.Join(work, "home")
 
 	key, _ := crypto.NewKey()
@@ -93,11 +98,6 @@ func run(latency time.Duration, empty, broken bool) error {
 
 	st := tui.StateFrom(e)
 	m.Close()
-
-	// Restores default to ./frost-restore-<id>, so run from the temp dir.
-	restores := filepath.Join(work, "restores")
-	os.MkdirAll(restores, 0o755)
-	os.Chdir(restores)
 
 	r.Backend = &slow{Backend: mem, delay: latency}
 	if err := tui.Run(ctx, r, cfg, st); err != nil {

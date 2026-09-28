@@ -20,6 +20,7 @@ import (
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/crypto"
+	"github.com/rhymeswithlimo/frost/internal/desktop"
 	"github.com/rhymeswithlimo/frost/internal/schedule"
 	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 )
@@ -77,7 +78,7 @@ func setup(t *testing.T) *fixture {
 		scheduleInstalled = schedule.Installed
 		newKey = crypto.NewKey
 		pickWords = randomWords
-		openBrowser = openDefaultBrowser
+		openBrowser = desktop.Open
 	})
 
 	mem := s3mem.New()
@@ -144,18 +145,59 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
-	target := t.TempDir()
-	must(t, "", "restore", "latest", "--target", target)
-	var restored []byte
-	filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
-		if d != nil && d.Name() == "todo.txt" {
-			restored, _ = os.ReadFile(p)
+	// Restores need exactly one destination.
+	for want, args := range map[string][]string{
+		"choose where":         {"restore", "latest"},
+		"only one":             {"restore", "latest", "--beside", "--overwrite"},
+		"no folder":            {"restore", "latest", "--to", filepath.Join(t.TempDir(), "missing")},
+		"beside the originals": {"restore", "latest", "/", "--beside"}, // nothing to put a folder beside
+	} {
+		if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q: %v, want %q", args, err, want)
 		}
-		return nil
-	})
-	if string(restored) != "buy milk" {
-		t.Fatalf("restored todo.txt = %q", restored)
 	}
+	restored := func(p string) {
+		t.Helper()
+		if data, err := os.ReadFile(p); err != nil || string(data) != "buy milk" {
+			t.Fatalf("restored %s = %q, %v", p, data, err)
+		}
+	}
+	find := func(dir string) string {
+		t.Helper()
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "frost-restore-") {
+				return filepath.Join(dir, e.Name())
+			}
+		}
+		t.Fatalf("no restore folder in %s", dir)
+		return ""
+	}
+
+	// --to keeps the backed-up folder's name inside the new folder.
+	target := t.TempDir()
+	must(t, "", "restore", "latest", "--to", target)
+	restored(filepath.Join(find(target), filepath.Base(f.src), "notes", "todo.txt"))
+
+	// --beside puts the new folder next to what was picked.
+	must(t, "", "restore", "latest", filepath.Join(f.src, "notes"), "--beside")
+	restored(filepath.Join(find(f.src), "notes", "todo.txt"))
+
+	// --overwrite asks first, and puts the backed-up version back. On macOS
+	// the temp dir is under /var, a link owned by root, which it follows.
+	dir := t.TempDir()
+	todo := filepath.Join(dir, "todo.txt")
+	os.WriteFile(todo, []byte("buy milk"), 0o644)
+	must(t, "", "backup", "--path", dir)
+	os.WriteFile(todo, []byte("buy oat milk"), 0o644)
+	if _, err := run(t, "n\n", "restore", "latest", todo, "--overwrite"); err == nil {
+		t.Fatal("overwrite went ahead after no")
+	}
+	if data, _ := os.ReadFile(todo); string(data) != "buy oat milk" {
+		t.Fatalf("overwrite after no changed the file: %q", data)
+	}
+	must(t, "", "restore", "latest", todo, "--overwrite", "-y")
+	restored(todo)
 
 	// config get/set, and schedule changes resync the job.
 	must(t, "", "config", "set", "schedule.every", "daily")

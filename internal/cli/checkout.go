@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
+	"github.com/rhymeswithlimo/frost/internal/desktop"
 	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 )
 
@@ -67,22 +66,4 @@ func explainCheckout(err error) error {
 
 // openBrowser opens url in the default browser. It's a variable so tests
 // never open a real one.
-var openBrowser = openDefaultBrowser
-
-func openDefaultBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		// Not `cmd /c start`, which cuts the URL at the first &.
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go cmd.Wait()
-	return nil
-}
+var openBrowser = desktop.Open

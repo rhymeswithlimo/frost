@@ -102,7 +102,7 @@ bbolt takes an exclusive file lock, which prevents concurrent operations using t
 
 The tree is loaded and the selected paths and types are validated before writing. Each file's chunks are authenticated, written to a private temporary file, checked against the recorded total size and flushed before replacement. The old file isn't deleted before rename. Modes and mtimes are restored, and failures are reported. Symlinks are staged and renamed after regular files. Directories get their mtimes last, deepest first.
 
-Targeted restores use confined directory handles and reject symlink parents, traversal, duplicate destinations and Windows device or alternate-stream paths. In-place restore requires native absolute paths and refuses symlinked parent paths. Default CLI and browser targets must be new directories; explicit `--target` can replace files in an existing directory. A restore is transactional per file, not across the whole selection.
+Targeted restores use confined directory handles and reject symlink parents, traversal, duplicate destinations and Windows device or alternate-stream paths. In-place restore requires native absolute paths. It resolves the links on the path to the deepest existing parent itself, following only those owned by root or the current user (Windows refuses any link), then opens the resolved folder as the root handle, so nothing below it can redirect the write. Beside and new-location restores always create a new directory exclusively, and store paths relative to the deepest folder the selection's parents share (`RestoreOptions.Base`); anything outside it is refused before writing. Only overwrite restores replace files. A restore is transactional per file, not across the whole selection.
 
 ## Verification
 

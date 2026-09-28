@@ -318,7 +318,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case restoreProgressMsg, restoreDoneMsg:
+	case restoreProgressMsg, restoreDoneMsg, folderOpenedMsg, folderPickedMsg:
 		return m.updateRestore(msg)
 
 	case tea.KeyMsg:
@@ -333,6 +333,9 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if key == "ctrl+c" {
 		return m, tea.Quit
+	}
+	if m.screen == scrRestore && m.rs.phase == phaseTyping && m.overlay == "" && m.err == nil {
+		return m.restoreTypingKey(k)
 	}
 	if m.game != nil {
 		cmd, done := m.game.key(key)
