@@ -26,7 +26,8 @@ import (
 // KeySize is the size of the master key in bytes (a 24 word phrase).
 const KeySize = 32
 
-// MaxPlaintextSize bounds decompression of a single object.
+// MaxPlaintextSize is the largest plaintext of a single object. Seal refuses
+// anything bigger and Open won't decompress past it.
 const MaxPlaintextSize = 256 << 20
 
 // blobVersion is the first byte of every sealed blob.
@@ -152,8 +153,14 @@ var (
 // XChaCha20-Poly1305. The associated data binds the blob to its name, so a
 // provider can't swap one valid blob for another.
 //
+// Callers must keep plaintext within MaxPlaintextSize, because Open rejects
+// anything larger. Seal panics rather than write a blob nobody can read back.
+//
 // Layout: version(1) | nonce(24) | AEAD(flag(1) | payload)
 func (k *Key) Seal(plaintext []byte, ad string) []byte {
+	if len(plaintext) > MaxPlaintextSize {
+		panic("crypto: plaintext exceeds MaxPlaintextSize")
+	}
 	body := make([]byte, 0, len(plaintext)+1)
 	comp := zenc.EncodeAll(plaintext, nil)
 	if len(comp) < len(plaintext) {

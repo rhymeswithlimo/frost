@@ -35,6 +35,16 @@ func TestSealOpen(t *testing.T) {
 	}
 }
 
+func TestSealLimit(t *testing.T) {
+	k, _ := NewKey()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Seal accepted a plaintext that Open would refuse")
+		}
+	}()
+	k.Seal(make([]byte, MaxPlaintextSize+1), "chunk/x")
+}
+
 func TestOpenRejects(t *testing.T) {
 	k, _ := NewKey()
 	other, _ := NewKey()
