@@ -9,7 +9,7 @@ Automatic backups are jobs scheduled on the OS that run `frost backup`.
 ```
 cmd/frost              main, calls cli.Execute
 internal/
-  cli                  the seven commands, prompts, output formatting
+  cli                  the commands, prompts, output formatting
   config               config.toml, file locations, get/set by key
   crypto               master key, subkeys, sealing blobs, chunk IDs
     bip39              recovery phrase encoding (official English wordlist)
@@ -23,6 +23,7 @@ internal/
     permafrost         Permafrost HTTP backend
     storagetest        in-memory backend and conformance suite, tests only
   schedule             launchd, systemd, cron and Task Scheduler jobs
+  update               finding, checking and installing new releases
   theme                colours, borders and spacing for the CLI and TUI
   tui                  snapshot browser and setup screens (bubbletea, lipgloss)
     assets             the wordmark
@@ -119,6 +120,12 @@ Files that visibly change during reading are skipped with a warning. Size and mt
 - **Windows:** a Task Scheduler task via `schtasks`
 
 The generated files are built by pure functions (`LaunchdPlist`, `SystemdUnits`, `CronLine`, `TaskArgs`) and tested as strings.
+
+## Updates
+
+`internal/update` finds the newest release by following the `/releases/latest` redirect on GitHub, which has no API rate limit. It checks the signed `checksums.txt` with the pinned release key (`key.go`, also in `install/release-signing.pub` and `install/install.sh`, and a test keeps all three the same), then downloads and checks the archive for this platform. The new binary is staged next to the old one, run once with `--version`, and renamed into place. A lock file next to the binary stops two updates running at once.
+
+`cli` calls it from `frost update` and after `frost backup --scheduled`, at most every 20 hours. What happened is saved to `update.json` in the cache directory, which `status` and the browser read without going online.
 
 ## Storage backends
 

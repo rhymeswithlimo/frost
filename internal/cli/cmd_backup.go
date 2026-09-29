@@ -40,6 +40,9 @@ last run is uploaded. Use flags to override the config for this run only.`,
 			if scheduled {
 				trimLog()
 				fmt.Fprintf(out, "[%s] scheduled backup starting\n", time.Now().Format(time.RFC3339))
+				// Runs last, whether or not the backup worked: a newer
+				// release might be the fix.
+				defer autoUpdate(cmd.Context(), out)
 			}
 
 			a, err := openApp(cmd.Context())
@@ -68,6 +71,9 @@ last run is uploaded. Use flags to override the config for this run only.`,
 			if err != nil {
 				if errors.Is(err, fs.ErrPermission) && runtime.GOOS == "darwin" {
 					err = fmt.Errorf("%w\n\nmacOS blocks access to some folders until you allow it. Open System Settings > Privacy & Security > Full Disk Access and add %s", err, executable())
+					if v, ok := recentlyUpdated(); ok {
+						err = fmt.Errorf("%w\n\nfrost updated itself to %s, and macOS may not recognise the new binary. If frost is already on the list, turn it off and on again", err, v)
+					}
 				}
 				return err
 			}

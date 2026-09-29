@@ -65,6 +65,7 @@ var fields = map[string]field{
 	"storage.s3.insecure":          boolean(func(c *Config) *bool { return &c.Storage.S3.Insecure }),
 	"storage.permafrost.url":       str(func(c *Config) *string { return &c.Storage.Permafrost.URL }),
 	"storage.permafrost.token":     str(func(c *Config) *string { return &c.Storage.Permafrost.Token }),
+	"update.auto":                  boolean(func(c *Config) *bool { return &c.Update.Auto }),
 	"verify.sample": {
 		get: func(c *Config) string { return strconv.Itoa(c.Verify.Sample) },
 		set: func(c *Config, v []string) error {

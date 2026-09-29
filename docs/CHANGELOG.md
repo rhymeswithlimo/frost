@@ -36,6 +36,8 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 - **Restores open in your file manager.** When a restore from `frost browse` finishes, frost opens Finder, Explorer or your Linux file manager at what it restored. Nothing opens over SSH or when the restore fails.
 
+- **Updates.** `frost update` installs the latest release, and scheduled backups do it on their own at most once a day. Every release is checked against a signing key built into frost before anything is replaced. Set `update.auto` to `false` to only be told when there's a new one.
+
 - **Key management.** `frost key` shows your recovery phrase behind a confirmation, checks a phrase against your backups, or imports one on a new machine.
 
 - **One-line install.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, downloads the right binary and checks its SHA-256 before installing it.

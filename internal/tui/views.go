@@ -345,9 +345,11 @@ func (m model) viewHelp() string {
 }
 
 func (m model) viewSettings() string {
+	const labelW = 18
 	c := m.cfg
+	w := min(m.innerW()-8, 90)
 	row := func(k, v string) string {
-		return theme.Dim.Render(fmt.Sprintf("%-18s", k)) + theme.Text.Render(v)
+		return theme.Dim.Render(fmt.Sprintf("%-*s", labelW, k)) + theme.Text.Render(v)
 	}
 	sched := "off"
 	if c.Schedule.Enabled {
@@ -357,17 +359,55 @@ func (m model) viewSettings() string {
 		row("backing up", strings.Join(c.Paths, ", ")),
 		row("skipping", strings.Join(c.Exclude, ", ")),
 		row("automatic backups", sched),
+	}
+	if m.st.Updates != "" {
+		// The only row that can run long, so it wraps instead of being cut.
+		for i, l := range wrapWords(printable(m.st.Updates), w-labelW) {
+			if i == 0 {
+				lines = append(lines, row("updates", l))
+			} else {
+				lines = append(lines, row("", l))
+			}
+		}
+	}
+	lines = append(lines,
 		row("spot check", fmt.Sprintf("%d chunks after each backup", c.Verify.Sample)),
 		row("storage", m.repo.Backend.String()),
-		theme.Dim.Render(fmt.Sprintf("%-18s", "key fingerprint")) + m.keyLabel(),
+		theme.Dim.Render(fmt.Sprintf("%-*s", labelW, "key fingerprint"))+m.keyLabel(),
 		"",
-		theme.Dim.Render("Change these with ") + theme.Bold.Render("frost config set") + theme.Dim.Render(" or ") + theme.Bold.Render("frost config edit"),
-	}
-	w := min(m.innerW()-8, 90)
+	)
+	lines = append(lines, settingsFooter(printable(m.st.Version), w)...)
 	for i, l := range lines {
 		lines[i] = pad(l, w)
 	}
 	return m.center(theme.Box(true).Padding(1, 3).Render(stack(lines...)))
+}
+
+// settingsFooter is the how-to-change line, with the version set in the
+// bottom-right corner like a colophon. It takes two lines when one's too
+// narrow.
+func settingsFooter(version string, w int) []string {
+	first := theme.Dim.Render("Change these with ") + theme.Bold.Render("frost config set") + theme.Dim.Render(" or")
+	second := theme.Bold.Render("frost config edit")
+	colophon := ""
+	if version != "" {
+		colophon = theme.Dim.Render("frost " + version)
+	}
+	right := func(left string) string {
+		gap := w - lipgloss.Width(left) - lipgloss.Width(colophon)
+		if colophon == "" || gap < 2 {
+			return left
+		}
+		return left + fill(gap, 1) + colophon
+	}
+	one := first + theme.Text.Render(" ") + second
+	if lipgloss.Width(one)+2+lipgloss.Width(colophon) <= w || (colophon == "" && lipgloss.Width(one) <= w) {
+		return []string{right(one)}
+	}
+	if lipgloss.Width(first)+2+lipgloss.Width(colophon) <= w {
+		return []string{right(first), second}
+	}
+	return []string{first, right(second)}
 }
 
 // ---- helpers ----

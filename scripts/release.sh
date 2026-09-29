@@ -21,6 +21,7 @@ TARGETS="darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 linux/armv7 windows/a
 KEY="${FROST_SIGNING_KEY:-$HOME/.ssh/frost-release}"
 PUBFILE="install/release-signing.pub"
 INSTALLER="install/install.sh"
+GOKEY="internal/update/key.go" # frost update checks releases against this copy
 SIGNER="frost-release" # identity used in allowed_signers, must match install.sh
 LDFLAG_VERSION="github.com/rhymeswithlimo/frost/internal/cli.Version"
 
@@ -107,7 +108,7 @@ setup_key() {
   header "SIGNING KEY"
   section "Release signing key"
   field "Private" "$KEY"
-  field "Public" "$PUBFILE, and RELEASE_KEY in $INSTALLER"
+  field "Public" "$PUBFILE, RELEASE_KEY in $INSTALLER, releaseKey in $GOKEY"
   say ""
   if [ -f "$KEY" ]; then
     say "  A key already exists at $KEY. Using it."
@@ -125,13 +126,15 @@ setup_key() {
   tmp="$(mktemp)"
   awk -v k="$pub" '/^RELEASE_KEY=/ { print "RELEASE_KEY=\"" k "\""; next } { print }' "$INSTALLER" >"$tmp"
   cat "$tmp" >"$INSTALLER"
+  awk -v k="$pub" '/^const releaseKey = / { print "const releaseKey = \"" k "\""; next } { print }' "$GOKEY" >"$tmp"
+  cat "$tmp" >"$GOKEY"
   rm -f "$tmp"
 
   section "Done"
   field "Fingerprint" "$(ssh-keygen -l -f "$KEY.pub" | awk '{ print $2 }')"
   say ""
   say "  Next:"
-  say "  1. Commit $PUBFILE and $INSTALLER."
+  say "  1. Commit $PUBFILE, $INSTALLER and $GOKEY."
   say "  2. Back up $KEY somewhere safe. Without it you can't sign releases"
   say "     that existing installs will trust."
   exit 0
@@ -253,7 +256,7 @@ c_changelog() {
 }
 
 c_files() {
-  for f in LICENSE README.md go.mod cmd/frost/main.go "$INSTALLER"; do
+  for f in LICENSE README.md go.mod cmd/frost/main.go "$INSTALLER" "$GOKEY"; do
     [ -f "$f" ] || {
       echo "$f is missing"
       return 1
@@ -372,12 +375,13 @@ c_key() {
     soft
     return
   fi
-  local pub committed embedded
+  local pub committed embedded compiled
   pub="$(awk '{ print $1, $2 }' "$KEY.pub")"
   committed="$(awk '{ print $1, $2 }' "$PUBFILE" 2>/dev/null || true)"
   embedded="$(sed -n 's/^RELEASE_KEY="\(.*\)"$/\1/p' "$INSTALLER")"
-  if [ "$pub" != "$committed" ] || [ "$pub" != "$embedded" ]; then
-    echo "$KEY doesn't match $PUBFILE and $INSTALLER, run --setup-key"
+  compiled="$(sed -n 's/^const releaseKey = "\(.*\)"$/\1/p' "$GOKEY")"
+  if [ "$pub" != "$committed" ] || [ "$pub" != "$embedded" ] || [ "$pub" != "$compiled" ]; then
+    echo "$KEY doesn't match $PUBFILE, $INSTALLER and $GOKEY, run --setup-key"
     return 1
   fi
   ssh-keygen -l -f "$KEY.pub" | awk '{ print $2 }'

@@ -151,8 +151,10 @@ func TestScreens(t *testing.T) {
 	dump := os.Getenv("FROST_TUI_DUMP")
 
 	// Down to absurdly small, where things may be cut but must not break.
+	st := StateFrom(e)
+	st.Version, st.Updates = "v0.1.0", "automatic, v0.2.0 installs after the next backup"
 	for _, size := range [][2]int{{120, 36}, {80, 24}, {50, 20}, {250, 70}, {40, 12}, {24, 8}, {10, 4}, {1, 1}} {
-		var m tea.Model = newModel(context.Background(), e.Repo, config.Default(), StateFrom(e))
+		var m tea.Model = newModel(context.Background(), e.Repo, config.Default(), st)
 		m = step(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		m = step(t, m, m.(model).loadSnaps()())
 

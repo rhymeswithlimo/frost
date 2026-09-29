@@ -22,6 +22,7 @@ type Config struct {
 	Exclude  []string `toml:"exclude"`
 	Schedule Schedule `toml:"schedule"`
 	Verify   Verify   `toml:"verify"`
+	Update   Update   `toml:"update"`
 	Storage  Storage  `toml:"storage"`
 }
 
@@ -34,6 +35,11 @@ type Schedule struct {
 // Verify controls the post-backup spot check.
 type Verify struct {
 	Sample int `toml:"sample"`
+}
+
+// Update controls automatic updates.
+type Update struct {
+	Auto bool `toml:"auto"`
 }
 
 // Storage picks and configures a backend.
@@ -66,6 +72,7 @@ func Default() Config {
 		Exclude:  []string{".DS_Store", "Thumbs.db", "*.tmp", "*.swp", "node_modules", ".cache"},
 		Schedule: Schedule{Enabled: true, Every: "daily"},
 		Verify:   Verify{Sample: 20},
+		Update:   Update{Auto: true},
 	}
 }
 
@@ -286,6 +293,12 @@ every = {{q .Schedule.Every}}
 # After each backup, download this many random chunks and check them.
 # 0 turns the check off.
 sample = {{.Verify.Sample}}
+
+[update]
+# Install new frost releases after a scheduled backup, at most once a day.
+# false only tells you about them in frost status. Either way, frost update
+# installs one now.
+auto = {{.Update.Auto}}
 
 [storage]
 # "permafrost", or "s3" for any S3-compatible bucket.

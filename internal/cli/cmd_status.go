@@ -4,14 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/engine"
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
+	"github.com/rhymeswithlimo/frost/internal/update"
 )
 
 func newStatusCmd() *cobra.Command {
@@ -62,13 +65,16 @@ downloaded and checked against its hashes).
 			}
 			slices.SortFunc(snaps, func(x, y snapshot.Snapshot) int { return y.Time.Compare(x.Time) })
 
-			fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(e.Repo.Backend.String()+"  key "+e.Repo.Key.Fingerprint()))
+			fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(Version+"  "+e.Repo.Backend.String()+"  key "+e.Repo.Key.Fingerprint()))
 
 			// Last run.
 			if last, ok := e.LastBackup(); !ok {
 				fmt.Fprintln(out, kv("last backup", dim("never")))
 			} else if last.Error != "" {
 				fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(last.Time)+": "+printable(last.Error)))
+				if v, ok := recentlyUpdated(); ok && runtime.GOOS == "darwin" && strings.Contains(last.Error, "operation not permitted") {
+					fmt.Fprintln(out, kv("", dim("frost updated itself to "+v+". "+fdaHint)))
+				}
 			} else if len(last.Missing) > 0 || last.Skipped > 0 {
 				var buts []string
 				if len(last.Missing) > 0 {
@@ -96,6 +102,12 @@ downloaded and checked against its hashes).
 					fmt.Fprintln(out, "               "+printable(f))
 				}
 				fmt.Fprintln(out, "               "+dim("Run a new backup to re-upload anything missing, then `frost status --verify`."))
+			}
+
+			if text, warn := updateSummary(a.cfg, update.LoadState(updateStatePath()), time.Now()); warn {
+				fmt.Fprintln(out, kv("updates", caution(printable(text))))
+			} else {
+				fmt.Fprintln(out, kv("updates", printable(text)))
 			}
 
 			if len(snaps) > 0 {

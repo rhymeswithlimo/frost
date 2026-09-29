@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/desktop"
 	"github.com/rhymeswithlimo/frost/internal/schedule"
 	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
+	"github.com/rhymeswithlimo/frost/internal/update"
 )
 
 // run executes the CLI with args and stdin, returning combined output.
@@ -72,7 +74,13 @@ func setup(t *testing.T) *fixture {
 	newKey = func() (*crypto.Key, error) { return f.key, nil }
 	pickWords = func() (int, int) { return 2, 17 }
 	openBrowser = func(string) error { return errors.New("no browser in tests") }
+	latestRelease = func(context.Context) (update.Release, error) {
+		return update.Release{}, errors.New("no network in tests")
+	}
+	installRelease = func(context.Context, update.Release, string) error { return errors.New("no updates in tests") }
 	t.Cleanup(func() {
+		latestRelease = update.Latest
+		installRelease = update.Install
 		syncSchedule = installSchedule
 		scheduleKind = schedule.Kind
 		scheduleInstalled = schedule.Installed
@@ -258,15 +266,20 @@ func TestNewMachineImport(t *testing.T) {
 	}
 }
 
-func TestSevenCommands(t *testing.T) {
-	var names []string
-	for _, c := range NewRoot().Commands() {
-		if !c.Hidden && c.Name() != "help" {
-			names = append(names, c.Name())
-		}
+// Cobra's built-in help and completion commands stay off: -h covers help,
+// and completion scripts aren't something frost ships.
+func TestNoBuiltinCommands(t *testing.T) {
+	// Cobra only adds them while executing.
+	root := NewRoot()
+	root.SetArgs([]string{"--help"})
+	root.SetOut(io.Discard)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
 	}
-	if len(names) != 7 {
-		t.Fatalf("commands = %v, want exactly 7", names)
+	for _, c := range root.Commands() {
+		if !c.Hidden && (c.Name() == "help" || c.Name() == "completion") {
+			t.Fatalf("%s command is visible", c.Name())
+		}
 	}
 }
 

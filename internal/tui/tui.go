@@ -92,15 +92,18 @@ const (
 	scrRestore
 )
 
-// State is what the browser needs from the local manifest. It's read up
-// front so the manifest (and its lock) can be released while the browser is
-// open, and a scheduled backup can still run.
+// State is what the browser needs from this machine. It's read up front so
+// the manifest (and its lock) can be released while the browser is open,
+// and a scheduled backup can still run.
 type State struct {
 	Known     map[string]snapshot.Snapshot
 	Last      engine.LastRun
 	HasLast   bool
 	Verify    engine.VerifyResult
 	HasVerify bool
+
+	Version string // e.g. v0.1.0, or dev
+	Updates string // how updates are set up, for settings
 }
 
 // StateFrom reads State from an engine's manifest.

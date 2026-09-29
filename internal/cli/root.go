@@ -1,4 +1,4 @@
-// Package cli wires frost's seven commands together.
+// Package cli wires frost's commands together.
 package cli
 
 import (
@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 
 	"github.com/spf13/cobra"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
+	"github.com/rhymeswithlimo/frost/internal/update"
 )
 
 // Version is set at build time with -ldflags "-X .../cli.Version=v1.2.3".
@@ -48,6 +50,7 @@ can read your files, not the storage provider and not the frost authors.`,
 		newBrowseCmd(),
 		newConfigCmd(),
 		newKeyCmd(),
+		newUpdateCmd(),
 	)
 	return root
 }
@@ -57,6 +60,13 @@ func Execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	defer enableANSI()()
+	update.UserAgent = "frost/" + Version
+	if runtime.GOOS == "windows" {
+		// The binary an update replaced can only be deleted once it has exited.
+		if exe, err := update.Executable(); err == nil {
+			update.Cleanup(exe)
+		}
+	}
 	if err := NewRoot().ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, errStyle("error:"), printable(plainError(err).Error()))
 		return 1

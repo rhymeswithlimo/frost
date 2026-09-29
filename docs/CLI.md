@@ -1,6 +1,6 @@
 # CLI reference
 
-frost has seven commands. Every command accepts `--config-dir <dir>` to use a different config directory, and `-h` for help.
+Every command accepts `--config-dir <dir>` to use a different config directory, and `-h` for help.
 
 ## `frost init`
 
@@ -85,7 +85,7 @@ With no arguments in a terminal, `restore` opens the snapshot browser. There, "R
 
 ## `frost status`
 
-Shows the repository and key fingerprint, the last backup and whether it worked, when the next one is due, the latest verification result, and the 10 most recent snapshots.
+Shows the version, the repository and key fingerprint, how updates are set up, the last backup and whether it worked, when the next one is due, the latest verification result, and the 10 most recent snapshots.
 
 | Flag | Does |
 |---|---|
@@ -109,6 +109,34 @@ Arrow keys or `j`/`k` move, `pgup`/`pgdn` page, `g`/`G` jump to top and bottom.
 
 After a successful restore, the browser opens the result in Finder, Explorer or your Linux file manager: a single file is shown selected (on Linux, its folder opens), otherwise the deepest folder holding everything restored. Nothing opens over SSH, without a display, or when the restore fails.
 
+## `frost update`
+
+Installs the latest frost release over the binary you ran.
+
+| Flag | Does |
+|---|---|
+| `--check` | Only say whether there's a newer release |
+
+It downloads the release's `checksums.txt` and `checksums.txt.sig`, checks the signature against the release key built into frost, downloads the archive for your platform and checks its SHA-256. Then it writes the new binary next to the old one, runs it once with `--version`, and renames it into place. If any step fails, the old binary is untouched. Config, key and backups aren't touched either.
+
+Pre-releases are never installed, and nothing older than what you're running is either.
+
+It can't update:
+
+| When | Do instead |
+|---|---|
+| frost was built from source (`go install`, `go build`) | Rebuild it, or use the installer |
+| Homebrew, Nix, Snap, Scoop or a system package installed it | Update it with that |
+| You can't write to the folder it's in, e.g. a root-owned `/usr/local/bin` | `sudo frost update`, or reinstall somewhere you can write to |
+
+### Automatic updates
+
+After a scheduled backup, frost checks for a new release at most once a day and installs it the same way. The check runs whether or not the backup worked, and a failed check or install never fails the backup. It's logged to the scheduled run log and shown in `frost status` and the browser's settings.
+
+With `update.auto` set to `false`, the check still runs and `frost status` says when a release is out, but nothing is installed until you run `frost update`. Without scheduled backups there's no background check at all.
+
+On macOS, Full Disk Access may need turning off and on again for the new binary. If a backup fails with "operation not permitted" soon after an update, the error says so.
+
 ## `frost config`
 
 | Usage | Does |
@@ -129,6 +157,7 @@ Changing `schedule.enabled` or `schedule.every` updates the OS scheduled job str
 | `schedule.enabled` | `true` | Run backups automatically |
 | `schedule.every` | `daily` | `hourly`, `2h`, `3h`, `4h`, `6h`, `8h`, `12h`, `daily` or `weekly` |
 | `verify.sample` | `20` | Chunks re-downloaded and checked after each backup. `0` turns it off |
+| `update.auto` | `true` | Install new releases after scheduled backups. `false` only tells you about them |
 | `storage.backend` | | `s3` or `permafrost` |
 | `storage.s3.endpoint` | | e.g. `s3.us-east-1.amazonaws.com`. A full `https://` URL also works |
 | `storage.s3.region` | | Blank if your provider doesn't use one |
@@ -168,6 +197,7 @@ Values from the environment are never written back into `config.toml`.
 | Key | `~/.config/frost/key` | `%AppData%\frost\key` |
 | Manifest (cache) | `~/.cache/frost/manifest-<repo>.db` | `%LocalAppData%\frost\manifest-<repo>.db` |
 | Scheduled run log | `~/.cache/frost/frost.log` | `%LocalAppData%\frost\frost.log` |
+| Update check | `~/.cache/frost/update.json` | `%LocalAppData%\frost\update.json` |
 
 `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` are respected on macOS and Linux.
 
@@ -180,7 +210,7 @@ Values from the environment are never written back into `config.toml`.
 | Linux without systemd | cron | A line in your crontab tagged `# frost-backup` |
 | Windows | Task Scheduler | Task named `frost backup` |
 
-The job runs `frost backup --scheduled`, which logs plain lines instead of a progress bar. The systemd timer is `Persistent`, and launchd's interval timer catches up after sleep, so a laptop that was closed runs the missed backup when it wakes. Cron doesn't catch up.
+The job runs `frost backup --scheduled`, which logs plain lines instead of a progress bar, then checks for updates (see [automatic updates](#automatic-updates)). The systemd timer is `Persistent`, and launchd's interval timer catches up after sleep, so a laptop that was closed runs the missed backup when it wakes. Cron doesn't catch up.
 
 ## Exit codes
 

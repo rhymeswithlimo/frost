@@ -98,6 +98,10 @@ func run(latency time.Duration, empty, broken bool) error {
 
 	st := tui.StateFrom(e)
 	m.Close()
+	st.Version, st.Updates = "v0.1.0", "automatic, v0.2.0 installs after the next backup"
+	if broken {
+		st.Updates = "v0.2.0 is out, but the last update failed: can't write to /usr/local/bin. Run frost update"
+	}
 
 	r.Backend = &slow{Backend: mem, delay: latency}
 	if err := tui.Run(ctx, r, cfg, st); err != nil {

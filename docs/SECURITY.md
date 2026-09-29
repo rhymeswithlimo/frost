@@ -64,6 +64,7 @@ The regular spot check re-downloads a random sample of chunks after each backup.
 - Tampering, truncation or swapping of stored objects (detected, never silently accepted)
 - Restore path traversal and symlink parents under an explicit target, using confined directory handles and path validation
 - An in-place restore being redirected by another user's link on the path to your files (links owned by root or by you are followed; on Windows no link is)
+- Corrupted, swapped or tampered frost downloads. Each release's `checksums.txt` is signed with the release key (`checksums.txt.sig`). The install script checks that signature against the public key in the repository (`install/release-signing.pub`), then checks the archive against the checksums. `frost update` does the same, see [Updates](#updates)
 
 **Not protected against:**
 
@@ -71,7 +72,23 @@ The regular spot check re-downloads a random sample of chunks after each backup.
 - **Losing data.** A provider can delete or withhold your objects. Verification can detect this, and restoring affected files fails, but frost can't prevent deletion. Keep a second copy somewhere independent for anything irreplaceable.
 - **Rollback.** A provider could hide the newest snapshots and serve only older ones. frost doesn't detect this yet. Each snapshot it does serve is still authentic.
 - **Traffic analysis.** Backup timing and sizes are visible, as listed above.
-- **A compromised frost binary.** Install from the official releases. Each release's `checksums.txt` is signed with the maintainer's release key (`checksums.txt.sig`), and the install script checks that signature against the public key in the repository (`install/release-signing.pub`) before checking the archive against the checksums. That catches corrupted, swapped or tampered downloads. It can't help if the release key itself is stolen, or if someone can change the install script in the repository.
+
+## Updates
+
+`frost update`, and scheduled backups unless `update.auto` is `false`, replace the frost binary with the latest release. A release is only installed if:
+
+| Check | Stops |
+|---|---|
+| `checksums.txt.sig` is an SSH signature, namespace `file`, by the release key compiled into frost | A tampered or swapped release, a hijacked GitHub account or CDN |
+| The archive's SHA-256 matches its line in the signed `checksums.txt` | A tampered or corrupted download |
+| The archive's name in that file carries the release's version, and that version is newer than yours | Rolling you back to an older signed release. Pre-releases are never picked |
+| The new binary runs and reports that version | Installing something that won't start |
+
+The signature check is built into frost and fails closed. Unlike the install script, it never falls back to checksums only. Only the `frost` binary is taken from the archive, and every download has a size cap.
+
+The binary is replaced with a rename, so it's never half written. On Windows the running `.exe` is moved aside and deleted on a later run.
+
+Set `update.auto` to `false` if you'd rather review each release first: frost still says when one is out.
 
 ## Getting a Permafrost key in setup
 
@@ -84,12 +101,13 @@ The browser hands the key back to frost on `127.0.0.1`, checked against a random
 | `~/.config/frost/key` | Your recovery phrase, in plain text | `0600` |
 | `~/.config/frost/config.toml` | Settings and storage credentials | `0600` |
 | `~/.cache/frost/manifest-*.db` | Chunk IDs, and your file paths with sizes and mtimes | `0600` |
+| `~/.cache/frost/update.json` | When updates were last checked, the newest release seen, the last error | `0600` |
 
 The manifest holds file paths in plain text, same as your file system does. It never leaves the machine.
 
 On Windows these files are protected by your user profile's default permissions rather than Unix modes.
 
-Restore replaces files individually after checking their data and size. If a later file fails, earlier replacements remain. Restored symlinks retain their original targets, which can point outside the restore directory when you open them later. Restore isn't a sandbox against another process running as your user and concurrently changing filesystem paths. Neither restore nor a successful spot check guarantees survival of hardware failure or abrupt power loss.
+Restore replaces files individually after checking their data and size. If a later file fails, earlier replacements remain. Restored symlinks retain their original targets, which can point outside the restore directory when you open them later.
 
 ## Verifying a download by hand
 

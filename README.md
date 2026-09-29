@@ -34,6 +34,7 @@ frost generates your encryption key locally and shows it as a 24 word recovery p
 - **Terminal browser**: browse snapshots, diff them and pick files to restore in frost's very own TUI.
 - **Checks itself**: after each backup, frost re-downloads a random sample of chunks and verifies them, so problems show up in `frost status` before you need a restore.
 - **Runs on a schedule**: launchd, systemd, cron or Task Scheduler, set up for you during `frost init`.
+- **Keeps itself up to date**: scheduled backups install new releases, checked against frost's signing key first. `frost update` does it now.
 
 ## Install
 
@@ -48,6 +49,8 @@ If you prefer doing it by hand, grab an archive from [Releases](https://github.c
 ```sh
 go install github.com/rhymeswithlimo/frost/cmd/frost@latest
 ```
+
+Builds from source don't update themselves. Run `go install` again for a new version.
 
 ## Quickstart
 
@@ -70,8 +73,6 @@ Every restore says where it goes: `--beside` (a new folder next to the originals
 
 ## Commands
 
-frost has exactly seven commands.
-
 ```text
 frost <command> [flags]
 
@@ -83,6 +84,7 @@ COMMANDS:
    browse                        open the snapshot browser (TUI)
    config [get|set|edit]         print or change settings
    key <show|verify|import>      manage your recovery phrase
+   update                        install the latest release
 
 GLOBAL (every command):
    --config-dir string           use a different config directory
@@ -106,6 +108,9 @@ STATUS:
 
 CONFIG:
    --show-secrets                show credentials instead of masking them
+
+UPDATE:
+   --check                       only say whether there's a newer release
 ```
 
 A snapshot can be `latest`, an ID or its prefix (`maple`), a relative time (`12h`, `2w`, `3 days ago`), `yesterday`, or a date (`2026-09-20 14:30`). You always get the newest snapshot at or before that point. With no arguments in a terminal, `restore` opens the browser.
