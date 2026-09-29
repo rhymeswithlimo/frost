@@ -131,7 +131,6 @@ You pick one during `frost init`. Credentials can also come from the environment
 - [CLI reference](docs/CLI.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security model](docs/SECURITY.md)
-- [Security and correctness audit](docs/AUDIT.md)
 - [Permafrost API](docs/PERMAFROST.md)
 - [Changelog](docs/CHANGELOG.md)
 
