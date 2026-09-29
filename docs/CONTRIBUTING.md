@@ -42,4 +42,4 @@ To try the snapshot browser on fake data, run `go run ./internal/tui/demo`.
 - Changes to the on-disk or in-bucket format need a version bump in `internal/repo` and a migration.
 - "frost" is always lowercase.
 
-CI checks formatting, vet and tests on Linux, macOS and Windows.
+CI checks formatting, vet and tests on Linux, macOS and Windows. A separate weekly run checks dependencies for known vulnerabilities with govulncheck.
