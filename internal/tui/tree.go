@@ -11,9 +11,14 @@ import (
 // tree indexes a snapshot's flat file list so it can be browsed as folders.
 type tree struct {
 	files    map[string]*snapshot.File
-	children map[string][]string // parent path -> child paths, folders first
-	sizes    map[string]int64    // total size under each path
-	roots    []string            // the backed-up directories
+	children map[string][]string  // parent path -> child paths, folders first
+	totals   map[string]fileTotal // regular files and bytes under each path
+	roots    []string             // the backed-up directories
+}
+
+type fileTotal struct {
+	files int
+	bytes int64
 }
 
 // rootKey is the parent of the backed-up directories.
@@ -23,7 +28,7 @@ func newTree(s snapshot.Snapshot, t *snapshot.Tree) *tree {
 	x := &tree{
 		files:    make(map[string]*snapshot.File, len(t.Files)),
 		children: map[string][]string{},
-		sizes:    map[string]int64{},
+		totals:   make(map[string]fileTotal, len(t.Files)),
 	}
 	for i := range t.Files {
 		f := &t.Files[i]
@@ -45,7 +50,10 @@ func newTree(s snapshot.Snapshot, t *snapshot.Tree) *tree {
 		if f.Type == snapshot.TypeFile {
 			// Add the size to every ancestor up to the root.
 			for q := p; ; q = path.Dir(q) {
-				x.sizes[q] += f.Size
+				total := x.totals[q]
+				total.bytes += f.Size
+				total.files++
+				x.totals[q] = total
 				if isRoot[q] || path.Dir(q) == q {
 					break
 				}
@@ -53,19 +61,55 @@ func newTree(s snapshot.Snapshot, t *snapshot.Tree) *tree {
 		}
 	}
 	for k, kids := range x.children {
-		slices.SortFunc(kids, func(a, b string) int {
-			da, db := x.isDir(a), x.isDir(b)
-			if da != db {
-				if da {
+		if len(kids) < 2 {
+			continue
+		}
+		// Compute case-folded names once per entry, not twice on every
+		// comparison. Large folders otherwise allocate millions of strings.
+		type child struct {
+			path, name string
+			dir        bool
+		}
+		ordered := make([]child, len(kids))
+		for i, p := range kids {
+			ordered[i] = child{p, strings.ToLower(path.Base(p)), x.isDir(p)}
+		}
+		slices.SortFunc(ordered, func(a, b child) int {
+			if a.dir != b.dir {
+				if a.dir {
 					return -1
 				}
 				return 1
 			}
-			return strings.Compare(strings.ToLower(path.Base(a)), strings.ToLower(path.Base(b)))
+			if cmp := strings.Compare(a.name, b.name); cmp != 0 {
+				return cmp
+			}
+			return strings.Compare(a.path, b.path) // stable order for case-only differences
 		})
+		for i, c := range ordered {
+			kids[i] = c.path
+		}
 		x.children[k] = kids
 	}
 	return x
+}
+
+// selectionTotals counts each selected subtree once, including when callers
+// supply both a folder and one of its descendants.
+func (x *tree) selectionTotals(sel map[string]bool) (files int, bytes int64) {
+	for p, selected := range sel {
+		if !selected {
+			continue
+		}
+		parent := path.Dir(p)
+		if parent != p && covered(parent, sel) {
+			continue
+		}
+		total := x.totals[p]
+		files += total.files
+		bytes += total.bytes
+	}
+	return
 }
 
 func (x *tree) isDir(p string) bool {

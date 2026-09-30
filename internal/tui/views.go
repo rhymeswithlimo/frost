@@ -5,6 +5,7 @@ import (
 	"path"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -95,8 +96,9 @@ type snapRow struct {
 	idx    int
 }
 
-func (m model) snapRows() []snapRow {
-	var rows []snapRow
+func (m *model) indexSnapshots() {
+	rows := make([]snapRow, 0, len(m.snaps))
+	m.snapPositions = make([]int, len(m.snaps))
 	last := ""
 	for i, s := range m.snaps {
 		d := s.Time.Local().Format("Mon 02 Jan 2006")
@@ -104,9 +106,10 @@ func (m model) snapRows() []snapRow {
 			rows = append(rows, snapRow{header: d})
 			last = d
 		}
+		m.snapPositions[i] = len(rows)
 		rows = append(rows, snapRow{idx: i})
 	}
-	return rows
+	m.snapLayout = rows
 }
 
 func (m model) viewSnapshots() string {
@@ -121,13 +124,8 @@ func (m model) viewSnapshots() string {
 	}
 	inner := listW - 4 // border and padding
 
-	rows := m.snapRows()
-	curRow := 0
-	for i, r := range rows {
-		if r.header == "" && r.idx == m.snapCur {
-			curRow = i
-		}
-	}
+	rows := m.snapLayout
+	curRow := m.snapPositions[m.snapCur]
 	top := window(curRow, len(rows), h)
 
 	var lines []string
@@ -173,7 +171,7 @@ func (m model) snapDetail(s snapshot.Snapshot, w int) string {
 		return pad(theme.Dim.Render(fmt.Sprintf("%-10s", k))+theme.Text.Render(truncate(v, w-10)), w)
 	}
 	lines := []string{
-		pad(theme.Bold.Render(s.ID), w),
+		pad(theme.Bold.Render(printable(s.ID)), w),
 		fill(w, 1),
 		row("taken", s.Time.Local().Format("2006-01-02 15:04:05")),
 		row("", ago(s.Time)),
@@ -236,7 +234,7 @@ func (m model) viewFiles() string {
 		switch f.Type {
 		case snapshot.TypeDir:
 			name += "/"
-			size = humanBytes(m.tree.sizes[p])
+			size = humanBytes(m.tree.totals[p].bytes)
 		case snapshot.TypeSymlink:
 			name += " -> " + f.Target
 			size = ""
@@ -349,7 +347,7 @@ func (m model) viewSettings() string {
 	c := m.cfg
 	w := min(m.innerW()-8, 90)
 	row := func(k, v string) string {
-		return theme.Dim.Render(fmt.Sprintf("%-*s", labelW, k)) + theme.Text.Render(v)
+		return theme.Dim.Render(fmt.Sprintf("%-*s", labelW, k)) + theme.Text.Render(printable(v))
 	}
 	sched := "off"
 	if c.Schedule.Enabled {
@@ -438,14 +436,26 @@ func relToRoot(p string, roots ...[]string) string {
 func truncateLeft(s string, w int) string {
 	s = printable(s)
 	sw := ansi.StringWidth(s)
-	if sw <= w || w <= 3 {
+	if sw <= w {
 		return s
 	}
-	tail := ansi.TruncateLeft(s, sw-w+3, "")
-	if ansi.StringWidth(tail) > w-3 { // the cut landed inside a wide character
-		tail = ansi.TruncateLeft(s, sw-w+4, "")
+	if w <= 3 {
+		return tailCells(s, w)
 	}
-	return "..." + tail
+	return "..." + tailCells(s, w-3)
+}
+
+// tailCells keeps whole graphemes at the end of s without an ellipsis.
+func tailCells(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	cut := max(ansi.StringWidth(s)-w, 0)
+	tail := ansi.TruncateLeft(s, cut, "")
+	if ansi.StringWidth(tail) > w { // the cut landed inside a wide character
+		tail = ansi.TruncateLeft(s, cut+1, "")
+	}
+	return tail
 }
 
 // truncate fits s into w cells by cutting from the right. Widths are in
@@ -464,6 +474,9 @@ func truncate(s string, w int) string {
 // printable replaces control characters, which file names can contain on
 // Unix, so a name can't move the cursor or restyle the screen.
 func printable(s string) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "?")
+	}
 	if !strings.ContainsFunc(s, unicode.IsControl) {
 		return s
 	}

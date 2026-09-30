@@ -24,7 +24,7 @@ const (
 )
 
 func (m setupModel) View() string {
-	if m.w == 0 {
+	if m.w <= 0 || m.h <= 0 {
 		return ""
 	}
 	if m.w < minW || m.h < minH {
@@ -474,7 +474,7 @@ func listRows(items []string, sel, n, w int, row func(i int, on bool) string) []
 
 // para wraps s to w cells in style st, on the background.
 func para(st lipgloss.Style, s string, w int) string {
-	return solid(st.Width(w).Render(s))
+	return solid(st.Width(w).Render(printable(s)))
 }
 
 func blank(w int) string { return fill(w, 1) }
@@ -515,35 +515,26 @@ func inputText(f field, reveal, focused bool, w int) string {
 	if f.secret && !reveal {
 		r = []rune(strings.Repeat("•", len(r)))
 	}
-	at := f.cursor()
+	at := len(r) - min(max(f.back, 0), len(r))
 	if !focused {
 		return theme.Text.Render(truncateLeft(string(r), w))
 	}
-	// The cells in view, with the end-of-line cursor counting as one.
-	cells := func(from, to int) int {
-		n := ansi.StringWidth(string(r[from:to]))
-		if to == len(r) && at == len(r) {
-			n++
-		}
-		return n
-	}
-	from, to := 0, len(r)
-	for cells(from, to) > w && to > at+1 { // drop from the right, past the cursor
-		to--
-	}
-	for cells(from, to) > w && from < at { // then from the left, up to it
-		from++
-	}
-	var b strings.Builder
-	b.WriteString(theme.Text.Render(string(r[from:at])))
+	// Fit the text on either side of the cursor in linear time. Rescanning
+	// a shrinking copy of the entire answer makes long pastes quadratic.
+	cursor := "█"
 	if at < len(r) {
-		b.WriteString(theme.Selected.Render(string(r[at])))
-		b.WriteString(theme.Text.Render(string(r[at+1 : to])))
+		cursor = string(r[at])
 	}
-	if to == len(r) && at == len(r) {
-		b.WriteString(theme.Text.Render("█"))
+	cursorW := ansi.StringWidth(cursor)
+	left := tailCells(string(r[:at]), max(w-cursorW, 0))
+	text := theme.Text.Render(left)
+	if at < len(r) {
+		right := ansi.Truncate(string(r[at+1:]), max(w-ansi.StringWidth(left)-cursorW, 0), "")
+		text += theme.Selected.Render(cursor) + theme.Text.Render(right)
+	} else {
+		text += theme.Text.Render(cursor)
 	}
-	return b.String()
+	return truncate2(text, max(w, 0))
 }
 
 // choice is one row of a pick-one list: an inverted bar when chosen.

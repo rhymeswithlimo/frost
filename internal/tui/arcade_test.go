@@ -24,7 +24,7 @@ func newTestArcade(t *testing.T) *arcade {
 // step runs one tick with spawning switched off by clearing new things.
 func (a *arcade) stepNoSpawn() {
 	before := len(a.things)
-	a.tick(arcadeTickMsg{a.gen})
+	a.tick(arcadeTickMsg{gen: a.gen})
 	a.things = a.things[:min(before, len(a.things))]
 }
 
@@ -91,7 +91,7 @@ func TestGameOverSavesBest(t *testing.T) {
 	a := newTestArcade(t)
 	a.score, a.lives = 1234, 1
 	a.things = []thing{{kind: kindRot, x: a.shipX, y: float64(a.h - 2), vy: 1}}
-	if cmd := a.tick(arcadeTickMsg{a.gen}); cmd != nil {
+	if cmd := a.tick(arcadeTickMsg{gen: a.gen}); cmd != nil {
 		t.Fatal("tick loop kept running after game over")
 	}
 	if a.phase != phaseOver || !a.newBest || a.best != 1234 {
@@ -125,7 +125,7 @@ func TestStaleTicksIgnored(t *testing.T) {
 	old := a.gen
 	a.key("p")
 	a.key("p") // resuming starts a new tick loop
-	if cmd := a.tick(arcadeTickMsg{old}); cmd != nil {
+	if cmd := a.tick(arcadeTickMsg{gen: old}); cmd != nil {
 		t.Fatal("stale tick loop kept running")
 	}
 }
@@ -151,7 +151,7 @@ func TestArcadeRendersToSize(t *testing.T) {
 			case "playing":
 				a.start()
 				for range 200 {
-					a.tick(arcadeTickMsg{a.gen})
+					a.tick(arcadeTickMsg{gen: a.gen})
 					a.key("right")
 					a.key(" ")
 				}
@@ -273,14 +273,14 @@ func TestDifficultyRampsSlowly(t *testing.T) {
 	a := newTestArcade(t)
 	a.things = nil
 	for range 20 * 60 { // one minute
-		a.tick(arcadeTickMsg{a.gen})
+		a.tick(arcadeTickMsg{gen: a.gen})
 		a.things, a.lives = nil, startLives
 	}
 	if a.diff < 1.3 || a.diff > 1.5 || a.level != 1 {
 		t.Fatalf("after 1 minute diff=%.2f level=%d", a.diff, a.level)
 	}
 	for range 20 * 3 * 60 { // four minutes in
-		a.tick(arcadeTickMsg{a.gen})
+		a.tick(arcadeTickMsg{gen: a.gen})
 		a.things, a.lives = nil, startLives
 	}
 	if a.diff < 2.4 || a.diff > 2.8 {

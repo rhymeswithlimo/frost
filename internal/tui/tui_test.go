@@ -209,7 +209,7 @@ func TestScreens(t *testing.T) {
 			g = step(t, g, key("right"))
 			g = step(t, g, key(" "))
 			if gm := g.(model).game; gm != nil {
-				gm.tick(arcadeTickMsg{gm.gen})
+				gm.tick(arcadeTickMsg{gen: gm.gen})
 			}
 		}
 		shots["11-game-play"] = g

@@ -146,4 +146,6 @@ To add a backend, implement this and run `storagetest.Conformance` against it in
 
 `internal/tui` is a single bubbletea-based screen field: home, snapshots, files, diff, restore, plus help and settings overlays. Network work (listing snapshots, loading trees, diffing, restoring) runs in commands so the UI never blocks. A restore streams progress over a channel.
 
+Tree indexing also runs in a command. The browser indexes subtree file counts and sizes once, caches snapshot date headings, and reuses downloaded headers on refresh. Setup and browser work is cancelled when the program closes. Checkout cleanup runs even if the program exits before receiving its start message; picker and game messages identify their originating attempt.
+
 Styling (e.g. colors, border and spacing) is derived from `internal/theme`.

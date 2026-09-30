@@ -96,7 +96,10 @@ type spark struct {
 
 var fileExts = []string{"pdf", "jpg", "doc", "mp3", "zip", "txt", "png", "mov", "csv", "key", "psd", "wav"}
 
-type arcadeTickMsg struct{ gen int }
+type arcadeTickMsg struct {
+	gen   int
+	owner *arcade // prevents a previous game's tick from advancing a new game
+}
 
 type arcade struct {
 	w, h  int // playfield size in cells
@@ -179,7 +182,7 @@ func (a *arcade) save() {
 
 // resize fits the playfield to the space available.
 func (a *arcade) resize(w, h int) {
-	a.w, a.h = min(w, arcadeMaxW), min(h, arcadeMaxH)
+	a.w, a.h = max(0, min(w, arcadeMaxW)), max(0, min(h, arcadeMaxH))
 	a.shipX = max(0, min(a.shipX, a.w-3))
 }
 
@@ -199,7 +202,7 @@ func (a *arcade) start() tea.Cmd {
 func (a *arcade) tickCmd() tea.Cmd {
 	a.gen++
 	gen := a.gen
-	return tea.Tick(arcadeTick, func(time.Time) tea.Msg { return arcadeTickMsg{gen} })
+	return tea.Tick(arcadeTick, func(time.Time) tea.Msg { return arcadeTickMsg{gen: gen, owner: a} })
 }
 
 // key handles a key press. It returns done=true when the player leaves.
@@ -214,6 +217,9 @@ func (a *arcade) key(k string) (cmd tea.Cmd, done bool) {
 			a.gameOver() // leaving counts as a finished game for the best score
 		}
 		return nil, true
+	}
+	if a.tooSmall() {
+		return nil, false
 	}
 	switch a.phase {
 	case phaseTitle:
@@ -274,8 +280,11 @@ func (a *arcade) threat() float64 {
 // tick advances the game one step. It returns the next tick, or nil when
 // the game stopped.
 func (a *arcade) tick(msg arcadeTickMsg) tea.Cmd {
-	if msg.gen != a.gen || a.phase != phasePlaying {
+	if (msg.owner != nil && msg.owner != a) || msg.gen != a.gen || a.phase != phasePlaying {
 		return nil
+	}
+	if a.tooSmall() {
+		return a.tickCmd()
 	}
 	a.ticks++
 	// Difficulty rises a little every tick instead of jumping at each level,
@@ -303,7 +312,7 @@ func (a *arcade) tick(msg arcadeTickMsg) tea.Cmd {
 	a.hitBullets()
 	a.bottom()
 
-	var live []spark
+	live := a.sparks[:0]
 	for _, s := range a.sparks {
 		if s.ttl--; s.ttl > 0 {
 			if !s.hang {
@@ -391,7 +400,7 @@ func (a *arcade) crowded(t thing) bool {
 }
 
 func (a *arcade) hitBullets() {
-	var keep []bullet
+	keep := a.bullets[:0]
 	for _, b := range a.bullets {
 		if b.y < 0 {
 			continue
@@ -444,7 +453,7 @@ func (a *arcade) shatter(x, y, w int) {
 // bottom handles things reaching the ship's row.
 func (a *arcade) bottom() {
 	shipRow := a.h - 1
-	var keep []thing
+	keep := a.things[:0]
 	for _, t := range a.things {
 		overShip := t.x < a.shipX+3 && a.shipX < t.x+t.width()
 		switch {

@@ -121,12 +121,7 @@ func newRestoreState(s snapshot.Snapshot, paths []string, t *tree) restoreState 
 		f := t.files[paths[0]]
 		rs.showFile = f != nil && f.Type != snapshot.TypeDir
 	}
-	for p, f := range t.files {
-		if f.Type == snapshot.TypeFile && covered(p, sel) {
-			rs.files++
-			rs.bytes += f.Size
-		}
-	}
+	rs.files, rs.bytes = t.selectionTotals(sel)
 	seen := map[string]bool{}
 	for _, p := range paths {
 		rel, err := snapshot.RestoreRel(p, rs.base)
@@ -424,16 +419,17 @@ func (m *model) startRestore() tea.Cmd {
 		}
 		close(ch)
 	}()
-	return tea.Batch(m.spin.Tick, waitFor(ch))
+	return tea.Batch(m.spin.Tick, waitFor(m.ctx, ch))
 }
 
-func waitFor(ch chan tea.Msg) tea.Cmd {
+func waitFor(ctx context.Context, ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		msg, ok := <-ch
-		if !ok {
+		select {
+		case msg := <-ch:
+			return msg
+		case <-ctx.Done():
 			return nil
 		}
-		return msg
 	}
 }
 
@@ -441,7 +437,7 @@ func (m model) updateRestore(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case restoreProgressMsg:
 		m.rs.done, m.rs.total, m.rs.current = msg.done, msg.total, msg.path
-		return m, waitFor(m.rs.ch)
+		return m, waitFor(m.ctx, m.rs.ch)
 	case restoreDoneMsg:
 		m.rs.phase = phaseDone
 		m.rs.res, m.rs.err = msg.res, msg.err
@@ -611,8 +607,9 @@ func (m model) viewRestore() string {
 	case phaseRunning:
 		pct := 0
 		if rs.total > 0 {
-			pct = rs.done * 100 / rs.total
+			pct = int(100 * float64(max(0, min(rs.done, rs.total))) / float64(rs.total))
 		}
+		pct = max(0, min(pct, 100))
 		barW := w - 8
 		filled := barW * pct / 100
 		bar := theme.Selected.Render(strings.Repeat(" ", filled)) + theme.Faded.Render(strings.Repeat("·", barW-filled))

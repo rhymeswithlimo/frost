@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -70,6 +71,8 @@ type SetupResult struct {
 // Setup runs the wizard. cfg holds the current config (or defaults), and
 // existing says whether it came from a saved config.toml.
 func Setup(ctx context.Context, deps SetupDeps, cfg config.Config, existing bool) (SetupResult, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	final, err := tea.NewProgram(newSetup(ctx, deps, cfg, existing), tea.WithAltScreen(), tea.WithContext(ctx)).Run()
 	if err := programErr(ctx, err); err != nil {
 		return SetupResult{}, err
@@ -321,7 +324,7 @@ func (m setupModel) connect(s config.Storage) (tea.Model, tea.Cmd) {
 func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.w, m.h = msg.Width, msg.Height
+		m.w, m.h = max(msg.Width, 0), max(msg.Height, 0)
 		return m, nil
 
 	case spinner.TickMsg:
@@ -383,9 +386,12 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if msg.err == nil && msg.wait == nil {
+			msg.err = errors.New("checkout didn't start")
+		}
 		if msg.err != nil {
 			msg.cancel()
-			m.co.waiting, m.co.failed = false, msg.err.Error()
+			m.co.waiting, m.co.failed, m.co.cancel = false, msg.err.Error(), nil
 			return m, nil
 		}
 		m.co.page, m.co.cancel = msg.page, msg.cancel
@@ -401,7 +407,10 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.co.waiting = false
 		if msg.token == "" {
-			m.co.failed = msg.err.Error()
+			m.co.failed = "checkout didn't return an access key"
+			if msg.err != nil {
+				m.co.failed = msg.err.Error()
+			}
 			if errors.Is(msg.err, context.Canceled) {
 				m.co.failed = ""
 			}
@@ -496,8 +505,10 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			return m.goBack(), nil
 		default:
-			if n := int(s[0]) - '1'; len(s) == 1 && n >= 0 && n < len(providers) {
-				m.provCur = n
+			if len(s) == 1 {
+				if n := int(s[0]) - '1'; n >= 0 && n < len(providers) {
+					m.provCur = n
+				}
 			}
 		}
 
@@ -704,9 +715,22 @@ func (m setupModel) startCheckout() (tea.Model, tea.Cmd) {
 	id := m.co.id + 1
 	m.co = checkoutRun{id: id, waiting: true, until: time.Now().Add(permafrost.CheckoutTimeout)}
 	ctx, cancel := context.WithCancel(m.ctx)
+	m.co.cancel = cancel // cancellation must work while Checkout is still opening
 	fn, st := m.deps.Checkout, m.cfg.Storage
 	return m, tea.Batch(m.spin.Tick, func() tea.Msg {
 		page, wait, err := fn(ctx, st)
+		if wait != nil {
+			// Cleanup cannot depend on the program receiving this message:
+			// it may quit while the browser is opening. Run Wait only once,
+			// even if cancellation races the normal response command.
+			once := sync.OnceValues(wait)
+			stop := context.AfterFunc(ctx, func() { once() })
+			wait = func() (string, error) {
+				defer stop()
+				defer cancel()
+				return once()
+			}
+		}
 		return checkoutStartedMsg{id, page, wait, cancel, err}
 	})
 }

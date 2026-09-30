@@ -12,6 +12,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -152,9 +153,11 @@ type model struct {
 	err     error
 	flash   string // one-line message in the footer
 
-	snaps   []snapshot.Snapshot // newest first
-	snapCur int
-	marked  string // snapshot ID marked as the "from" side of a diff
+	snaps         []snapshot.Snapshot // newest first
+	snapLayout    []snapRow           // date headings and snapshot rows, indexed on load
+	snapPositions []int               // snapshot index -> row in snapLayout
+	snapCur       int
+	marked        string // snapshot ID marked as the "from" side of a diff
 
 	// files screen
 	snap    snapshot.Snapshot
@@ -205,7 +208,7 @@ type snapsMsg struct {
 
 type treeMsg struct {
 	snap snapshot.Snapshot
-	tree *snapshot.Tree
+	tree *tree
 	err  error
 }
 
@@ -224,7 +227,12 @@ func (m model) loadSnaps() tea.Cmd {
 		snaps, err := m.repo.Snapshots(m.ctx, m.st.Known)
 		// On error the list has empty slots for the headers that failed.
 		snaps = slices.DeleteFunc(snaps, func(s snapshot.Snapshot) bool { return s.ID == "" })
-		slices.SortFunc(snaps, func(a, b snapshot.Snapshot) int { return b.Time.Compare(a.Time) })
+		slices.SortFunc(snaps, func(a, b snapshot.Snapshot) int {
+			if cmp := b.Time.Compare(a.Time); cmp != 0 {
+				return cmp
+			}
+			return strings.Compare(a.ID, b.ID)
+		})
 		return snapsMsg{snaps, err}
 	}
 }
@@ -232,7 +240,10 @@ func (m model) loadSnaps() tea.Cmd {
 func (m model) loadTree(s snapshot.Snapshot) tea.Cmd {
 	return func() tea.Msg {
 		t, err := m.repo.LoadTree(m.ctx, s.ID)
-		return treeMsg{s, t, err}
+		if err != nil {
+			return treeMsg{err: err}
+		}
+		return treeMsg{s, newTree(s, t), nil}
 	}
 }
 
@@ -258,7 +269,8 @@ func (m model) loadDiff(from, to snapshot.Snapshot) tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.w, m.h = msg.Width, msg.Height
+		m.w, m.h = max(msg.Width, 0), max(msg.Height, 0)
+		m.diffTop = min(m.diffTop, m.diffMaxTop())
 		if m.game != nil {
 			m.game.resize(m.innerW()-2, m.areaH()-3)
 		}
@@ -275,6 +287,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapsMsg:
 		m.loading = ""
 		m.snaps, m.err = msg.snaps, msg.err
+		m.indexSnapshots()
+		// Replace the cache, rather than mutating a map a command may read.
+		m.st.Known = make(map[string]snapshot.Snapshot, len(m.snaps))
+		for _, s := range m.snaps {
+			m.st.Known[s.ID] = s
+		}
+		if _, ok := m.st.Known[m.marked]; !ok {
+			m.marked = ""
+		}
 		m.snapCur = max(min(m.snapCur, len(m.snaps)-1), 0) // a refresh can shrink the list
 		return m, nil
 
@@ -284,11 +305,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
-		m.snap, m.tree = msg.snap, newTree(msg.snap, msg.tree)
+		m.snap, m.tree = msg.snap, msg.tree
 		m.dir, m.fileCur, m.fileTop = rootKey, 0, 0
 		m.sel, m.trail = map[string]bool{}, map[string]int{}
 		m.selFiles, m.selBytes = 0, 0
-		if len(m.tree.roots) == 1 {
+		if len(m.tree.roots) == 1 && m.tree.isDir(m.tree.roots[0]) {
 			m.dir = m.tree.roots[0] // skip a pointless one-item level
 		}
 		m.screen = scrFiles
@@ -522,13 +543,7 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 		if m.sel[p] {
 			delete(m.sel, p)
 		} else {
-			m.sel[p] = true
-			// A folder's selection replaces any selections inside it.
-			for q := range m.sel {
-				if q != p && strings.HasPrefix(q, p+"/") {
-					delete(m.sel, q)
-				}
-			}
+			m.selectPath(p)
 		}
 		m.fileCur = min(m.fileCur+1, n-1)
 	case "a":
@@ -543,6 +558,16 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 				m.sel[p] = true
 			}
 		}
+		// Prune descendants once for the whole batch. Scanning the selection
+		// after every child would make select-all quadratic in large folders.
+		if !all {
+			for p := range m.sel {
+				parent := path.Dir(p)
+				if parent != p && covered(parent, m.sel) {
+					delete(m.sel, p)
+				}
+			}
+		}
 	case "c":
 		m.sel = map[string]bool{}
 	case "r":
@@ -553,7 +578,9 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 		if len(paths) == 0 {
 			break
 		}
-		m.rs = newRestoreState(m.snap, paths, m.tree)
+		rs := newRestoreState(m.snap, paths, m.tree)
+		rs.pickSeq = m.rs.pickSeq + 1 // never reuse an earlier attempt's picker ID
+		m.rs = rs
 		m.screen = scrRestore
 	}
 	m.fileCur = max(m.fileCur, 0) // moving in an empty folder
@@ -564,19 +591,27 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// countSel works out selFiles and selBytes. It walks the whole tree, so it
-// runs when the selection changes, not on every frame.
+// selectPath replaces any selections inside p with their parent.
+func (m *model) selectPath(p string) {
+	m.sel[p] = true
+	if !m.tree.isDir(p) {
+		return
+	}
+	prefix := strings.TrimSuffix(p, "/") + "/"
+	for q := range m.sel {
+		if q != p && strings.HasPrefix(q, prefix) {
+			delete(m.sel, q)
+		}
+	}
+}
+
+// countSel adds indexed totals for the selected paths without scanning files.
 func (m *model) countSel() {
 	m.selFiles, m.selBytes = 0, 0
 	if len(m.sel) == 0 || m.tree == nil {
 		return
 	}
-	for p, f := range m.tree.files {
-		if f.Type == snapshot.TypeFile && covered(p, m.sel) {
-			m.selFiles++
-			m.selBytes += f.Size
-		}
-	}
+	m.selFiles, m.selBytes = m.tree.selectionTotals(m.sel)
 }
 
 // spinning reports whether anything on screen shows the spinner.
@@ -609,7 +644,7 @@ func (m model) bodyH() int { return m.areaH() - 2 }
 func (m model) diffMaxTop() int { return max(len(m.changes)-(m.bodyH()-2), 0) }
 
 func (m model) View() string {
-	if m.w == 0 {
+	if m.w <= 0 || m.h <= 0 {
 		return ""
 	}
 	var body string
@@ -671,9 +706,9 @@ func (m model) header() string {
 		crumb = m.overlay
 	}
 	if crumb != "" {
-		left += theme.Dim.Render("  " + crumb)
+		left += theme.Dim.Render("  " + printable(crumb))
 	}
-	right := theme.Dim.Render(m.repo.Backend.String()+"  key ") + m.keyLabel()
+	right := theme.Dim.Render(printable(m.repo.Backend.String())+"  key ") + m.keyLabel()
 	gap := m.innerW() - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		return left + fill(max(m.innerW()-lipgloss.Width(left), 0), 1)
