@@ -35,7 +35,7 @@ func (m model) viewHome() string {
 }
 
 // tagline goes under the wordmark.
-const tagline = "encrypted backups. only you hold the key."
+const tagline = "back up your files."
 
 // logo is the wordmark if it fits in w by h cells, or the small inverted
 // title if it doesn't.
