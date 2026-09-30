@@ -1,8 +1,6 @@
 <div align="center">
-   <img alt="frost" src="public/repo/README_Hero_PNG_v2.1__frost.png" width="100%">
+   <img alt="frost" src="public/repo/README_Hero_Banner_PNG_v2.0__frost.png" width="100%">
 </div>
-
-<h3 align="center">frost</h3>
 
 <p align="center">Backup your files. Encrypted, incrementally to storage you choose.</p>
 
@@ -35,6 +33,10 @@ frost generates your encryption key locally and shows it as a 24 word recovery p
 - **Checks itself**: after each backup, frost re-downloads a random sample of chunks and verifies them, so problems show up in `frost status` before you need a restore.
 - **Runs on a schedule**: launchd, systemd, cron or Task Scheduler, set up for you during `frost init`.
 - **Keeps itself up to date**: scheduled backups install new releases, checked against frost's signing key first. `frost update` does it now.
+
+<div align="center">
+   <img alt="frost showcase" src="public/repo/README_Hero_PNG_v2.1__frost.png" width="100%">
+</div>
 
 ## Install
 
