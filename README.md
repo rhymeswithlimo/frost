@@ -1,5 +1,5 @@
 <div align="center">
-   <img alt="frost" src="public/repo/README_Hero_Banner_PNG_v2.0__frost.png" width="100%">
+   <img alt="frost" src="public/repo/README_Hero_Banner_PNG_v2.1__frost.png" width="280px">
 </div>
 
 <p align="center">Backup your files. Encrypted, incrementally to storage you choose.</p>
