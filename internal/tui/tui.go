@@ -144,18 +144,21 @@ type model struct {
 	cfg  config.Config
 	st   State
 
-	w, h    int
-	screen  screen
-	overlay string // "", "help" or "settings"
-	showKey bool   // the key fingerprint is covered until [v]
-	spin    spinner.Model
-	loading string // non-empty while waiting on the network
-	err     error
-	flash   string // one-line message in the footer
+	w, h       int
+	screen     screen
+	overlay    string // "", "help" or "settings"
+	overlayTop int
+	showKey    bool // the key fingerprint is covered until [v]
+	spin       spinner.Model
+	loading    string // non-empty while waiting on the network
+	err        error
+	flash      string // one-line message in the footer
 
 	snaps         []snapshot.Snapshot // newest first
 	snapLayout    []snapRow           // date headings and snapshot rows, indexed on load
 	snapPositions []int               // snapshot index -> row in snapLayout
+	snapCountW    int                 // widest file count and size, so the list's
+	snapSizeW     int                 // columns line up
 	snapCur       int
 	marked        string // snapshot ID marked as the "from" side of a diff
 
@@ -271,6 +274,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = max(msg.Width, 0), max(msg.Height, 0)
 		m.diffTop = min(m.diffTop, m.diffMaxTop())
+		m.overlayTop = min(m.overlayTop, m.overlayMaxTop())
+		if m.screen == scrRestore {
+			m.rs.top = min(m.rs.top, m.restoreMaxTop())
+		}
 		if m.game != nil {
 			m.game.resize(m.innerW()-2, m.areaH()-3)
 		}
@@ -373,8 +380,22 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.overlay != "" {
-		if key == "esc" || key == "h" || key == "s" || key == "q" || key == "?" {
+		switch key {
+		case "esc", "h", "s", "q", "?":
 			m.overlay = ""
+			m.overlayTop = 0
+		case "up", "k":
+			m.overlayTop = max(m.overlayTop-1, 0)
+		case "down", "j":
+			m.overlayTop = min(m.overlayTop+1, m.overlayMaxTop())
+		case "pgup":
+			m.overlayTop = max(m.overlayTop-m.overlayH(), 0)
+		case "pgdown", " ":
+			m.overlayTop = min(m.overlayTop+m.overlayH(), m.overlayMaxTop())
+		case "g", "home":
+			m.overlayTop = 0
+		case "G", "end":
+			m.overlayTop = m.overlayMaxTop()
 		}
 		return m, nil
 	}
@@ -400,6 +421,7 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "h", "?":
 		m.overlay = "help"
+		m.overlayTop = 0
 		return m, nil
 	case "i": // easter egg
 		m.game = newArcade(m.bestPath, uint64(time.Now().UnixNano()))
@@ -408,6 +430,7 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s":
 		m.overlay = "settings"
+		m.overlayTop = 0
 		return m, nil
 	}
 
@@ -693,10 +716,15 @@ func (m model) header() string {
 	switch m.screen {
 	case scrSnapshots:
 		crumb = "snapshots"
+		if len(m.snaps) > 0 {
+			crumb += fmt.Sprintf("  %d of %d", m.snapCur+1, len(m.snaps))
+		}
 	case scrFiles:
-		crumb = m.snap.ID + "  " + shortPath(m.dir, m.innerW()-40)
+		idW := min(lipgloss.Width(m.snap.ID), max((m.innerW()-12)/2, 8))
+		crumb = truncate(m.snap.ID, idW) + "  " + shortPath(m.dir, max(m.innerW()-idW-11, 1))
 	case scrDiff:
-		crumb = "compare " + m.diffFrom.ID + " > " + m.diffTo.ID
+		idW := max((m.innerW()-18)/2, 1)
+		crumb = "compare " + truncate(m.diffFrom.ID, idW) + " → " + truncate(m.diffTo.ID, idW)
 	case scrRestore:
 		crumb = "restore from " + m.rs.snap.ID
 	}
@@ -706,7 +734,7 @@ func (m model) header() string {
 		crumb = m.overlay
 	}
 	if crumb != "" {
-		left += theme.Dim.Render("  " + printable(crumb))
+		left += theme.Dim.Render("  " + truncate(crumb, max(m.innerW()-lipgloss.Width(left)-2, 0)))
 	}
 	right := theme.Dim.Render(printable(m.repo.Backend.String())+"  key ") + m.keyLabel()
 	gap := m.innerW() - lipgloss.Width(left) - lipgloss.Width(right)
@@ -738,6 +766,9 @@ func (m model) footer() string {
 		hints = []string{theme.Hint("any key", "dismiss"), theme.Hint("q", "quit")}
 	case m.overlay != "":
 		hints = []string{theme.Hint("esc", "close"), theme.Hint("v", m.keyHint())}
+		if m.overlayMaxTop() > 0 {
+			hints = append(hints, theme.Hint("↑↓", "scroll"))
+		}
 	case m.loading != "":
 		hints = []string{theme.Hint("q", "quit")}
 	default:
@@ -745,28 +776,46 @@ func (m model) footer() string {
 		case scrHome:
 			hints = []string{theme.Hint("enter", "browse snapshots"), theme.Hint("r", "refresh")}
 		case scrSnapshots:
-			hints = []string{theme.Hint("enter", "open"), theme.Hint("d", "diff"), theme.Hint("m", "mark"), theme.Hint("esc", "back")}
+			mark := "mark"
+			if len(m.snaps) > 0 && m.snaps[m.snapCur].ID == m.marked {
+				mark = "unmark"
+			}
+			hints = []string{theme.Hint("enter", "open"), theme.Hint("d", "diff"), theme.Hint("m", mark), theme.Hint("esc", "back")}
+			if len(m.snaps) == 0 {
+				hints = []string{theme.Hint("esc", "back")}
+			}
 		case scrFiles:
-			hints = []string{theme.Hint("enter", "open"), theme.Hint("space", "select"), theme.Hint("r", "restore"), theme.Hint("←", "up"), theme.Hint("esc", "snapshots")}
+			hints = []string{theme.Hint("space", "select"), theme.Hint("r", "restore"), theme.Hint("enter", "open"), theme.Hint("←", "up"), theme.Hint("esc", "snapshots")}
 		case scrDiff:
 			hints = []string{theme.Hint("↑↓", "scroll"), theme.Hint("esc", "back")}
 		case scrRestore:
 			hints = m.restoreHints()
+			if m.restoreMaxTop() > 0 {
+				if m.rs.phase == phaseDone {
+					hints = []string{theme.Hint("enter", "files"), theme.Hint("q", "quit")}
+				}
+				hints = slices.Insert(hints, 1, theme.Hint("pgup pgdn", "scroll"))
+			}
 		}
 		if m.screen != scrRestore {
 			// Optional hints go first when space runs out; help and quit stay.
+			// They only show at full spacing, so they never crowd the rest.
+			// The screen's own actions may tighten up before they're dropped.
 			optional := []string{theme.Hint("v", m.keyHint()), theme.Hint("s", "settings")}
 			keep := []string{theme.Hint("h", "help"), theme.Hint("q", "quit")}
-			for len(optional) > 0 && lipgloss.Width(strings.Join(slices.Concat(hints, optional, keep), "   ")) > w {
+			width := func(sep string, hs ...[]string) int {
+				return lipgloss.Width(strings.Join(slices.Concat(hs...), sep))
+			}
+			for len(optional) > 0 && width(hintSep, hints, optional, keep) > w {
 				optional = optional[:len(optional)-1]
 			}
-			for len(hints) > 0 && lipgloss.Width(strings.Join(slices.Concat(hints, keep), "   ")) > w {
+			for len(hints) > 0 && width(" ", hints, keep) > w {
 				hints = hints[:len(hints)-1]
 			}
 			hints = slices.Concat(hints, optional, keep)
 		}
 	}
-	return rule + "\n" + pad(joinFit(hints, w), w)
+	return rule + "\n" + pad(fitHints(hints, w), w)
 }
 
 // keyLabel is the key fingerprint, or a black cover over it while hidden.
@@ -786,9 +835,66 @@ func (m model) keyHint() string {
 }
 
 func (m model) viewError() string {
-	box := theme.Box(true).BorderForeground(theme.Bad).Width(min(m.innerW(), 70)).Render(
-		theme.Error.Render("Something went wrong") + "\n\n" + theme.Text.Render(wrap(printable(m.err.Error()), min(m.innerW(), 70)-4)))
-	return m.center(box)
+	w := m.dialogW(64)
+	body := stack(pad(theme.Error.Render("Something went wrong"), w), blank(w), para(theme.Text, m.err.Error(), w))
+	return m.dialog(body, w, 0, theme.Box(true).BorderForeground(theme.Bad))
+}
+
+// ---- dialogs ----
+
+// The help, settings, restore and error screens share one dialog: a
+// bordered box centred in the area, with room around its contents when
+// there's room for it.
+
+// dialogPadX is the space between a dialog's border and its contents.
+func (m model) dialogPadX() int {
+	switch w := m.innerW(); {
+	case w >= 96:
+		return 3
+	case w >= 60:
+		return 2
+	}
+	return 1
+}
+
+// dialogW is the width of a dialog's contents, at most most cells.
+func (m model) dialogW(most int) int {
+	return max(min(m.innerW()-2-2*m.dialogPadX(), most), 16)
+}
+
+// dialogRows is how many of n content rows a dialog shows at once, and
+// whether it scrolls. A scrolling dialog keeps a row for its position.
+func (m model) dialogRows(n int) (rows int, scrolls bool) {
+	if room := m.areaH() - 2; n > room {
+		return max(room-1, 1), true
+	}
+	return n, false
+}
+
+// dialogMaxTop is the furthest a dialog with n rows of content scrolls.
+func (m model) dialogMaxTop(n int) int {
+	rows, _ := m.dialogRows(n)
+	return max(n-rows, 0)
+}
+
+// dialog draws content (w cells wide) in box, scrolled to top when it
+// doesn't fit. Blank rows go above and below when there's space for them.
+func (m model) dialog(content string, w, top int, box lipgloss.Style) string {
+	lines := strings.Split(content, "\n")
+	rows, scrolls := m.dialogRows(len(lines))
+	padY := 0
+	if !scrolls && len(lines)+4 <= m.areaH() {
+		padY = 1
+	}
+	if scrolls {
+		top = max(min(top, len(lines)-rows), 0)
+		pos := theme.Dim.Render(fmt.Sprintf("%d-%d of %d", top+1, top+rows, len(lines)))
+		lines = append(lines[top:top+rows:top+rows], pos)
+	}
+	for i, l := range lines {
+		lines[i] = pad(l, w)
+	}
+	return m.center(box.Padding(padY, m.dialogPadX()).Render(strings.Join(lines, "\n")))
 }
 
 func (m model) center(s string) string {
@@ -882,10 +988,6 @@ func joinFit(hints []string, w int) string {
 		hints = hints[:len(hints)-1]
 	}
 	return ""
-}
-
-func wrap(s string, w int) string {
-	return lipgloss.NewStyle().Width(max(w, 10)).Render(s)
 }
 
 func shortPath(p string, w int) string {

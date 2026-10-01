@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -43,15 +44,15 @@ func TestHelpSectionsAlign(t *testing.T) {
 		}
 	}
 	lines := strings.Split(view, "\n")
-	for _, pair := range [][2]string{{"Everywhere", "Snapshots"}, {"Moving", "Files"}, {"[↑ ↓]", "[space]"}} {
+	for _, pair := range [][2]string{{"Everywhere", "Snapshots"}, {"Moving", "Files"}, {"[↑↓]", "[space]"}} {
 		found := false
 		for i, line := range lines {
 			if strings.Contains(line, pair[0]) && strings.Contains(line, pair[1]) {
 				found = true
-				if pair[0] != "[↑ ↓]" {
+				if pair[0] != "[↑↓]" {
 					first, second := "[h]", "[d]"
 					if pair[0] == "Moving" {
-						first, second = "[↑ ↓]", "[space]"
+						first, second = "[↑↓]", "[space]"
 					}
 					if i+1 >= len(lines) || !strings.Contains(lines[i+1], first) || !strings.Contains(lines[i+1], second) {
 						t.Fatalf("shortcuts do not follow %s and %s", pair[0], pair[1])
@@ -63,6 +64,131 @@ func TestHelpSectionsAlign(t *testing.T) {
 		if !found {
 			t.Fatalf("%s and %s are not aligned", pair[0], pair[1])
 		}
+	}
+}
+
+func TestFileRowsStayOnOneLine(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	s := snapshot.Snapshot{Paths: []string{"/backup"}}
+	files := []snapshot.File{{Path: "/backup", Type: snapshot.TypeDir}}
+	for i := range 40 {
+		files = append(files, snapshot.File{Path: fmt.Sprintf("/backup/%02d-日本語-long-filename.txt", i), Type: snapshot.TypeFile, Size: 123456789, ModTime: time.Date(2026, 10, 1, 10, 30, 0, 0, time.UTC)})
+	}
+	for _, width := range []int{40, 50, 62, 80, 120} {
+		m := model{w: width, h: 24, tree: newTree(s, &snapshot.Tree{Files: files}), dir: "/backup", sel: map[string]bool{}}
+		view := m.viewFiles()
+		if lipgloss.Width(view) != m.innerW() || lipgloss.Height(view) != m.areaH() {
+			t.Fatalf("%d columns: file rows expanded the panel to %dx%d", width, lipgloss.Width(view), lipgloss.Height(view))
+		}
+		if !strings.Contains(stripANSI(view), fmt.Sprintf("%02d-", m.bodyH()-3)) {
+			t.Fatalf("%d columns: wrapping pushed the last visible entry out of view", width)
+		}
+	}
+}
+
+func TestBackupRootNamesKeepTheirEnd(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	s := snapshot.Snapshot{Paths: []string{"/very/long/backup/location/Documents", "/very/long/backup/location/Pictures"}}
+	files := []snapshot.File{{Path: s.Paths[0], Type: snapshot.TypeDir}, {Path: s.Paths[1], Type: snapshot.TypeDir}}
+	for _, width := range []int{40, 50, 80} {
+		m := model{w: width, h: 24, tree: newTree(s, &snapshot.Tree{Files: files})}
+		plain := stripANSI(m.viewFiles())
+		for _, name := range []string{"Documents/", "Pictures/"} {
+			if !strings.Contains(plain, name) {
+				t.Fatalf("%d columns: root lost %q", width, name)
+			}
+		}
+	}
+}
+
+func TestHelpAndSettingsRemainReachable(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	e, _ := testEngine(t)
+	cfg := config.Default()
+	cfg.Paths = []string{"/backup/" + strings.Repeat("long-path/", 12) + "last-folder"}
+	cfg.Exclude = append(cfg.Exclude, "last-exclusion")
+	m := newModel(context.Background(), e.Repo, cfg, StateFrom(e))
+	m.w, m.h, m.loading = 50, 20, ""
+	for _, overlay := range []string{"help", "settings"} {
+		m.overlay, m.overlayTop = overlay, 0
+		if m.overlayMaxTop() == 0 {
+			t.Fatalf("%s doesn't account for its overflow", overlay)
+		}
+		var seen strings.Builder
+		for range 200 {
+			seen.WriteString(stripANSI(m.View()))
+			next, _ := m.key(key("down"))
+			m = next.(model)
+		}
+		for _, want := range map[string][]string{"help": {"Files", "[space]", "[r]", "getfro.st/docs"}, "settings": {"last-folder", "last-exclusion", "key fingerprint", "frost config edit"}}[overlay] {
+			if !strings.Contains(seen.String(), want) {
+				t.Fatalf("%s: %q can't be reached by scrolling", overlay, want)
+			}
+		}
+		next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 70})
+		m = next.(model)
+		if m.overlayTop != 0 {
+			t.Fatalf("%s didn't clamp scrolling after resize", overlay)
+		}
+		m.w, m.h = 50, 20
+	}
+	compact := m
+	compact.w, compact.h, compact.overlay, compact.overlayTop = 80, 24, "help", 0
+	for _, want := range []string{"Everywhere", "Snapshots", "Moving", "Files", "getfro.st/docs"} {
+		if !strings.Contains(stripANSI(compact.View()), want) {
+			t.Fatalf("80x24 help clips %q", want)
+		}
+	}
+}
+
+func TestDiffCountsAndFileActionsFitCompactScreens(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	m := model{w: 50, h: 20, screen: scrDiff, diffAdd: 2, diffDel: 3, diffMod: 4}
+	for _, want := range []string{"+2 added", "-3 removed", "~4 changed"} {
+		if !strings.Contains(stripANSI(m.viewDiff()), want) {
+			t.Fatalf("compact diff clips %q", want)
+		}
+	}
+	m.screen = scrFiles
+	for _, want := range []string{"[space] select", "[r] restore", "[h] help", "[q] quit"} {
+		if !strings.Contains(stripANSI(m.footer()), want) {
+			t.Fatalf("compact files footer drops %q", want)
+		}
+	}
+	m.screen = scrSnapshots
+	footer := stripANSI(m.footer())
+	if strings.Contains(footer, "[enter]") || strings.Contains(footer, "[d]") || !strings.Contains(footer, "[esc] back") {
+		t.Fatal("empty snapshots advertise unavailable actions or lose the way back")
+	}
+}
+
+func TestCompactRestoreKeepsWarningAndLongResultsReachable(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	m := model{w: 50, h: 20, screen: scrRestore, rs: restoreState{snap: snapshot.Snapshot{ID: "sample-snapshot-123456"}, phase: phaseConfirm, dest: destOverwrite, paths: []string{"/backup/notes.txt"}, files: 1}}
+	if !strings.Contains(stripANSI(m.viewRestore()), "overwritten.") {
+		t.Fatal("compact overwrite confirmation clips the warning")
+	}
+	lines := strings.Split(stripANSI(m.restoreContent(min(m.innerW()-8, 80))), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "Files at the original paths") && (i == 0 || strings.TrimSpace(lines[i-1]) != "") {
+			t.Fatal("overwrite warning needs a blank line above it")
+		}
+	}
+	m.rs.phase, m.rs.err = phaseDone, fmt.Errorf("%s lastdetail", strings.Repeat("long error explanation ", 40))
+	if !strings.Contains(stripANSI(m.footer()), "[pgup pgdn] scroll") {
+		t.Fatal("compact restore lost the scroll action")
+	}
+	next, _ := m.restoreKey("pgdown")
+	m = next.(model)
+	if m.rs.top == 0 || m.rs.phase != phaseDone {
+		t.Fatal("page down didn't scroll the result without changing phase")
+	}
+	for range 100 {
+		next, _ = m.restoreKey("pgdown")
+		m = next.(model)
+	}
+	if !strings.Contains(stripANSI(m.viewRestore()), "lastdetail") {
+		t.Fatalf("the end of a long restore error can't be reached:\n%s", stripANSI(m.viewRestore()))
 	}
 }
 
@@ -196,6 +322,14 @@ func TestScreens(t *testing.T) {
 		failed.rs.err = fmt.Errorf("missing chunk")
 		failed.rs.res = engine.RestoreResult{Files: 2, Bytes: 100}
 		shots["8-restore-failed"] = failed
+		running := r.(model)
+		running.rs.phase, running.rs.done, running.rs.total = phaseRunning, 2, 5
+		running.rs.current = "/backup/Documents/notes.md"
+		shots["8-restore-running"] = running
+		done := r.(model)
+		done.rs.phase, done.rs.folder = phaseDone, "/backup/frost-restore-demo"
+		done.rs.res = engine.RestoreResult{Files: 5, Bytes: 120000}
+		shots["8-restore-done"] = done
 		m = step(t, m, key("esc"))
 		shots["9-diff"] = step(t, m, key("d"))
 

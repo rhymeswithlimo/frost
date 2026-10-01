@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -23,14 +24,18 @@ func (m model) viewHome() string {
 		info = theme.Bold.Render(m.spin.View()) + theme.Text.Render(" "+m.loading+"...")
 	}
 	logo := logo(w, m.areaH()-4-lipgloss.Height(info))
-	tagline := theme.Dim.Render(tagline)
 
 	// Centre each piece on a full-width background first, so the join
 	// doesn't pad with uncoloured spaces.
 	row := func(s string) string {
 		return lipgloss.PlaceHorizontal(w, lipgloss.Center, s, lipgloss.WithWhitespaceBackground(theme.Bg))
 	}
-	block := stack(row(logo), fill(w, 1), row(tagline), fill(w, 2), row(info))
+	// The tagline belongs to the wordmark: when only the small title fits,
+	// it goes too.
+	block := stack(row(logo), fill(w, 2), row(info))
+	if lipgloss.Height(logo) > 1 {
+		block = stack(row(logo), fill(w, 1), row(theme.Dim.Render(tagline)), fill(w, 2), row(info))
+	}
 	return m.center(block)
 }
 
@@ -53,7 +58,7 @@ func logo(w, h int) string {
 
 func (m model) summary() string {
 	row := func(k, v string) string {
-		return theme.Dim.Render(fmt.Sprintf("%-13s", k)) + v
+		return truncate2(theme.Dim.Render(fmt.Sprintf("%-13s", k))+v, max(m.innerW()-4, 1))
 	}
 	var rows []string
 	if n := len(m.snaps); n == 0 {
@@ -99,6 +104,7 @@ type snapRow struct {
 func (m *model) indexSnapshots() {
 	rows := make([]snapRow, 0, len(m.snaps))
 	m.snapPositions = make([]int, len(m.snaps))
+	m.snapCountW, m.snapSizeW = 0, 0
 	last := ""
 	for i, s := range m.snaps {
 		d := s.Time.Local().Format("Mon 02 Jan 2006")
@@ -108,6 +114,8 @@ func (m *model) indexSnapshots() {
 		}
 		m.snapPositions[i] = len(rows)
 		rows = append(rows, snapRow{idx: i})
+		m.snapCountW = max(m.snapCountW, len(strconv.Itoa(s.Stats.Files)))
+		m.snapSizeW = max(m.snapSizeW, len(humanBytes(s.Stats.Bytes)))
 	}
 	m.snapLayout = rows
 }
@@ -139,7 +147,7 @@ func (m model) viewSnapshots() string {
 		if s.ID == m.marked {
 			mark = "* "
 		}
-		text := snapshotListLabel(s, mark, inner)
+		text := snapshotListLabel(s, mark, m.snapCountW, m.snapSizeW, inner)
 		if r.idx == m.snapCur {
 			lines = append(lines, theme.Selected.Render(padPlain(text, inner)))
 		} else if s.ID == m.marked {
@@ -153,12 +161,14 @@ func (m model) viewSnapshots() string {
 		return list
 	}
 	detail := theme.Box(false).Width(w - listW - theme.Gap - 2).Height(h).Render(m.snapDetail(m.snaps[m.snapCur], w-listW-theme.Gap-4))
-	return lipgloss.JoinHorizontal(lipgloss.Top, list, fill(theme.Gap, h+2), detail)
+	return side(theme.Gap, list, detail)
 }
 
-func snapshotListLabel(s snapshot.Snapshot, mark string, width int) string {
+// snapshotListLabel is one row of the snapshot list. The file count and
+// size are right-aligned in columns countW and sizeW wide, so they line up.
+func snapshotListLabel(s snapshot.Snapshot, mark string, countW, sizeW, width int) string {
 	prefix := mark + s.Time.Local().Format("15:04") + "  "
-	suffix := fmt.Sprintf("  %d files  %s  ", s.Stats.Files, humanBytes(s.Stats.Bytes))
+	suffix := fmt.Sprintf("  %*d files  %*s  ", countW, s.Stats.Files, sizeW, humanBytes(s.Stats.Bytes))
 	idWidth := width - lipgloss.Width(prefix) - lipgloss.Width(suffix)
 	if idWidth < 8 {
 		return truncate(prefix+s.ID, max(width-2, 0)) + strings.Repeat(" ", min(width, 2))
@@ -171,7 +181,7 @@ func (m model) snapDetail(s snapshot.Snapshot, w int) string {
 		return pad(theme.Dim.Render(fmt.Sprintf("%-10s", k))+theme.Text.Render(truncate(v, w-10)), w)
 	}
 	lines := []string{
-		pad(theme.Bold.Render(printable(s.ID)), w),
+		pad(theme.Bold.Render(truncate(s.ID, w)), w),
 		fill(w, 1),
 		row("taken", s.Time.Local().Format("2006-01-02 15:04:05")),
 		row("", ago(s.Time)),
@@ -200,19 +210,25 @@ func (m model) viewFiles() string {
 	w, h := m.innerW(), m.bodyH()
 	inner := w - 4
 	kids := m.tree.children[m.dir]
+	nameW, sizeW, timeW := fileColumns(inner)
 
 	// Summary line: where we are and what's selected.
 	selN, selB := m.selFiles, m.selBytes
 	status := theme.Dim.Render(fmt.Sprintf("%d items", len(kids)))
 	if selN > 0 {
-		status += theme.Base.Render("   ") + theme.Bold.Render(fmt.Sprintf("%d files selected (%s)", selN, humanBytes(selB)))
+		status = theme.Bold.Render(fmt.Sprintf("%d files selected (%s)", selN, humanBytes(selB)))
 	}
-	lines := []string{pad(status, inner), pad(theme.Faded.Render(strings.Repeat("─", inner)), inner)}
+	head := pad(status, nameW+4)
+	if sizeW > 0 {
+		head += theme.Dim.Render(fmt.Sprintf("  %*s", sizeW, "size"))
+	}
+	if timeW > 0 {
+		head += theme.Dim.Render("  " + padPlain("modified", timeW))
+	}
+	lines := []string{pad(head, inner), pad(theme.Faded.Render(strings.Repeat("─", inner)), inner)}
 
 	listH := h - 2
 	top := window(m.fileCur, len(kids), listH)
-	sizeW, timeW := 10, 16
-	nameW := max(inner-4-sizeW-timeW-4, 10)
 
 	if len(kids) == 0 {
 		lines = append(lines, pad(theme.Dim.Render("(empty folder)"), inner))
@@ -228,19 +244,32 @@ func (m model) viewFiles() string {
 		}
 		name := path.Base(p)
 		if m.dir == rootKey {
-			name = shortPath(p, nameW)
+			pathW := nameW
+			if f.Type == snapshot.TypeDir {
+				pathW--
+			}
+			name = shortPath(p, pathW)
 		}
 		size := humanBytes(f.Size)
 		switch f.Type {
 		case snapshot.TypeDir:
-			name += "/"
+			name = truncate(name, max(nameW-1, 0)) + "/"
 			size = humanBytes(m.tree.totals[p].bytes)
 		case snapshot.TypeSymlink:
 			name += " -> " + f.Target
 			size = ""
 		}
-		text := box + padPlain(truncate(name, nameW), nameW) + "  " +
-			fmt.Sprintf("%*s", sizeW, size) + "  " + f.ModTime.Local().Format("2006-01-02 15:04")
+		text := box + padPlain(truncate(name, nameW), nameW)
+		if sizeW > 0 {
+			text += fmt.Sprintf("  %*s", sizeW, truncate(size, sizeW))
+		}
+		if timeW > 0 {
+			format := "2006-01-02"
+			if timeW == 16 {
+				format += " 15:04"
+			}
+			text += "  " + f.ModTime.Local().Format(format)
+		}
 
 		switch {
 		case i == m.fileCur:
@@ -256,18 +285,46 @@ func (m model) viewFiles() string {
 	return theme.Box(true).Width(w - 2).Height(h).Render(strings.Join(lines, "\n"))
 }
 
+// Give names space before adding metadata columns. All widths are cells.
+func fileColumns(inner int) (name, size, modified int) {
+	if inner >= 28 {
+		size = 8
+	}
+	if inner >= 54 {
+		modified = 10
+	}
+	if inner >= 70 {
+		modified = 16
+	}
+	name = max(inner-4, 0)
+	if size > 0 {
+		name -= size + 2
+	}
+	if modified > 0 {
+		name -= modified + 2
+	}
+	return
+}
+
 // ---- diff ----
+
+// removed is the red for removals: the error colour without the error's
+// weight, so the three kinds of change read as equals.
+var removed = theme.Error.UnsetBold()
 
 func (m model) viewDiff() string {
 	w, h := m.innerW(), m.bodyH()
 	inner := w - 4
-	add, del, mod := m.diffAdd, m.diffDel, m.diffMod
-	head := theme.Text.Render(fmt.Sprintf("%s (%s)  >  %s (%s)   ",
-		m.diffFrom.ID, m.diffFrom.Time.Local().Format("Jan 02 15:04"),
-		m.diffTo.ID, m.diffTo.Time.Local().Format("Jan 02 15:04"))) +
-		theme.Good.Render(fmt.Sprintf("+%d added", add)) + theme.Base.Render("  ") +
-		theme.Error.Render(fmt.Sprintf("-%d removed", del)) + theme.Base.Render("  ") +
-		theme.Caution.Render(fmt.Sprintf("~%d changed", mod))
+	// Counts in their colour, all one weight, and dimmed when there are none.
+	count := func(st lipgloss.Style, n int, s string) string {
+		if n == 0 {
+			st = theme.Dim
+		}
+		return st.Render(fmt.Sprintf(s, n))
+	}
+	head := count(theme.Good, m.diffAdd, "+%d added") + theme.Base.Render("   ") +
+		count(removed, m.diffDel, "-%d removed") + theme.Base.Render("   ") +
+		count(theme.Caution, m.diffMod, "~%d changed")
 	lines := []string{pad(head, inner), pad(theme.Faded.Render(strings.Repeat("─", inner)), inner)}
 
 	if len(m.changes) == 0 {
@@ -284,14 +341,16 @@ func (m model) viewDiff() string {
 			sym, st = "+", theme.Good
 			detail = humanBytes(c.New.Size)
 		case snapshot.Removed:
-			sym, st = "-", theme.Error
+			sym, st = "-", removed
 			detail = humanBytes(c.Old.Size)
 		default:
 			sym, st = "~", theme.Caution
-			detail = humanBytes(c.Old.Size) + " > " + humanBytes(c.New.Size)
+			detail = humanBytes(c.Old.Size) + " → " + humanBytes(c.New.Size)
 		}
-		p := truncateLeft(relToRoot(c.Path, m.diffTo.Paths, m.diffFrom.Paths), inner-26)
-		lines = append(lines, pad(st.Render(sym+" ")+theme.Text.Render(padPlain(p, inner-26))+theme.Dim.Render(fmt.Sprintf("%24s", detail)), inner))
+		detailW := min(24, max(inner/3, 0))
+		pathW := max(inner-detailW-4, 0)
+		p := truncateLeft(relToRoot(c.Path, m.diffTo.Paths, m.diffFrom.Paths), pathW)
+		lines = append(lines, pad(st.Render(sym+" ")+theme.Text.Render(padPlain(p, pathW))+theme.Dim.Render("  "+fmt.Sprintf("%*s", detailW, truncate(detail, detailW))), inner))
 	}
 	return theme.Box(true).Width(w - 2).Height(h).Render(strings.Join(lines, "\n"))
 }
@@ -299,86 +358,123 @@ func (m model) viewDiff() string {
 // ---- help and settings ----
 
 func (m model) viewHelp() string {
+	w := m.overlayW()
+	return m.dialog(m.helpContent(w), w, m.overlayTop, theme.Box(true))
+}
+
+func (m model) helpContent(w int) string {
+	colW := w
+	if w >= 68 {
+		colW = (w - 3) / 2
+	}
 	section := func(title string, rows [][2]string) string {
 		out := []string{theme.Dim.Render(title)}
 		for _, r := range rows {
-			if r[0] == "" { // continuation of the line above
-				out = append(out, theme.Text.Render(strings.Repeat(" ", 12)+r[1]))
-				continue
-			}
+			// Keys in a column one wider than the longest, [pgup pgdn].
 			k := "[" + r[0] + "]"
-			out = append(out, theme.Bold.Render(k)+theme.Text.Render(strings.Repeat(" ", max(12-lipgloss.Width(k), 1))+r[1]))
+			for i, line := range wrapWords(r[1], max(colW-12, 1)) {
+				prefix := fill(12, 1)
+				if i == 0 {
+					prefix = theme.Bold.Render(k) + fill(max(12-lipgloss.Width(k), 1), 1)
+				}
+				out = append(out, pad(prefix+theme.Text.Render(line), colW))
+			}
 		}
 		return stack(out...)
 	}
-	everywhere := section("Everywhere", [][2]string{{"h", "this help"}, {"s", "settings"}, {"v", "show or hide the key"}, {"esc", "go back"}, {"q", "quit"}})
-	moving := section("Moving", [][2]string{{"↑ ↓", "move (or k j)"}, {"pgup pgdn", "page"}, {"g G", "top, bottom"}, {"enter", "open"}, {"←", "up a folder"}})
+	everywhere := section("Everywhere", [][2]string{{"h", "help"}, {"s", "settings"}, {"v", "show / hide key"}, {"esc", "back"}, {"q", "quit"}})
+	moving := section("Moving", [][2]string{{"↑↓", "move (or k j)"}, {"pgup pgdn", "page"}, {"g G", "first / last"}, {"enter", "open"}, {"←", "parent folder"}})
 	snapshots := section("Snapshots", [][2]string{
-		{"d", "diff: list what was added, removed"},
-		{"", "or changed since the snapshot before"},
-		{"m", "mark: pick a snapshot to diff from,"},
-		{"", "then press [d] on another one"},
+		{"d", "compare with previous snapshot"},
+		{"m", "mark source, then [d] on another snapshot"},
 	})
-	files := section("Files", [][2]string{{"space", "select for restore"}, {"a", "select whole folder"}, {"c", "clear selection"}, {"r", "restore selection"}})
-	leftW := max(lipgloss.Width(everywhere), lipgloss.Width(moving))
-	fitColumn := func(block string) string {
-		lines := strings.Split(block, "\n")
-		for i, line := range lines {
-			lines[i] = pad(line, leftW)
-		}
-		return strings.Join(lines, "\n")
-	}
-	body := stack(side(6, fitColumn(everywhere), snapshots), fill(1, 1), side(6, fitColumn(moving), files))
-	if lipgloss.Width(body) > m.innerW()-8 {
+	files := section("Files", [][2]string{{"space", "select / unselect"}, {"a", "select / clear all"}, {"c", "clear selection"}, {"r", "restore selected or focused item"}})
+	body := stack(side(3, everywhere, snapshots), fill(w, 1), side(3, moving, files))
+	if w < 68 {
 		body = stack(everywhere, fill(1, 1), moving, fill(1, 1), snapshots, fill(1, 1), files)
 	}
-	footer := theme.Dim.Render("Confused? Check out the frost documentation at ") + theme.Bold.Render("getfro.st/docs")
+	footer := theme.Dim.Render("Documentation  ") + theme.Bold.Render("getfro.st/docs")
 	body = stack(body, fill(1, 1), footer)
-
-	box := theme.Box(true)
-	if lipgloss.Height(body)+4 <= m.areaH() {
-		box = box.Padding(1, 3)
-	}
-	return m.center(box.Render(body))
+	return body
 }
 
 func (m model) viewSettings() string {
-	const labelW = 18
+	w := m.overlayW()
+	return m.dialog(m.settingsContent(w), w, m.overlayTop, theme.Box(true))
+}
+
+func (m model) settingsContent(w int) string {
+	const labelW = 19
 	c := m.cfg
-	w := min(m.innerW()-8, 90)
-	row := func(k, v string) string {
-		return theme.Dim.Render(fmt.Sprintf("%-*s", labelW, k)) + theme.Text.Render(printable(v))
+	var lines []string
+	row := func(k, v string) {
+		if v == "" {
+			v = "none"
+		}
+		for i, l := range strings.Split(para(theme.Text, v, max(w-labelW, 1)), "\n") {
+			label := ""
+			if i == 0 {
+				label = k
+			}
+			lines = append(lines, theme.Dim.Render(fmt.Sprintf("%-*s", labelW, label))+l)
+		}
 	}
 	sched := "off"
 	if c.Schedule.Enabled {
 		sched = c.Schedule.Every
 	}
-	lines := []string{
-		row("backing up", strings.Join(c.Paths, ", ")),
-		row("skipping", strings.Join(c.Exclude, ", ")),
-		row("automatic backups", sched),
+	if len(c.Paths) == 0 {
+		row("backing up", "none")
 	}
-	if m.st.Updates != "" {
-		// The only row that can run long, so it wraps instead of being cut.
-		for i, l := range wrapWords(printable(m.st.Updates), w-labelW) {
-			if i == 0 {
-				lines = append(lines, row("updates", l))
-			} else {
-				lines = append(lines, row("", l))
-			}
+	// One row per folder, cut from the left: the end of a path is the part
+	// that tells folders apart.
+	for i, p := range c.Paths {
+		label := ""
+		if i == 0 {
+			label = "backing up"
 		}
+		lines = append(lines, theme.Dim.Render(fmt.Sprintf("%-*s", labelW, label))+theme.Text.Render(shortPath(p, w-labelW)))
 	}
+	row("skipping", strings.Join(c.Exclude, ", "))
+	lines = append(lines, blank(w))
+	row("automatic backups", sched)
+	if m.st.Updates != "" {
+		row("updates", m.st.Updates)
+	}
+	row("spot check", fmt.Sprintf("%d chunks after each backup", c.Verify.Sample))
+	lines = append(lines, blank(w))
+	row("storage", m.repo.Backend.String())
 	lines = append(lines,
-		row("spot check", fmt.Sprintf("%d chunks after each backup", c.Verify.Sample)),
-		row("storage", m.repo.Backend.String()),
 		theme.Dim.Render(fmt.Sprintf("%-*s", labelW, "key fingerprint"))+m.keyLabel(),
-		"",
+		blank(w),
 	)
 	lines = append(lines, settingsFooter(printable(m.st.Version), w)...)
 	for i, l := range lines {
 		lines[i] = pad(l, w)
 	}
-	return m.center(theme.Box(true).Padding(1, 3).Render(stack(lines...)))
+	return stack(lines...)
+}
+
+func (m model) overlayW() int { return m.dialogW(90) }
+
+// overlayH is how many rows of the open overlay show at once.
+func (m model) overlayH() int {
+	rows, _ := m.dialogRows(lipgloss.Height(m.overlayContent()))
+	return max(rows, 1)
+}
+
+func (m model) overlayContent() string {
+	if m.overlay == "help" {
+		return m.helpContent(m.overlayW())
+	}
+	if m.overlay == "settings" {
+		return m.settingsContent(m.overlayW())
+	}
+	return ""
+}
+
+func (m model) overlayMaxTop() int {
+	return m.dialogMaxTop(lipgloss.Height(m.overlayContent()))
 }
 
 // settingsFooter is the how-to-change line, with the version set in the

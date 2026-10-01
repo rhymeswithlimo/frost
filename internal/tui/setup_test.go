@@ -17,6 +17,23 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/crypto"
 )
 
+func TestMinimumSetupShowsEveryRecoveryWord(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	shots, _ := walkNewSetup(t, minW, minH)
+	m := shots["10-phrase-shown"].(setupModel)
+	plain := stripANSI(m.View())
+	for i, word := range strings.Fields(m.key.Phrase()) {
+		if !strings.Contains(plain, fmt.Sprintf("%2d %s", i+1, word)) {
+			t.Fatalf("word %d is clipped at the minimum setup size", i+1)
+		}
+	}
+	for _, hint := range []string{"[v]", "[enter]", "[q]"} {
+		if !strings.Contains(lastLine(m.View()), hint) {
+			t.Fatalf("minimum setup lost %s", hint)
+		}
+	}
+}
+
 // fakeSetup is SetupDeps backed by a pretend storage: the Permafrost key
 // "good" connects, anything else is refused.
 type fakeSetup struct {

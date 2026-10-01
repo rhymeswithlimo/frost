@@ -158,7 +158,7 @@ func (m setupModel) setupHints() []string {
 		if m.showWords {
 			show = "hide words"
 		}
-		return []string{h("v", show), h("enter", "I've written them down"), h("esc", "back"), quit}
+		return []string{h("v", show), h("enter", "words saved"), h("esc", "back"), quit}
 	case stCheck:
 		enter := "next"
 		if m.check.focus == 1 {
@@ -183,13 +183,18 @@ func (m setupModel) setupHints() []string {
 	return nil
 }
 
+// hintSep is the space between footer hints.
+const hintSep = "   "
+
 // fitHints joins hints to fit w. The last one (quit, usually) always stays;
-// when space runs out the ones before it go first, from the end.
+// when space runs out the spacing tightens, then the ones before it go,
+// from the end.
 func fitHints(hints []string, w int) string {
-	sep := theme.Base.Render("   ")
 	for len(hints) > 1 {
-		if s := strings.Join(hints, sep); lipgloss.Width(s) <= w {
-			return s
+		for _, sep := range []string{hintSep, "  ", " "} {
+			if s := strings.Join(hints, theme.Base.Render(sep)); lipgloss.Width(s) <= w {
+				return s
+			}
 		}
 		hints = slices.Delete(slices.Clone(hints), len(hints)-2, len(hints)-1)
 	}
@@ -216,11 +221,8 @@ type page struct {
 func (m setupModel) render(p page, w, h int) string {
 	cw := min(w, columnW)
 	var lines []string
-	if h >= 16 {
-		lines = append(lines, fill(cw, min(2, h-16+1)))
-	}
 	if p.over != "" {
-		lines = append(lines, theme.Faded.Render(p.over))
+		lines = append(lines, theme.Dim.Render(p.over))
 	}
 	q := theme.Bold
 	if p.good {
@@ -230,22 +232,42 @@ func (m setupModel) render(p page, w, h int) string {
 	if p.sub != "" {
 		lines = append(lines, para(theme.Dim, p.sub, cw))
 	}
-	lines = append(lines, blank(cw))
-	lines = append(lines, p.body...)
-	if p.help != "" {
-		lines = append(lines, blank(cw), para(theme.Dim, p.help, cw))
-	}
+	// Fit the question, answer and feedback first. Explanatory text and
+	// breathing room use the space left over, never the answer's rows.
+	answer := stack(p.body...)
+	feedback := []string{}
 	if m.err != "" {
-		lines = append(lines, blank(cw), para(theme.Error, sentence(m.err), cw))
+		feedback = append(feedback, para(theme.Error, sentence(m.err), cw))
 	}
 	if m.note != "" {
-		lines = append(lines, blank(cw), para(theme.Text, sentence(m.note), cw))
+		feedback = append(feedback, para(theme.Text, sentence(m.note), cw))
 	}
-	if p.foot != "" {
-		lines = append(lines, blank(cw), para(theme.Faded, p.foot, cw))
+	used := lipgloss.Height(stack(lines...)) + lipgloss.Height(answer)
+	for _, f := range feedback {
+		used += lipgloss.Height(f)
 	}
-	if len(p.extra) > 0 {
-		lines = append(append(lines, blank(cw)), p.extra...)
+	if used < h {
+		lines = append(lines, blank(cw))
+		used++
+	}
+	lines = append(lines, answer)
+	lines = append(lines, feedback...)
+	for _, extra := range []string{p.help, p.foot} {
+		if extra == "" {
+			continue
+		}
+		block := para(theme.Dim, extra, cw)
+		if used+1+lipgloss.Height(block) <= h {
+			lines = append(lines, blank(cw), block)
+			used += 1 + lipgloss.Height(block)
+		}
+	}
+	if len(p.extra) > 0 && used+1+lipgloss.Height(stack(p.extra...)) <= h {
+		lines = append(lines, blank(cw), stack(p.extra...))
+		used += 1 + lipgloss.Height(stack(p.extra...))
+	}
+	if h >= 16 && used < h {
+		lines = append([]string{fill(cw, min(2, h-used))}, lines...)
 	}
 	for i, l := range lines {
 		lines[i] = pad(l, cw)
@@ -461,13 +483,13 @@ func listRows(items []string, sel, n, w int, row func(i int, on bool) string) []
 	}
 	var out []string
 	if from > 0 {
-		out = append(out, pad(theme.Faded.Render(fmt.Sprintf(" ↑ %d more", from)), w))
+		out = append(out, pad(theme.Dim.Render(fmt.Sprintf(" ↑ %d more", from)), w))
 	}
 	for i := from; i < to; i++ {
 		out = append(out, row(i, i == sel))
 	}
 	if more := len(items) - to; more > 0 {
-		out = append(out, pad(theme.Faded.Render(fmt.Sprintf(" ↓ %d more", more)), w))
+		out = append(out, pad(theme.Dim.Render(fmt.Sprintf(" ↓ %d more", more)), w))
 	}
 	return out
 }
@@ -498,9 +520,9 @@ func inputBox(f field, reveal, focused bool, w int) string {
 	var content string
 	switch {
 	case f.value == "" && focused:
-		content = theme.Text.Render("█") + theme.Faded.Render(truncate(f.placeholder, inner-1))
+		content = theme.Text.Render("█") + theme.Dim.Render(truncate(f.placeholder, inner-1))
 	case f.value == "":
-		content = theme.Faded.Render(truncate(f.placeholder, inner))
+		content = theme.Dim.Render(truncate(f.placeholder, inner))
 	default:
 		content = inputText(f, reveal, focused, inner)
 	}
@@ -539,10 +561,15 @@ func inputText(f field, reveal, focused bool, w int) string {
 
 // choice is one row of a pick-one list: an inverted bar when chosen.
 func choice(on bool, name, note string, nameW, w int) string {
-	if on {
-		return theme.Selected.Render(padPlain(truncate(" (•) "+padPlain(name, nameW)+note, w), w))
+	nameW = min(nameW, max(w-5, 0))
+	label := " ( ) " + padPlain(truncate(name, nameW), nameW)
+	if note != "" {
+		label += " "
 	}
-	return pad(theme.Text.Render(" ( ) "+padPlain(name, nameW))+theme.Dim.Render(note), w)
+	if on {
+		return theme.Selected.Render(padPlain(truncate(strings.Replace(label, "( )", "(•)", 1)+note, w), w))
+	}
+	return pad(theme.Text.Render(label)+theme.Dim.Render(truncate(note, max(w-lipgloss.Width(label), 0))), w)
 }
 
 // phraseCard is the recovery phrase in a bordered card, the words covered
@@ -550,9 +577,10 @@ func choice(on bool, name, note string, nameW, w int) string {
 func (m setupModel) phraseCard(w int) string {
 	words := strings.Fields(m.key.Phrase())
 	cols := 4
-	if w-4 < 4*14 {
+	if w-4 < 4*11+3 {
 		cols = 3
 	}
+	gap := max((w-4-cols*11)/max(cols-1, 1), 0)
 	rows := (len(words) + cols - 1) / cols
 	var out []string
 	for r := range rows {
@@ -566,7 +594,10 @@ func (m setupModel) phraseCard(w int) string {
 			if !m.showWords {
 				word = theme.Redacted.Render(strings.Repeat(" ", 8))
 			}
-			line += theme.Dim.Render(fmt.Sprintf("%2d ", i+1)) + word + theme.Base.Render("   ")
+			line += theme.Dim.Render(fmt.Sprintf("%2d ", i+1)) + word
+			if c < cols-1 {
+				line += fill(gap, 1)
+			}
 		}
 		out = append(out, pad(line, w-4))
 	}

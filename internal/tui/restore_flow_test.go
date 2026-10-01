@@ -386,7 +386,7 @@ func TestLongSnapshotListLabel(t *testing.T) {
 	s.Stats.Files = 52
 	s.Stats.Bytes = 1024
 	for _, width := range []int{12, 20, 40, 50, 68, 100} {
-		label := snapshotListLabel(s, "  ", width)
+		label := snapshotListLabel(s, "  ", 2, 8, width)
 		if lipgloss.Width(label) != width || !strings.HasSuffix(label, "  ") {
 			t.Fatalf("width %d: missing right padding in %q", width, label)
 		}

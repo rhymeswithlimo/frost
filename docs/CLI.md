@@ -98,6 +98,8 @@ Put `frost status --verify` in your own scheduler if you want verification on a 
 
 Opens the snapshot browser.
 
+Help and settings scroll with `[↑↓]`, `[pgup pgdn]` or `[g G]` when their contents don't fit. Long restore confirmations and results scroll with `[pgup pgdn]`. Scrolling doesn't start a restore or dismiss its result.
+
 | Screen | Keys |
 |---|---|
 | Home | `[enter]` browse snapshots, `[r]` refresh |

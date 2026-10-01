@@ -47,6 +47,7 @@ type restoreState struct {
 	bytes int64
 	dest  restoreDest
 	phase restorePhase
+	top   int // first visible row in a long confirmation or result
 
 	// Options 1 and 2 restore into a new folder, with paths relative to
 	// base (see snapshot.RestoreBase).
@@ -195,6 +196,15 @@ func (m *model) moveDest(by int) {
 }
 
 func (m model) restoreKey(key string) (tea.Model, tea.Cmd) {
+	if key == "pgup" || key == "pgdown" {
+		by := max(m.areaH()-3, 1)
+		if key == "pgup" {
+			by = -by
+		}
+		m.rs.top = max(0, min(m.rs.top+by, m.restoreMaxTop()))
+		return m, nil
+	}
+	m.rs.top = 0
 	switch m.rs.phase {
 	case phaseConfirm:
 		switch key {
@@ -348,6 +358,10 @@ func (m *model) startTyping() {
 // restoreTypingKey edits the typed folder. It gets every key, so typing a
 // [v] or [q] doesn't reach the rest of the browser.
 func (m model) restoreTypingKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if k.Type == tea.KeyPgUp || k.Type == tea.KeyPgDown {
+		return m.restoreKey(k.String())
+	}
+	m.rs.top = 0
 	if k.Type == tea.KeyEsc {
 		m.rs.phase = m.rs.afterPick()
 		return m, nil
@@ -440,6 +454,7 @@ func (m model) updateRestore(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitFor(m.ctx, m.rs.ch)
 	case restoreDoneMsg:
 		m.rs.phase = phaseDone
+		m.rs.top = 0
 		m.rs.res, m.rs.err = msg.res, msg.err
 		if msg.err != nil || !canOpen() {
 			return m, nil
@@ -499,47 +514,53 @@ func (m model) restoreHints() []string {
 }
 
 func (m model) viewRestore() string {
+	w := m.dialogW(80)
+	return m.dialog(m.restoreContent(w), w, m.rs.top, theme.Box(true))
+}
+
+func (m model) restoreMaxTop() int {
+	return m.dialogMaxTop(lipgloss.Height(m.restoreContent(m.dialogW(80))))
+}
+
+func (m model) restoreContent(w int) string {
 	rs := m.rs
-	w := min(m.innerW()-8, 80) // border and padding take 6
 	line := func(s string) string { return pad(truncate2(s, w), w) }
 	var lines []string
 	para := func(st lipgloss.Style, s string) {
-		for _, l := range wrapWords(s, w) {
-			lines = append(lines, line(st.Render(l)))
+		for _, l := range strings.Split(st.Width(w).Render(printable(s)), "\n") {
+			lines = append(lines, line(l))
 		}
 	}
 
 	switch rs.phase {
 	case phaseConfirm:
-		lines = append(lines,
-			line(theme.Bold.Render(restoreTitle(rs))),
-			line(theme.Dim.Render("taken "+rs.snap.Time.Local().Format("2006-01-02 15:04")+", "+ago(rs.snap.Time))),
-			fill(w, 1),
-		)
+		para(theme.Bold, restoreTitle(rs))
+		para(theme.Dim, "taken "+rs.snap.Time.Local().Format("2006-01-02 15:04")+", "+ago(rs.snap.Time))
+		if m.areaH() >= 17 {
+			lines = append(lines, fill(w, 1))
+		}
+		pathLimit := min(5, max(m.areaH()-13, 1))
 		for i, p := range rs.paths {
-			if i == 5 {
-				lines = append(lines, line(theme.Dim.Render(fmt.Sprintf("  ... and %d more", len(rs.paths)-5))))
+			if i == pathLimit {
+				lines = append(lines, line(theme.Dim.Render(fmt.Sprintf("  ... and %d more", len(rs.paths)-pathLimit))))
 				break
 			}
 			lines = append(lines, line(theme.Text.Render("  "+shortPath(p, w-2))))
 		}
-		lines = append(lines, fill(w, 1), line(theme.Bold.Render("Where to?")))
-		const labelW = 28 // the longest label, so the notes line up
-		opt := func(d restoreDest, label, note string) string {
-			mark := theme.Text.Render("( ) ")
-			if rs.dest == d {
-				mark = theme.Key.Render("(*)") + theme.Base.Render(" ")
-			}
-			text := theme.Text.Render(label)
-			if rs.unavailable(d) != nil {
-				text = theme.Faded.Render(label)
-			}
-			return line(theme.Key.Render(fmt.Sprintf("[%d]", d+1)) + theme.Base.Render(" ") + mark + text +
-				theme.Base.Render(strings.Repeat(" ", labelW-len(label)+2)) + theme.Dim.Render(note))
+		if m.areaH() >= 17 {
+			lines = append(lines, fill(w, 1), line(theme.Bold.Render("Where to?")))
+		}
+		// Each option is its key, a radio, a label and a note. On a wide
+		// screen the notes sit in a column; on a narrow one only the chosen
+		// option's note shows, on the row under it.
+		const labelW = 27
+		wide := w >= 76
+		noteW := w - labelW - 13
+		if !wide {
+			noteW = w - 11
 		}
 		// The parent, which is the part that differs: the folder's own name
 		// is on the other screens, and a long snapshot ID would crowd it out.
-		noteW := w - labelW - 13
 		beside := "in " + shortPath(filepath.Dir(rs.beside), noteW)
 		if rs.besideErr != nil {
 			beside = "not available"
@@ -552,11 +573,32 @@ func (m model) viewRestore() string {
 		if rs.overErr != nil {
 			over = "not available"
 		}
-		lines = append(lines,
-			opt(destBeside, "Restore to original location", beside),
-			opt(destNew, "Restore to new location", chosen),
-			opt(destOverwrite, "Overwrite original files", over),
-		)
+		opt := func(d restoreDest, label, note string) {
+			key, radio := fmt.Sprintf("[%d] ", d+1), "( ) "
+			if rs.dest == d {
+				radio = "(•) "
+			}
+			if !wide {
+				note = ""
+			}
+			label = padPlain(label, labelW+2)
+			if rs.dest == d {
+				lines = append(lines, theme.Selected.Render(padPlain(truncate(key+radio+label+note, w), w)))
+				return
+			}
+			keySt, labelSt, noteSt := theme.Text, theme.Text, theme.Dim
+			if rs.unavailable(d) != nil {
+				keySt, labelSt, noteSt = theme.Faded, theme.Faded, theme.Faded
+			}
+			lines = append(lines, line(keySt.Render(key)+labelSt.Render(radio+label)+noteSt.Render(note)))
+		}
+		notes := []string{beside, chosen, over}
+		for d, label := range []string{"New folder beside originals", "New folder elsewhere", "Overwrite original files"} {
+			opt(restoreDest(d), label, notes[d])
+			if !wide && rs.dest == restoreDest(d) {
+				lines = append(lines, line(theme.Dim.Render("        "+truncate(notes[d], w-8))))
+			}
+		}
 		// Why, for anything greyed out.
 		gap := true
 		for _, d := range []restoreDest{destBeside, destOverwrite} {
@@ -568,7 +610,8 @@ func (m model) viewRestore() string {
 			}
 		}
 		if rs.dest == destOverwrite {
-			lines = append(lines, fill(w, 1), line(theme.Caution.Render("Files at the original paths will be overwritten.")))
+			lines = append(lines, fill(w, 1))
+			para(theme.Caution, "Files at the original paths will be overwritten.")
 		}
 
 	case phasePicking:
@@ -577,7 +620,7 @@ func (m model) viewRestore() string {
 		para(theme.Dim, "frost makes a new frost-restore-"+rs.snap.ID+" folder inside it.")
 
 	case phaseReady:
-		lines = append(lines, line(theme.Bold.Render(restoreTitle(rs))))
+		para(theme.Bold, restoreTitle(rs))
 		para(theme.Dim, "into a new folder, so nothing already there is touched")
 		lines = append(lines, fill(w, 1))
 		lines = append(lines, landing(rs, w)...)
@@ -650,12 +693,11 @@ func (m model) viewRestore() string {
 			line(theme.Good.Render("Restored ")+theme.Text.Render(fmt.Sprintf("%d files (%s)", rs.res.Files, humanBytes(rs.res.Bytes)))),
 			to,
 			fill(w, 1),
-			line(theme.Dim.Render("Every chunk was decrypted and checked against its hash.")),
 		)
+		para(theme.Dim, "Every chunk was decrypted and checked against its hash.")
 	}
 
-	box := theme.Box(true).Padding(1, 2).Render(stack(lines...))
-	return m.center(box)
+	return stack(lines...)
 }
 
 // readyActions are the three things to do once a new location is chosen,
