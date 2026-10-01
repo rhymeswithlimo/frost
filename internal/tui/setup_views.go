@@ -99,7 +99,7 @@ func (m setupModel) setupHints() []string {
 	if m.quit {
 		return nil // the choices are on the screen
 	}
-	quit, ctrlQuit := h("q", "quit"), h("ctrl+c", "quit")
+	quit := h("q", "quit")
 	switch m.step {
 	case stWelcome:
 		if m.existing {
@@ -126,7 +126,7 @@ func (m setupModel) setupHints() []string {
 			}
 			hints = append(hints, h("tab", show))
 		}
-		return append(hints, h("esc", "back"), ctrlQuit)
+		return append(hints, h("esc", "back"))
 	case stFolders:
 		if m.folderSel >= 0 {
 			return []string{h("x", "remove"), h("↑↓", "choose"), h("esc", "done"), quit}
@@ -139,7 +139,7 @@ func (m setupModel) setupHints() []string {
 		if len(m.cfg.Paths) > 0 {
 			hints = append(hints, h("↑", "remove one"))
 		}
-		return append(hints, h("esc", "back"), ctrlQuit)
+		return append(hints, h("esc", "back"))
 	case stSkip:
 		if m.skipSel >= 0 {
 			return []string{h("x", "remove"), h("↑↓", "choose"), h("esc", "done"), quit}
@@ -152,7 +152,7 @@ func (m setupModel) setupHints() []string {
 		if len(m.cfg.Exclude) > 0 {
 			hints = append(hints, h("↑", "remove one"))
 		}
-		return append(hints, h("esc", "back"), ctrlQuit)
+		return append(hints, h("esc", "back"))
 	case stPhrase:
 		show := "show words"
 		if m.showWords {
@@ -164,13 +164,13 @@ func (m setupModel) setupHints() []string {
 		if m.check.focus == 1 {
 			enter = "check"
 		}
-		return []string{h("enter", enter), h("esc", "see the words"), ctrlQuit}
+		return []string{h("enter", enter), h("esc", "see the words")}
 	case stUnlock:
 		show := "show phrase"
 		if m.phrase.reveal {
 			show = "hide phrase"
 		}
-		return []string{h("enter", "unlock"), h("tab", show), h("esc", "back"), ctrlQuit}
+		return []string{h("enter", "unlock"), h("tab", show), h("esc", "back")}
 	case stReview:
 		key := "show key"
 		if m.showKey {

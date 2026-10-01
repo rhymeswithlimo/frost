@@ -294,6 +294,16 @@ func TestSetupEarlierKeyFilledIn(t *testing.T) {
 	}
 }
 
+// noQuitHint lists the screens that take typed input. They still quit on
+// ctrl+c, but the footer doesn't say so.
+var noQuitHint = map[string]bool{
+	"14-done": true, "13b-quit": true,
+	"03-permafrost": true, "03b-permafrost-typing": true, "04-connect-failed": true,
+	"05-folders": true, "06-folders-typing": true, "07-folders-missing": true,
+	"07c-skip": true, "07d-skip-added": true, "11-check": true, "12-check-wrong": true,
+	"21-unlock": true, "22-unlock-typing": true, "23-b2": true,
+}
+
 func TestSetupScreens(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	dump := os.Getenv("FROST_TUI_DUMP")
@@ -321,7 +331,7 @@ func TestSetupScreens(t *testing.T) {
 					t.Errorf("%dx%d %s: shows the access key %q", size[0], size[1], name, secret)
 				}
 			}
-			if name != "14-done" && name != "13b-quit" && !strings.Contains(lastLine(v), "quit") {
+			if !noQuitHint[name] && !strings.Contains(lastLine(v), "quit") {
 				t.Errorf("%dx%d %s: footer lost quit: %q", size[0], size[1], name, lastLine(v))
 			}
 			hasMark := strings.Contains(plain, "▒")
