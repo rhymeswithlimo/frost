@@ -3,7 +3,7 @@
 <p align="center">Encrypted, incremental backups to storage you choose.</p>
 
 <p align="center">
-  <a href="https://getfro.st/docs">Docs</a> ·
+  <a href="https://getfro.st">Website</a> ·
   <a href="#running-locally">Development</a> ·
   <a href="docs/CHANGELOG.md">Changelog</a> ·
   <a href="#license">License</a>
@@ -27,9 +27,13 @@ frost backs up your folders to S3-compatible storage or [Permafrost](https://exa
 curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
 ```
 
+#### Manually
+
+Download the archive for your platform from the [latest release](https://github.com/rhymeswithlimo/frost/releases/latest), extract it, and put `frost` somewhere on your `PATH`. To check the download first, see [Verifying a download by hand](docs/SECURITY.md#verifying-a-download-by-hand).
+
 ## Get started
 
-**Learn how to use frost at [getfro.st/docs](https://getfro.st/docs).** The docs cover everything from setting up your first backup to restoring files.
+Learn how to use frost at [getfro.st/docs](https://getfro.st/docs).
 
 ## Contributing
 
