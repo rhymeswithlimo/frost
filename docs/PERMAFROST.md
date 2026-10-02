@@ -1,6 +1,6 @@
 # Permafrost
 
-Permafrost is a hosted storage service for frost. It's a plain object store with four operations. Backup objects are encrypted before upload, same as with S3. Setup also writes and deletes a small plaintext connectivity probe.
+Permafrost is a hosted storage service for frost. It's a plain object store with four operations. Backup objects are encrypted before upload, the same as with S3. Setup also writes and deletes a small plaintext connectivity probe.
 
 This document is the contract. frost's `permafrost` backend (`internal/storage/permafrost`) is a client for it, and its tests run against a reference server built from this document. Anyone can run a compatible server.
 
@@ -12,19 +12,19 @@ Version: `v1`
 |---|---|
 | Base URL | `storage.permafrost.url`, or the default server when that's blank |
 | Auth | `Authorization: Bearer <token>` on every request |
-| Transport | HTTPS. Clients refuse plain `http://` except for `localhost` and `127.0.0.1` |
+| Transport | HTTPS. Clients refuse plain `http://` except for loopback hosts like `localhost` and `127.0.0.1` |
 | Object bodies | Raw bytes, `Content-Type: application/octet-stream` |
 | Other bodies | JSON, UTF-8 |
 
 ## Object keys
 
-Keys are paths like `chunks/ab/ab12...` or `snapshots/maple-otter-3f1c`.
+Keys are paths like `chunks/ab/ab12...` or `snapshots/maple-otter-3f1c9a0b2e7`.
 
-- Allowed characters: `a-z`, `0-9`, `.`, `_`, `-`, `/`
-- 1 to 1024 bytes, no leading `/`, no empty segments, no `.` or `..` segments
-- Case sensitive
+- Allowed characters are `a-z`, `0-9`, `.`, `_`, `-` and `/`.
+- A key is 1 to 1024 bytes, with no leading `/`, no empty segments, and no `.` or `..` segments.
+- Keys are case sensitive.
 
-Keys go in the URL path as is (the allowed characters need no escaping). Servers must reject anything else with `400 invalid_key`.
+Keys go in the URL path as they are, since the allowed characters need no escaping. Servers must reject anything else with `400 invalid_key`.
 
 ## Endpoints
 
@@ -36,13 +36,13 @@ Stores the request body under `key`, replacing any existing object.
 |---|---|---|
 | `Content-Length` | yes | Body size |
 | `X-Content-SHA256` | yes | Lowercase hex SHA-256 of the body. The server rejects the upload with `400 checksum_mismatch` if it doesn't match |
-| `If-None-Match` | no | When `*`, atomically create only if the key is absent. Otherwise return `412 already_exists` without changing the existing object |
+| `If-None-Match` | no | When `*`, create the object atomically only if the key is absent. Otherwise return `412 already_exists` without changing the existing object |
 
 Responses: `204` stored, `400`, `401`, `403`, `412 already_exists`, `413` object too large, `507` account storage full.
 
-Conditional writes are required for `frost.repo`, snapshot headers and trees. Servers must enforce them atomically, including requests from different clients. An existing object must never be overwritten by a conditional request.
+frost uses conditional writes for `frost.repo`, snapshot headers and trees, so they're required. Servers must enforce them atomically, including for requests from different clients. A conditional request must never overwrite an existing object.
 
-Max object size is 16 MiB. frost chunks, including the ones holding snapshot file lists, are at most 8 MiB before encryption. Everything else it stores is small.
+The maximum object size is 16 MiB. frost chunks, including the ones holding snapshot file lists, are at most 8 MiB before encryption, and everything else it stores is small.
 
 ### `GET /v1/objects/{key}`
 
@@ -50,7 +50,7 @@ Returns the object body.
 
 Responses: `200` with the body and an `X-Content-SHA256` header, `404 not_found`.
 
-Clients should check the body against `X-Content-SHA256`. frost does this, and also authenticates every object with its own key after download.
+Clients should check the body against `X-Content-SHA256`. frost does, and it also authenticates every object with its own key after download.
 
 ### `DELETE /v1/objects/{key}`
 
@@ -60,7 +60,7 @@ Responses: `204`.
 
 ### `GET /v1/objects?prefix={prefix}&cursor={cursor}`
 
-Lists keys that start with `prefix` (may be empty). Results are paged, up to 1000 keys per page, in any stable order.
+Lists the keys that start with `prefix`, which may be empty. Results come in pages of up to 1000 keys, in any stable order.
 
 ```json
 {
@@ -86,18 +86,18 @@ Responses: `200`.
    | `redirect_uri` | `http://127.0.0.1:{port}/callback` |
    | `state` | A random value, 32 bytes, base64url |
 
-   For the default server the page is on the frost website. For a custom server it's `{base}/checkout`. It's a web page for a person, not part of the API: it isn't under `/v1` and doesn't take a token.
+   For the default server, the page is on the frost website. For a custom server, it's `{base}/checkout`. It's a web page for a person, not part of the API, so it isn't under `/v1` and doesn't take a token.
 
-2. Once the person has a key, the page sends the browser to `redirect_uri` with `state` and `token`, as a query string (`GET`) or a form (`POST`, `application/x-www-form-urlencoded`). A POST keeps the key out of the browser's history. If they cancel, send `state` and `error=cancelled` instead.
+2. Once the person has a key, the page sends the browser to `redirect_uri` with `state` and `token`, as a query string (`GET`) or a form (`POST`, `application/x-www-form-urlencoded`). A POST keeps the key out of the browser's history. If they cancel, the page sends `state` and `error=cancelled` instead.
 
-3. frost ignores requests to other paths and callbacks without a `state`. A callback whose `state` doesn't match ends the wait with an error. Otherwise frost saves `token` as the access key and stops listening. It waits 25 minutes at most.
+3. frost ignores requests to other paths and callbacks without a `state`. A callback with the wrong `state` gets an error page, and frost keeps waiting for the right one. Once the right `state` arrives, frost saves `token` as the access key and stops listening. It waits 25 minutes at most.
 
 The page must:
 
 - Only send the key to a `redirect_uri` on `127.0.0.1` or `localhost`. Anything else would let a crafted link send someone's key to another site.
 - Show the key once it's issued, with or without a `redirect_uri`. The redirect can't reach frost when the browser is on another machine or frost has stopped waiting, and people who come straight from the website have no frost waiting at all.
 
-frost checks that the redirect carries the `state` it generated, so another page can't feed it a key of its own. A wrong state is rejected without cancelling the original checkout. Callback bodies are limited to 16 KiB. Only this machine can receive the redirect.
+Because frost checks that the redirect carries the `state` it generated, another page can't feed it a key of its own. Callback bodies are limited to 16 KiB, and only this machine can receive the redirect.
 
 ## Errors
 
@@ -109,22 +109,22 @@ Every non-2xx response has this body:
 
 | Status | Code | Meaning |
 |---|---|---|
-| 400 | `invalid_key` | Key breaks the rules above |
-| 400 | `checksum_mismatch` | Body doesn't match `X-Content-SHA256` |
+| 400 | `invalid_key` | The key breaks the rules above |
+| 400 | `checksum_mismatch` | The body doesn't match `X-Content-SHA256` |
 | 401 | `unauthorized` | Missing or invalid token |
-| 403 | `forbidden` | Token valid but not allowed to do this |
+| 403 | `forbidden` | The token is valid but not allowed to do this |
 | 404 | `not_found` | No object with that key |
-| 413 | `too_large` | Body over the size limit |
-| 429 | `rate_limited` | Slow down. See `Retry-After` |
-| 500, 502, 503, 504 | `unavailable` | Try again. See `Retry-After` if present |
-| 507 | `quota_exceeded` | Account is full |
+| 413 | `too_large` | The body is over the size limit |
+| 429 | `rate_limited` | Slow down, and see `Retry-After` |
+| 500, 502, 503, 504 | `unavailable` | Try again, after `Retry-After` if it's set |
+| 507 | `quota_exceeded` | The account is full |
 
 ## Retries
 
-Clients retry `429` and `5xx` responses (except `507`) and network errors, up to 4 attempts in total, with exponential backoff starting at 500 ms. `Retry-After` accepts seconds, capped at 60 seconds. Retrying a conditional PUT after a lost response can return `412` even if the first request succeeded; the client reports failure rather than overwriting the object.
+Clients retry `429` and `5xx` responses (except `507`) and network errors, up to 4 attempts in total, with exponential backoff starting at 500 ms. `Retry-After` is read as seconds, capped at 60. Retrying a conditional PUT after a lost response can return `412` even if the first request succeeded. The client then reports a failure rather than overwrite the object.
 
-API redirects aren't followed. Configure the final HTTPS endpoint directly. Base URLs must not contain credentials, a query or a fragment.
+Clients don't follow redirects from the API, so configure the final HTTPS endpoint directly. Base URLs must not contain credentials, a query or a fragment.
 
 ## What the server can see
 
-The server sees object keys, sizes, upload times and the account's IP addresses. It can't see file names, file contents, folder structure or snapshot contents, because all of those are inside encrypted objects. Chunk keys are keyed hashes, so the server can't tell whether you have a particular known file. See [SECURITY.md](SECURITY.md).
+The server sees object keys, sizes, upload times and the account's IP addresses. It can't see file names, file contents, folder structure or snapshot contents, because all of those are inside encrypted objects. Chunk keys are keyed hashes, so the server can't tell whether you have a particular known file. [SECURITY.md](SECURITY.md) has the full picture.
