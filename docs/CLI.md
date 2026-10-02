@@ -8,14 +8,14 @@ In a terminal, `frost init` opens a full-screen setup that asks one thing at a t
 
 | Step | What it asks |
 |---|---|
-| Storage | Permafrost (an access key, or get one in the browser), Backblaze B2, Amazon S3, Cloudflare R2, Wasabi, or any other S3-compatible service. Each question says where to find the answer |
+| Storage | Permafrost (an access key, or get one in the browser), or an [S3-compatible service](#storage-compatibility). Presets fill in provider-specific questions |
 | Folders | Full paths (`~` works). Nothing is picked for you. A folder that's already on the list, or inside one that is, isn't added twice. A folder that doesn't exist yet is skipped until it does |
 | Skip | Names or patterns to leave out. Starts with the `exclude` defaults, which you can remove |
 | Schedule | How often to back up automatically, or off |
 | Recovery phrase | For new storage, your key's 24 words, hidden until you press `[v]`, then two of them to check your copy. For storage that already has backups, the phrase for those backups |
 | Review | Everything on one screen. Change any line, then press `[s]` to save |
 
-Setup connects right after the storage step and checks it can write there, including conditional writes (`If-None-Match: *`), which frost needs. If that fails, it goes back to the answer that caused it and keeps the rest. If the key on this machine doesn't open the backups already in that storage, it asks for their recovery phrase. If this machine's backups are somewhere else and the new storage is empty, it asks before starting a separate set of backups there.
+Setup connects right after the storage step and checks it can read, list, write and delete a test object, including [conditional writes](#storage-compatibility). If that fails, it goes back to the answer that caused it and keeps the rest. If the key on this machine doesn't open the backups already in that storage, it asks for their recovery phrase. If this machine's backups are somewhere else and the new storage is empty, it asks before starting a separate set of backups there.
 
 Picking Permafrost asks whether you have an access key. If you don't, frost opens a page in your browser to get one. The key comes back to frost and is saved to `config.toml` straight away, so quitting setup doesn't lose it. If that doesn't work, you can try again or paste the key yourself. [PERMAFROST.md](PERMAFROST.md#getting-a-key) explains the handoff.
 
@@ -26,6 +26,21 @@ The full-screen setup doesn't ask for a Permafrost server or a folder inside an 
 With piped input, `init` asks plain questions, one per line. It offers a generic S3 option instead of the provider presets and asks for the folder inside the bucket. Getting a Permafrost key works there too.
 
 If Permafrost ever rejects your access key, every command stops with an error that says so. Run `frost init` again to set up a working one.
+
+### Storage compatibility
+
+frost needs atomic conditional PUTs (`If-None-Match: *`) to prevent machines from overwriting each other's backup metadata. Setup checks that a second create fails without changing the original object. A preset saves typing; it doesn't certify a provider. frost also checks a new storage location before accepting it through `frost config set`.
+
+| Provider | Conditional PUT support |
+|---|---|
+| Amazon S3 | [Documented](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html) |
+| Cloudflare R2 | [Documented](https://developers.cloudflare.com/r2/api/s3/api/) |
+| MinIO | [Implemented in the server](https://github.com/minio/minio/blob/master/cmd/object-handlers.go). Your installed version must pass setup's check |
+| Backblaze B2 | Unverified. Its [PUT reference](https://www.backblaze.com/apidocs/s3-put-object) doesn't list `If-None-Match` |
+| Wasabi | Unverified. Its [API reference](https://docs.wasabi.com/apidocs/operations-on-objects) doesn't establish support for conditional PUTs |
+| Garage | Unsupported, according to its [maintainer](https://news.ycombinator.com/item?id=46329908) |
+
+These findings were checked against documentation and source on 2 October 2026, without live cloud-account tests. Setup refuses storage that rejects or ignores conditional creates. Changing credentials can't fix missing provider support.
 
 ## `frost backup`
 
@@ -241,9 +256,9 @@ Values from the environment are never written to `config.toml`.
 | Manifest (a cache) | `~/.cache/frost/manifest-<repo>.db` | `%LocalAppData%\frost\manifest-<repo>.db` |
 | Where backups last opened, one per config folder | `~/.cache/frost/storage-<config>.json` | `%LocalAppData%\frost\storage-<config>.json` |
 | Update check | `~/.cache/frost/update.json` | `%LocalAppData%\frost\update.json` |
-| Scheduled run log, with launchd and cron | `~/.cache/frost/frost.log` | |
+| Scheduled run log, with launchd, cron and Task Scheduler | `~/.cache/frost/frost.log` | `%LocalAppData%\frost\frost.log` |
 
-On macOS and Linux, frost respects `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. With systemd, scheduled runs log to the journal instead (`journalctl --user -u frost-backup`). On Windows, scheduled runs aren't logged, but `frost status` shows how the last backup and update check went.
+On macOS and Linux, frost respects `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. With systemd, scheduled runs log to the journal instead (`journalctl --user -u frost-backup`). On Windows, frost appends backup output, failures and update results to the log itself, including with tasks installed by an older version. Logs larger than 1 MiB are emptied before the next run.
 
 ## Scheduled jobs
 
@@ -255,6 +270,8 @@ On macOS and Linux, frost respects `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. With 
 | Windows | Task Scheduler | A task named `frost backup` |
 
 The job runs `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for, and run daily and weekly backups at 03:17.
+
+Jobs keep the config and cache directories used when they're installed, including environment overrides. Run `frost init` again after changing those directories, or to update an older job that didn't keep them.
 
 ## Exit codes
 

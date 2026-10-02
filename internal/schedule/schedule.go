@@ -22,6 +22,7 @@ type Job struct {
 	Binary    string        // absolute path to the frost binary
 	Every     time.Duration // how often
 	ConfigDir string        // passed as --config-dir when set
+	CacheDir  string        // passed as --cache-dir when set
 	LogFile   string        // where output goes
 }
 
@@ -49,7 +50,7 @@ func Kind() string {
 
 // Install creates or replaces the scheduled job.
 func Install(j Job) error {
-	for _, value := range []string{j.Binary, j.ConfigDir, j.LogFile} {
+	for _, value := range []string{j.Binary, j.ConfigDir, j.CacheDir, j.LogFile} {
 		if strings.ContainsAny(value, "\r\n\x00") {
 			return errors.New("scheduler paths can't contain line breaks or NUL")
 		}
@@ -135,6 +136,10 @@ var plistTmpl = template.Must(template.New("plist").Funcs(template.FuncMap{"xml"
 		<string>--config-dir</string>
 		<string>{{xml .ConfigDir}}</string>
 {{- end}}
+{{- if .CacheDir}}
+		<string>--cache-dir</string>
+		<string>{{xml .CacheDir}}</string>
+{{- end}}
 	</array>
 	<key>StartInterval</key>
 	<integer>{{.Seconds}}</integer>
@@ -216,6 +221,9 @@ func SystemdUnits(j Job) (service, timer string) {
 	if j.ConfigDir != "" {
 		cmd += " --config-dir " + quote(j.ConfigDir)
 	}
+	if j.CacheDir != "" {
+		cmd += " --cache-dir " + quote(j.CacheDir)
+	}
 	service = "[Unit]\nDescription=frost backup\n\n[Service]\nType=oneshot\n" +
 		"ExecStart=" + cmd + "\n" +
 		"Nice=10\nIOSchedulingClass=idle\n"
@@ -267,6 +275,9 @@ func CronLine(j Job) string {
 	cmd := shellQuote(j.Binary) + " backup --scheduled"
 	if j.ConfigDir != "" {
 		cmd += " --config-dir " + shellQuote(j.ConfigDir)
+	}
+	if j.CacheDir != "" {
+		cmd += " --cache-dir " + shellQuote(j.CacheDir)
 	}
 	command := cmd + " >> " + shellQuote(j.LogFile) + " 2>&1"
 	return fmt.Sprintf("%s %s %s", CronSpec(j.Every), strings.ReplaceAll(command, "%", `\%`), cronMarker)
@@ -325,6 +336,12 @@ func TaskArgs(j Job) []string {
 	run := windowsQuote(j.Binary) + " backup --scheduled"
 	if j.ConfigDir != "" {
 		run += " --config-dir " + windowsQuote(j.ConfigDir)
+	}
+	if j.CacheDir != "" {
+		run += " --cache-dir " + windowsQuote(j.CacheDir)
+	}
+	if j.LogFile != "" {
+		run += " --log-file " + windowsQuote(j.LogFile)
 	}
 	args := []string{"/Create", "/F", "/TN", taskName, "/TR", run}
 	h := int(j.Every.Hours())

@@ -153,7 +153,7 @@ Sampling can find corruption, but it doesn't prove that every snapshot can be re
 | Linux | A systemd user timer with `OnCalendar`, `Persistent=true` and up to 5 minutes of random delay, or a crontab line when systemd isn't running |
 | Windows | A Task Scheduler task, created with `schtasks` |
 
-The job files and arguments are built by pure functions (`LaunchdPlist`, `SystemdUnits`, `CronLine`, `TaskArgs`) and tested as strings. The launchd agent and the crontab line send output to `frost.log` in the cache directory, which a scheduled backup empties once it passes 1 MiB.
+The job files and arguments are built by pure functions (`LaunchdPlist`, `SystemdUnits`, `CronLine`, `TaskArgs`) and tested as strings. launchd and cron redirect output. On Windows, `cli` opens the log itself and records backup errors before its deferred update check. `TaskArgs` passes the log path through `--log-file`; older tasks use the default cache path. [CLI.md](CLI.md#files) lists log locations and trimming.
 
 ## Updates
 

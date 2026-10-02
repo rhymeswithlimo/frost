@@ -25,6 +25,7 @@ func newBackupCmd() *cobra.Command {
 		dryRun    bool
 		noVerify  bool
 		scheduled bool
+		logFile   string
 	)
 	cmd := &cobra.Command{
 		Use:   "backup",
@@ -35,14 +36,37 @@ last run is uploaded. Use flags to override the config for this run only.`,
   frost backup --dry-run
   frost backup --path ~/Pictures --exclude "*.raw"`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) (runErr error) {
 			out := cmd.OutOrStdout()
+			if logFile != "" && !scheduled {
+				return errors.New("--log-file requires --scheduled")
+			}
 			if scheduled {
-				trimLog()
+				var log *os.File
+				if logFile != "" || runtime.GOOS == "windows" {
+					if logFile == "" {
+						logFile = logPath()
+					}
+					var err error
+					log, err = openScheduledLog(logFile)
+					if err != nil {
+						fmt.Fprintln(cmd.ErrOrStderr(), "couldn't open scheduled run log:", errorText(err))
+					} else {
+						defer log.Close()
+						out = io.MultiWriter(plainLogWriter{log}, out)
+					}
+				} else {
+					trimLog()
+				}
 				fmt.Fprintf(out, "[%s] scheduled backup starting\n", time.Now().Format(time.RFC3339))
 				// Runs last, whether or not the backup worked: a newer
 				// release might be the fix.
 				defer autoUpdate(cmd.Context(), out)
+				defer func() {
+					if log != nil && runErr != nil {
+						fmt.Fprintln(log, "error:", errorText(runErr))
+					}
+				}()
 			}
 
 			a, err := openApp(cmd.Context())
@@ -112,7 +136,56 @@ last run is uploaded. Use flags to override the config for this run only.`,
 	f.BoolVar(&noVerify, "no-verify", false, "skip the spot check after the backup")
 	f.BoolVar(&scheduled, "scheduled", false, "log-friendly output for scheduled runs")
 	f.MarkHidden("scheduled")
+	f.StringVar(&logFile, "log-file", "", "append scheduled output to this file")
+	f.MarkHidden("log-file")
 	return cmd
+}
+
+// openScheduledLog opens and trims the same file, without following a symlink.
+func openScheduledLog(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	name := filepath.Base(path)
+	before, err := r.Lstat(name)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if before != nil && !before.Mode().IsRegular() {
+		return nil, errors.New("scheduled run log must be a regular file")
+	}
+	f, err := r.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	current, err := f.Stat()
+	after, statErr := r.Lstat(name)
+	if err != nil || statErr != nil || !after.Mode().IsRegular() || !os.SameFile(after, current) || (before != nil && !os.SameFile(before, current)) {
+		f.Close()
+		return nil, errors.New("scheduled run log changed while opening it")
+	}
+	if current.Size() > 1<<20 {
+		if err := truncateLog(r, name, current); err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
+	return f, nil
+}
+
+type plainLogWriter struct{ io.Writer }
+
+func (w plainLogWriter) Write(p []byte) (int, error) {
+	_, err := io.WriteString(w.Writer, ansi.Strip(string(p)))
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 func progressPrinter(out io.Writer) func(engine.Progress) {
@@ -203,15 +276,24 @@ func trimLog() {
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() <= 1<<20 {
 		return
 	}
+	truncateLog(r, name, fi)
+}
+
+// Windows append handles can't truncate, so trimming needs a separate handle.
+func truncateLog(r *os.Root, name string, fi os.FileInfo) error {
 	f, err := r.OpenFile(name, os.O_WRONLY, 0)
 	if err != nil {
-		return
+		return err
 	}
 	defer f.Close()
 	current, err := f.Stat()
-	if err == nil && os.SameFile(fi, current) {
-		f.Truncate(0)
+	if err != nil {
+		return err
 	}
+	if !os.SameFile(fi, current) {
+		return errors.New("scheduled run log changed while trimming it")
+	}
+	return f.Truncate(0)
 }
 
 func executable() string {

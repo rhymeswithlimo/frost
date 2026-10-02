@@ -68,6 +68,9 @@ func checkStorageChange(ctx context.Context, out io.Writer, was, now config.Stor
 	if len(ids) == 0 && oldErr == nil && hasSnapshots(ctx, oldB, key, r.Info.ID) {
 		return problem(where + " has your frost.repo but none of your snapshots. Move chunks/, snapshots/ and trees/ there too.")
 	}
+	if err := probe(ctx, newB); err != nil {
+		return problem("couldn't check " + where + ": " + explainConnect(err).Error())
+	}
 	if k.RepoID != "" && r.Info.ID != k.RepoID {
 		fmt.Fprintln(out, caution("note: ")+"those are different backups from the ones in "+k.Shown+". frost will show their snapshots instead. Yours stay where they are.")
 	}

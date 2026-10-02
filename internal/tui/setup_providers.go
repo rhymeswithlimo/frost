@@ -114,7 +114,7 @@ var providers = []provider{
 	},
 	{
 		name: "Other S3-compatible",
-		note: "MinIO, Garage, Ceph",
+		note: "MinIO, Ceph",
 		fields: []field{
 			{question: "What's the S3 endpoint?", help: "Your provider's docs list it. Use http:// only for local servers.", name: "endpoint", about: "address", check: checkEndpoint},
 			{question: "Which region?", optional: true, placeholder: "leave blank if there isn't one", help: "Only if your provider asks for one.", name: "region", about: "address", check: noSpaces("region")},

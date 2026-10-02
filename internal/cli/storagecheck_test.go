@@ -2,6 +2,10 @@ package cli
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -17,6 +21,30 @@ func (f *fixture) folder(t *testing.T, p string) storage.Backend {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestStorageMoveChecksConditionalWrites(t *testing.T) {
+	f := setup(t)
+	must(t, f.initAnswers(f.phrase[2], f.phrase[17]), "init")
+	must(t, "", "backup")
+	target, err := url.Parse(f.s3URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("If-None-Match")
+		proxy.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	_, err = run(t, "", "config", "set", "storage.s3.endpoint", srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "doesn't support conditional writes") {
+		t.Fatalf("unsafe storage move accepted: %v", err)
+	}
+	cfg, err := config.LoadFile()
+	if err != nil || cfg.Storage.S3.Endpoint != f.s3URL {
+		t.Fatalf("refused endpoint was saved: %s, %v", cfg.Storage.S3.Endpoint, err)
+	}
 }
 
 // copyFolder copies every object under one prefix to another, or only

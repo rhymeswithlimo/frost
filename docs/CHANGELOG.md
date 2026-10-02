@@ -12,7 +12,7 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **`frost init` can get you a Permafrost key.** If you don't have one yet, it opens a page in your browser, and the key comes back to frost and is saved straight away. If Permafrost rejects a key later, every command says so and points you to `frost init`.
 
-- **`frost init` walks you through setup.** In a terminal it opens a full-screen setup that asks one thing at a time and says where to find each answer, with presets for Backblaze B2, Amazon S3, Cloudflare R2 and Wasabi. If connecting fails, it says why in plain words and goes back to the answer that caused it.
+- **`frost init` walks you through setup.** In a terminal it opens a full-screen setup that asks one thing at a time and says where to find each answer, with presets for Amazon S3 and Cloudflare R2 and unverified presets for Backblaze B2 and Wasabi. If connecting fails, it says why in plain words and goes back to the answer that caused it.
 
 - **Backups only upload what changed.** Files are split where their content says, not at fixed offsets, so an edit only re-uploads the chunk or two around it. Files that haven't changed since the last run aren't even read.
 
@@ -59,3 +59,11 @@ Notable changes to frost, newest release first. Each release lists what was adde
 - **`frost key` manages your recovery phrase.** It shows the phrase behind a confirmation, checks a phrase against your backups, or imports one on a new machine.
 
 - **frost installs with one line.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, checks the download against the release's signed checksums, and installs the binary. The signature check needs `ssh-keygen` from OpenSSH 8.1 or newer.
+
+### Fixed
+
+- **Windows scheduled backups write a run log.** Backup output, failures and update results go to `frost.log`, including with existing tasks. New tasks pass the configured log path directly to frost.
+
+- **Storage checks preserve network and permission errors.** Setup checks listing access and reports failed test-object cleanup. Changing storage through `frost config set` also checks conditional writes before saving.
+
+- **Scheduled jobs keep their config and cache directories.** Jobs pass the directories chosen at setup, so environment overrides also work when the scheduler doesn't inherit your shell's environment.

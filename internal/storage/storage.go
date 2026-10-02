@@ -17,6 +17,9 @@ var ErrNotFound = errors.New("object not found")
 // ErrExists means a conditional create found an existing object.
 var ErrExists = errors.New("object already exists")
 
+// ErrConditionalUnsupported means the backend can't safely create metadata.
+var ErrConditionalUnsupported = errors.New("storage must support conditional object creation (If-None-Match: *)")
+
 // MaxObjectSize bounds ciphertext downloads, including large snapshot trees.
 const MaxObjectSize = (256 << 20) + 64
 

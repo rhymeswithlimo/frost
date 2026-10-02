@@ -12,11 +12,12 @@ var job = Job{Binary: "/usr/local/bin/frost", Every: 6 * time.Hour, LogFile: "/h
 func TestLaunchdPlistIsValidXML(t *testing.T) {
 	j := job
 	j.ConfigDir = "/tmp/a & b"
+	j.CacheDir = "/tmp/cache & files"
 	p := LaunchdPlist(j)
 	if err := xml.Unmarshal([]byte(p), new(any)); err != nil {
 		t.Fatalf("invalid plist: %v\n%s", err, p)
 	}
-	for _, want := range []string{"<integer>21600</integer>", "<string>--scheduled</string>", "/tmp/a &amp; b"} {
+	for _, want := range []string{"<integer>21600</integer>", "<string>--scheduled</string>", "/tmp/a &amp; b", "<string>--cache-dir</string>", "/tmp/cache &amp; files"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("plist missing %q", want)
 		}
@@ -64,5 +65,14 @@ func TestTaskArgs(t *testing.T) {
 	got = strings.Join(TaskArgs(Job{Binary: `frost.exe`, Every: 4 * time.Hour}), " ")
 	if !strings.HasSuffix(got, "/SC HOURLY /MO 4") {
 		t.Errorf("4h task: %s", got)
+	}
+}
+
+func TestTaskArgsIncludeLogPath(t *testing.T) {
+	j := Job{Binary: `C:\program files\frost.exe`, ConfigDir: `C:\backup config\`, CacheDir: `C:\cache & files\`, LogFile: `C:\logs & 100% !\frost.log`, Every: time.Hour}
+	args := TaskArgs(j)
+	want := `"C:\program files\frost.exe" backup --scheduled --config-dir "C:\backup config\\" --cache-dir "C:\cache & files\\" --log-file "C:\logs & 100% !\frost.log"`
+	if args[5] != want {
+		t.Fatalf("task command = %q, want %q", args[5], want)
 	}
 }

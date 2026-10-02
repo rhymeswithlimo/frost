@@ -84,6 +84,6 @@ Before opening an issue, check the docs at [getfro.st/docs](https://getfro.st/do
 
 ## Storage providers
 
-Any S3-compatible service should work through the `s3` backend without code changes, as long as it supports conditional writes (`If-None-Match: *`). If one doesn't, open an issue with the provider's name and the error `frost init` shows.
+An S3-compatible service needs atomic conditional writes to work through the `s3` backend. [CLI.md](CLI.md#storage-compatibility) lists the requirement and provider findings. If setup fails, open an issue with the provider's name and the error `frost init` shows.
 
 A new storage backend needs an issue first. It implements `storage.Backend` and has to pass `storagetest.Conformance`, as [ARCHITECTURE.md](ARCHITECTURE.md#storage-backends) describes.

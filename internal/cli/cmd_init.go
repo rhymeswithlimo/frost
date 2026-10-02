@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -490,28 +491,37 @@ func installSchedule(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	bin, err := os.Executable()
+	job, err := scheduledJob(every)
 	if err != nil {
 		return err
+	}
+	return schedule.Install(job)
+}
+
+// scheduledJob keeps the directories used at setup, even without its environment.
+func scheduledJob(every time.Duration) (schedule.Job, error) {
+	var job schedule.Job
+	bin, err := os.Executable()
+	if err != nil {
+		return job, err
 	}
 	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
 		bin = resolved
 	}
 	if err := os.MkdirAll(config.CacheDir(), 0o700); err != nil {
-		return err
+		return job, err
 	}
 	log, err := filepath.Abs(logPath())
 	if err != nil {
-		return err
+		return job, err
 	}
-	job := schedule.Job{Binary: bin, Every: every, LogFile: log}
-	if d := os.Getenv("FROST_CONFIG_DIR"); d != "" {
-		job.ConfigDir, err = filepath.Abs(d)
-		if err != nil {
-			return err
-		}
+	job = schedule.Job{Binary: bin, Every: every, LogFile: log}
+	job.ConfigDir, err = filepath.Abs(config.Dir())
+	if err != nil {
+		return job, err
 	}
-	return schedule.Install(job)
+	job.CacheDir, err = filepath.Abs(config.CacheDir())
+	return job, err
 }
 
 func missingDirs(paths []string) []string {

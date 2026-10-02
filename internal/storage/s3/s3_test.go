@@ -1,13 +1,19 @@
 package s3
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
 	"github.com/johannesboyne/gofakes3"
 	"github.com/johannesboyne/gofakes3/backend/s3mem"
+	"github.com/minio/minio-go/v7"
 
+	"github.com/rhymeswithlimo/frost/internal/storage"
 	"github.com/rhymeswithlimo/frost/internal/storage/storagetest"
 )
 
@@ -24,6 +30,45 @@ func TestConformanceFake(t *testing.T) {
 		t.Fatal(err)
 	}
 	storagetest.Conformance(t, b)
+}
+
+func TestPutNewErrors(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		code   string
+		want   error
+	}{
+		{412, "PreconditionFailed", storage.ErrExists},
+		{501, "NotImplemented", storage.ErrConditionalUnsupported},
+		{403, "AccessDenied", nil},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPut || r.Header.Get("If-None-Match") != "*" || r.URL.Path != "/frost/backups/frost.repo" {
+					t.Errorf("unexpected request: %s %s, If-None-Match = %q", r.Method, r.URL, r.Header.Get("If-None-Match"))
+				}
+				w.Header().Set("Content-Type", "application/xml")
+				w.WriteHeader(tc.status)
+				fmt.Fprintf(w, "<Error><Code>%s</Code><Message>test failure</Message></Error>", tc.code)
+			}))
+			defer srv.Close()
+			b, err := New(Config{Endpoint: srv.URL, Region: "us-east-1", Bucket: "frost", Prefix: "backups", AccessKeyID: "x", SecretAccessKey: "y"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = b.PutNew(context.Background(), "frost.repo", []byte("test"))
+			if tc.want != nil {
+				if !errors.Is(err, tc.want) {
+					t.Fatalf("PutNew = %v, want %v", err, tc.want)
+				}
+			} else {
+				var api minio.ErrorResponse
+				if !errors.As(err, &api) || api.Code != tc.code || errors.Is(err, storage.ErrConditionalUnsupported) {
+					t.Fatalf("permission error lost: %v", err)
+				}
+			}
+		})
+	}
 }
 
 // TestConformanceReal runs against a real endpoint when FROST_TEST_S3_ENDPOINT

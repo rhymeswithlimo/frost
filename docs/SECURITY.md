@@ -103,7 +103,7 @@ The browser hands the key back to frost on `127.0.0.1`, and frost checks it agai
 | `~/.cache/frost/manifest-*.db` | Chunk IDs, and your file paths with sizes and mtimes | `0600` |
 | `~/.cache/frost/storage-*.json` | Where your backups last opened (storage settings without credentials) and the repository ID | `0600` |
 | `~/.cache/frost/update.json` | When updates were last checked, the newest release seen, and the last error | `0600` |
-| `~/.cache/frost/frost.log` | Output of scheduled runs with launchd or cron, including paths that couldn't be read | Set by the scheduler |
+| `~/.cache/frost/frost.log` | Output of scheduled runs with launchd, cron or Task Scheduler, including paths that couldn't be read. [CLI.md](CLI.md#files) lists the Windows path | Set by the scheduler on macOS and Linux; user profile permissions on Windows |
 
 The manifest holds file paths in plain text, as your file system does, and it never leaves the machine. On Windows, these files are protected by your user profile's default permissions rather than Unix modes.
 

@@ -1,5 +1,5 @@
-// Package s3 is a storage backend for any S3-compatible object store: AWS,
-// Backblaze B2, Cloudflare R2, Wasabi, MinIO, Garage and so on.
+// Package s3 is a storage backend for S3-compatible object stores that support
+// atomic conditional object creation.
 package s3
 
 import (
@@ -88,7 +88,13 @@ func (b *Backend) PutNew(ctx context.Context, key string, data []byte) error {
 	if minio.ToErrorResponse(err).StatusCode == 412 {
 		return storage.ErrExists
 	}
-	return err
+	if minio.ToErrorResponse(err).StatusCode == 501 {
+		return fmt.Errorf("%w: %w", storage.ErrConditionalUnsupported, err)
+	}
+	if err != nil {
+		return fmt.Errorf("s3 put new %s: %w", key, err)
+	}
+	return nil
 }
 
 func (b *Backend) Get(ctx context.Context, key string) ([]byte, error) {

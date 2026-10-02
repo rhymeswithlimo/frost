@@ -23,6 +23,7 @@ var Version = "dev"
 // NewRoot builds the root command.
 func NewRoot() *cobra.Command {
 	var configDir string
+	var cacheDir string
 	root := &cobra.Command{
 		Use:   "frost",
 		Short: "Encrypted, incremental backups to storage you choose",
@@ -36,9 +37,14 @@ can read your files, not the storage provider and not the frost authors.`,
 			if configDir != "" {
 				os.Setenv("FROST_CONFIG_DIR", configDir)
 			}
+			if cacheDir != "" {
+				os.Setenv("FROST_CACHE_DIR", cacheDir)
+			}
 		},
 	}
 	root.PersistentFlags().StringVar(&configDir, "config-dir", "", "use a different config directory (default "+tildify(config.Dir())+")")
+	root.PersistentFlags().StringVar(&cacheDir, "cache-dir", "", "use this cache directory for a scheduled run")
+	root.PersistentFlags().MarkHidden("cache-dir")
 	cobra.EnableCommandSorting = false
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetHelpCommand(&cobra.Command{Hidden: true})

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -106,6 +107,7 @@ func Conformance(t *testing.T, b storage.Backend) {
 	if err := b.Delete(ctx, "conditional"); err != nil {
 		t.Fatal(err)
 	}
+	checkConcurrentCreates(t, b)
 
 	if _, err := b.Get(ctx, "missing/key"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("Get missing: want ErrNotFound, got %v", err)
@@ -148,5 +150,47 @@ func Conformance(t *testing.T, b storage.Backend) {
 	keys, _ = b.List(ctx, "")
 	if len(keys) != 3 {
 		t.Fatalf("List all after delete = %v", keys)
+	}
+}
+
+func checkConcurrentCreates(t *testing.T, b storage.Backend) {
+	t.Helper()
+	ctx := context.Background()
+	type result struct {
+		data []byte
+		err  error
+	}
+	const writers = 8
+	start := make(chan struct{})
+	results := make(chan result, writers)
+	for i := range writers {
+		go func() {
+			<-start
+			data := fmt.Appendf(nil, "writer %d", i)
+			results <- result{data, b.PutNew(ctx, "concurrent-create", data)}
+		}()
+	}
+	close(start)
+	var winner []byte
+	for range writers {
+		r := <-results
+		switch {
+		case r.err == nil:
+			if winner != nil {
+				t.Errorf("two concurrent creates succeeded: %q and %q", winner, r.data)
+			}
+			winner = r.data
+		case !errors.Is(r.err, storage.ErrExists):
+			t.Errorf("concurrent create: %v", r.err)
+		}
+	}
+	if winner == nil {
+		t.Fatal("no concurrent create succeeded")
+	}
+	if got, err := b.Get(ctx, "concurrent-create"); err != nil || !bytes.Equal(got, winner) {
+		t.Fatalf("concurrent winner changed: %q, %v", got, err)
+	}
+	if err := b.Delete(ctx, "concurrent-create"); err != nil {
+		t.Fatal(err)
 	}
 }

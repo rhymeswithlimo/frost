@@ -62,8 +62,8 @@ func connect(ctx context.Context, s config.Storage, local *crypto.Key) (storage.
 	return b, tui.RepoNew, nil
 }
 
-// probe checks the backend is reachable and writable.
-func probe(ctx context.Context, b storage.Backend) error {
+// probe checks reads, listings, conditional writes and deletion.
+func probe(ctx context.Context, b storage.Backend) (probeErr error) {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -72,16 +72,32 @@ func probe(ctx context.Context, b storage.Backend) error {
 	if err := b.PutNew(ctx, k, []byte("ok")); err != nil {
 		return err
 	}
-	defer b.Delete(ctx, k)
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := b.Delete(cleanup, k); err != nil {
+			probeErr = errors.Join(probeErr, fmt.Errorf("removing storage test object: %w", err))
+		}
+	}()
 	if err := b.PutNew(ctx, k, []byte("overwrite")); !errors.Is(err, storage.ErrExists) {
-		return errors.New("storage must support conditional object creation (If-None-Match)")
+		if err == nil {
+			return storage.ErrConditionalUnsupported
+		}
+		return fmt.Errorf("checking conditional object creation: %w", err)
 	}
 	data, err := b.Get(ctx, k)
 	if err != nil {
 		return err
 	}
 	if string(data) != "ok" {
-		return errors.New("storage probe data changed")
+		return fmt.Errorf("storage probe data changed: %w", storage.ErrConditionalUnsupported)
+	}
+	keys, err := b.List(ctx, k)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(keys, k) {
+		return errors.New("storage test object is missing from its listing")
 	}
 	return nil
 }
@@ -119,6 +135,9 @@ func opensRepo(ctx context.Context, b storage.Backend, key *crypto.Key) error {
 // recognise comes back unchanged.
 func explainConnect(err error) error {
 	about := func(what, msg string) error { return &tui.ConnectError{About: what, Msg: msg} }
+	if errors.Is(err, storage.ErrConditionalUnsupported) {
+		return errors.New("This storage doesn't support conditional writes (If-None-Match: *). frost needs them to keep two machines from overwriting backup metadata. Choose storage that supports them.")
+	}
 	var api *permafrost.APIError
 	if errors.As(err, &api) {
 		switch api.Status {
@@ -140,7 +159,7 @@ func explainConnect(err error) error {
 		case "NoSuchBucket":
 			return about("bucket", "There's no bucket with that name. Check the name, or create the bucket first.")
 		case "AccessDenied":
-			return about("key", "That key can't read and write this bucket. Give it read and write access to the bucket.")
+			return about("key", "That key doesn't have the bucket permissions frost needs. Allow reading, listing, writing and deleting objects.")
 		case "AuthorizationHeaderMalformed", "InvalidRegion", "PermanentRedirect":
 			return about("address", "The bucket is in a different region. Check the region or endpoint.")
 		}
