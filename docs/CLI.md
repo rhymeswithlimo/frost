@@ -33,12 +33,16 @@ Backs up the configured directories now.
 
 | Flag | Does |
 |---|---|
-| `-n`, `--dry-run` | Lists new data without uploading objects or saving a snapshot. Reuses unchanged file entries and refreshes the local chunk-presence cache |
+| `-n`, `--dry-run` | Lists new data without uploading objects or saving a snapshot. Reuses unchanged file entries and refreshes the local chunk list when it's due |
 | `--path <dir>` | Back up this directory instead of the configured ones. Repeatable |
 | `--exclude <pattern>` | Also skip this pattern for this run. Repeatable |
 | `--no-verify` | Skip the post-backup spot check |
 
 Files and folders inside a backed-up directory that can't be read (permissions, vanished mid-run) are skipped and listed. The snapshot is still saved, and `status` shows how many were skipped. A configured directory that isn't there (an unplugged drive, a moved folder) is skipped, and `backup` and `status` name it. If none are there, or one exists but can't be read, the whole backup fails rather than quietly saving nothing.
+
+A file that changes while it's read (a database in use, a running VM's disk, a download) is read again at the end of the backup. If it's still changing, the snapshot keeps its previous copy, and `backup` and `status` list it. If it was never backed up cleanly, it's skipped. frost doesn't take filesystem snapshots, so for a file that's always busy, back it up while it's closed or stopped.
+
+Backups don't list every object in storage. frost trusts its local record of what's uploaded, and checks it against storage once a week, after a check finds something missing, or when the storage isn't where it was last checked.
 
 On macOS, protected folders like `~/Documents` need Full Disk Access for the `frost` binary: System Settings > Privacy & Security > Full Disk Access. Scheduled runs need it too.
 
@@ -77,7 +81,9 @@ In a new folder, what you restore keeps its own name, relative to the folder the
 
 Without paths, the selection is the snapshot's backed-up folders. `--beside` doesn't work when the selection only shares the top of a drive, when that folder isn't on this computer (a snapshot from another machine), or when you can't write to it (backing up your whole home folder puts the new folder in `/Users` or `/home`). Use `--to` then.
 
-The new folder never overwrites anything. If `frost-restore-<id>` is taken, frost uses `-1`, `-2` and so on. Every chunk is decrypted and checked against its ID before it's written, and each file is written to a temp file then renamed, so a failed restore never leaves a half-written file behind. Files restored before a later failure remain restored.
+The new folder never overwrites anything. If `frost-restore-<id>` is taken, frost uses `-1`, `-2` and so on. Every chunk is decrypted and checked against its ID before it's written. Chunks download in parallel. Each file is written to a hidden `.frost-partial-...` file and renamed when it's complete, so a failed restore never leaves a half-written file in place of a real one.
+
+If a restore stops (lost connection, Ctrl+C, the machine sleeping), frost prints the command that carries on: the same restore, with the snapshot's ID in place of `latest` or a time, so a backup in between doesn't change which snapshot it means. It carries on in the same folder: files already there are checked and skipped, and the file it was writing continues from its last good chunk. Until it finishes, the folder holds a `.frost-restore` marker and the unfinished file's `.frost-partial-...`. `--overwrite` carries on the same way, and skips originals that already match the snapshot.
 
 `--overwrite` requires paths from the current OS. It follows links in the folders above a file only when they belong to you or to root (macOS's `/var`, a `~/Dropbox` pointing at another drive); a link owned by anyone else is refused. On Windows any link or junction there is refused. It checks this before asking, and the browser greys out "Overwrite original files" with the reason.
 
@@ -89,7 +95,7 @@ Shows the version, the repository and key fingerprint, how updates are set up, t
 
 | Flag | Does |
 |---|---|
-| `--verify` | Run a fresh verification first |
+| `--verify` | Run a fresh verification first. It also checks the full list of what's in storage |
 | `-a`, `--all` | List every snapshot |
 
 Put `frost status --verify` in your own scheduler if you want verification on a separate cadence from backups.
@@ -164,12 +170,22 @@ Changing `schedule.enabled` or `schedule.every` updates the OS scheduled job str
 | `storage.s3.endpoint` | | e.g. `s3.us-east-1.amazonaws.com`. A full `https://` URL also works |
 | `storage.s3.region` | | Blank if your provider doesn't use one |
 | `storage.s3.bucket` | | Must already exist |
-| `storage.s3.prefix` | | Optional folder inside the bucket |
+| `storage.s3.prefix` | `frost` | Folder inside the bucket that holds everything. Empty for the top level. Moving the folder on the server works if you change this to match |
 | `storage.s3.access_key_id` | | |
 | `storage.s3.secret_access_key` | | |
 | `storage.s3.insecure` | `false` | Plain HTTP. Only for local testing |
 | `storage.permafrost.url` | | Blank means the default server. Otherwise `https://` (or `http://localhost`) |
 | `storage.permafrost.token` | | |
+
+### Moving your backups
+
+| You want to | Do this |
+|---|---|
+| Move them to another folder or bucket | Move the whole folder (`frost.repo`, `chunks/`, `snapshots/` and `trees/`), then point frost at it with `frost config set`. Nothing uploads again |
+| Start a separate set of backups somewhere else | Run `frost init` and point it at the empty location. The old backups stay where they are, but frost only shows the new ones |
+| Go back to backups you moved away from | Set the old location again |
+
+Moving only `frost.repo` doesn't move your backups. `frost config set` checks a new location before saving it, and refuses one with no backups, backups made with another key, or a `frost.repo` without its snapshots. `frost config edit` doesn't refuse, it warns. If frost can't find your backups, its error and `frost status` say where they were last opened and how to get back to them.
 
 ### Environment variables
 
@@ -200,6 +216,7 @@ Values from the environment are never written back into `config.toml`.
 | Manifest (cache) | `~/.cache/frost/manifest-<repo>.db` | `%LocalAppData%\frost\manifest-<repo>.db` |
 | Scheduled run log | `~/.cache/frost/frost.log` | `%LocalAppData%\frost\frost.log` |
 | Update check | `~/.cache/frost/update.json` | `%LocalAppData%\frost\update.json` |
+| Where backups last opened | `~/.cache/frost/storage-<config>.json` (one per config folder) | `%LocalAppData%\frost\storage-<config>.json` |
 
 `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` are respected on macOS and Linux.
 

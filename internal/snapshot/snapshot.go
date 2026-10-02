@@ -19,12 +19,18 @@ import (
 
 // Snapshot is the small header stored for every backup run.
 type Snapshot struct {
-	ID       string    `json:"id"`
-	Time     time.Time `json:"time"`
-	Host     string    `json:"host"`
-	Paths    []string  `json:"paths"`
-	Stats    Stats     `json:"stats"`
-	Warnings []string  `json:"warnings,omitempty"`
+	ID    string    `json:"id"`
+	Time  time.Time `json:"time"`
+	Host  string    `json:"host"`
+	Paths []string  `json:"paths"`
+	Stats Stats     `json:"stats"`
+	// Warnings are the first of the items that couldn't be read
+	// (Stats.Skipped counts them all).
+	Warnings []string `json:"warnings,omitempty"`
+	// Kept are the first of the files that kept changing while they were
+	// read, so the snapshot has their previous copy (Stats.Kept counts them
+	// all).
+	Kept []string `json:"kept,omitempty"`
 	// Missing are configured paths that weren't there, like a drive that
 	// isn't plugged in. They're left out of Paths.
 	Missing []string `json:"missing,omitempty"`
@@ -34,10 +40,12 @@ type Snapshot struct {
 type Stats struct {
 	Files         int   `json:"files"`
 	Dirs          int   `json:"dirs"`
-	Bytes         int64 `json:"bytes"`          // total logical size of all files
-	NewChunks     int   `json:"new_chunks"`     // chunks uploaded by this run
-	NewBytes      int64 `json:"new_bytes"`      // plaintext bytes in those chunks
-	UploadedBytes int64 `json:"uploaded_bytes"` // bytes sent after compression and encryption
+	Bytes         int64 `json:"bytes"`             // total logical size of all files
+	NewChunks     int   `json:"new_chunks"`        // chunks uploaded by this run
+	NewBytes      int64 `json:"new_bytes"`         // plaintext bytes in those chunks
+	UploadedBytes int64 `json:"uploaded_bytes"`    // bytes sent after compression and encryption
+	Skipped       int   `json:"skipped,omitempty"` // items that couldn't be read
+	Kept          int   `json:"kept,omitempty"`    // busy files that kept their previous copy
 }
 
 // Type is the kind of a tree entry.

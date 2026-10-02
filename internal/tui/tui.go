@@ -121,9 +121,21 @@ func Run(ctx context.Context, r *repo.Repo, cfg config.Config, st State) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	m := newModel(ctx, r, cfg, st)
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
-	return programErr(ctx, err)
+	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx)).Run()
+	if err := programErr(ctx, err); err != nil {
+		return err
+	}
+	if fm, ok := final.(model); ok && fm.screen == scrRestore && fm.rs.phase == phaseRunning {
+		return &RestoreStopped{carryOn}
+	}
+	return nil
 }
+
+// RestoreStopped means the browser closed while a restore was running.
+// What it restored so far is kept for the next run to continue.
+type RestoreStopped struct{ Advice string }
+
+func (e *RestoreStopped) Error() string { return "Restore stopped. " + e.Advice }
 
 // programErr tidies up the error from a bubbletea program's Run.
 func programErr(ctx context.Context, err error) error {

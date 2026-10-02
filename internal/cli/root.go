@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -68,10 +69,20 @@ func Execute() int {
 		}
 	}
 	if err := NewRoot().ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, errStyle("error:"), printable(plainError(err).Error()))
+		fmt.Fprintln(os.Stderr, errStyle("error:"), errorText(err))
 		return 1
 	}
 	return 0
+}
+
+// errorText is err for the terminal. Line breaks frost put in to lay out a
+// longer explanation stay; other control characters don't.
+func errorText(err error) string {
+	lines := strings.Split(plainError(err).Error(), "\n")
+	for i, l := range lines {
+		lines[i] = printable(l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // plainError swaps errors that need the user to do something for words

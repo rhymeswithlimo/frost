@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func TestRestorePreservesDestinationOnInvalidSize(t *testing.T) {
 			}
 			s := snapshot.Snapshot{ID: snapshot.NewID()}
 			tree := &snapshot.Tree{Files: []snapshot.File{{Path: "/file", Type: snapshot.TypeFile, Size: size, Chunks: []string{id.String()}, Mode: 0o600}}}
-			if err := e.eng.Repo.SaveSnapshot(ctx, s, tree); err != nil {
+			if _, err := e.eng.Repo.SaveSnapshot(ctx, s, tree, nil); err != nil {
 				t.Fatal(err)
 			}
 			target := t.TempDir()
@@ -51,7 +52,7 @@ func TestRestoreRefusesSymlinkParent(t *testing.T) {
 	ctx := context.Background()
 	s := snapshot.Snapshot{ID: snapshot.NewID()}
 	tree := &snapshot.Tree{Files: []snapshot.File{{Path: "/link/file", Type: snapshot.TypeFile, Mode: 0o600}}}
-	if err := e.eng.Repo.SaveSnapshot(ctx, s, tree); err != nil {
+	if _, err := e.eng.Repo.SaveSnapshot(ctx, s, tree, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, outside := t.TempDir(), t.TempDir()
@@ -104,6 +105,10 @@ func TestBackupRepairsMissingCachedChunk(t *testing.T) {
 	if err := e.mem.Delete(ctx, repo.ChunkKey(ids[0])); err != nil {
 		t.Fatal(err)
 	}
+	// The sampled check after a backup notices and asks for a sync.
+	if v, err := e.eng.Verify(ctx, 100, false); err != nil || v.OK() {
+		t.Fatalf("verify missed a deleted chunk: %+v, %v", v, err)
+	}
 	second := e.backup(BackupOptions{Paths: []string{e.src, e.src}})
 	if second.Snapshot.Stats.Files != first.Snapshot.Stats.Files {
 		t.Fatal("overlapping paths counted twice")
@@ -118,7 +123,7 @@ func TestRestorePreflightsWholeSelection(t *testing.T) {
 	s := snapshot.Snapshot{ID: snapshot.NewID()}
 	tree := &snapshot.Tree{Files: []snapshot.File{{Path: "/good", Type: snapshot.TypeFile}, {Path: "/../bad", Type: snapshot.TypeFile}}}
 	ctx := context.Background()
-	if err := e.eng.Repo.SaveSnapshot(ctx, s, tree); err != nil {
+	if _, err := e.eng.Repo.SaveSnapshot(ctx, s, tree, nil); err != nil {
 		t.Fatal(err)
 	}
 	target := t.TempDir()
@@ -134,7 +139,7 @@ func TestRestoreDoesNotDeleteDirectoryDestination(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	s := snapshot.Snapshot{ID: snapshot.NewID()}
-	if err := e.eng.Repo.SaveSnapshot(ctx, s, &snapshot.Tree{Files: []snapshot.File{{Path: "/file", Type: snapshot.TypeFile, Mode: 0o600}}}); err != nil {
+	if _, err := e.eng.Repo.SaveSnapshot(ctx, s, &snapshot.Tree{Files: []snapshot.File{{Path: "/file", Type: snapshot.TypeFile, Mode: 0o600}}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	target := t.TempDir()
@@ -161,7 +166,8 @@ func (b *changingBackend) Put(ctx context.Context, key string, data []byte) erro
 	return b.Backend.Put(ctx, key, data)
 }
 
-func TestBackupSkipsFileChangedDuringRead(t *testing.T) {
+// A file that changes once while it's read is read again after the walk.
+func TestBackupRetriesFileChangedDuringRead(t *testing.T) {
 	e := newEnv(t)
 	e.write("active", random(32<<20, 9))
 	p := filepath.Join(e.src, "active")
@@ -180,8 +186,17 @@ func TestBackupSkipsFileChangedDuringRead(t *testing.T) {
 	if changeErr != nil {
 		t.Fatal(changeErr)
 	}
-	if len(res.Snapshot.Warnings) == 0 || res.Snapshot.Stats.Files != 0 {
-		t.Fatalf("changing file wasn't skipped: %+v", res.Snapshot)
+	if res.Snapshot.Stats.Skipped != 0 || res.Snapshot.Stats.Kept != 0 || res.Snapshot.Stats.Files != 1 {
+		t.Fatalf("file that changed once wasn't read again: %+v", res.Snapshot)
+	}
+	e.eng.Repo.Backend = e.mem
+	target := t.TempDir()
+	if _, err := e.eng.Restore(context.Background(), res.Snapshot.ID, RestoreOptions{Target: target}); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(p)
+	if got, _ := os.ReadFile(filepath.Join(e.restoredRoot(target), "active")); !bytes.Equal(got, want) {
+		t.Fatal("snapshot doesn't hold the file as it ended up")
 	}
 }
 
@@ -196,7 +211,7 @@ func TestVerifyFreshCacheAndMissingTreeChunk(t *testing.T) {
 	if err := e.eng.Manifest.SetSnapshots(nil); err != nil {
 		t.Fatal(err)
 	}
-	v, err := e.eng.Verify(context.Background(), 20)
+	v, err := e.eng.Verify(context.Background(), 20, true)
 	if err != nil || !v.OK() || v.Total == 0 {
 		t.Fatalf("fresh-cache verification: %+v, %v", v, err)
 	}
@@ -204,7 +219,7 @@ func TestVerifyFreshCacheAndMissingTreeChunk(t *testing.T) {
 	if err := e.eng.Manifest.ReplaceChunks(nil); err != nil {
 		t.Fatal(err)
 	}
-	v, err = e.eng.Verify(context.Background(), 20)
+	v, err = e.eng.Verify(context.Background(), 20, true)
 	if err != nil || v.OK() {
 		t.Fatalf("missing tree chunk: %+v, %v", v, err)
 	}

@@ -47,6 +47,9 @@ last run is uploaded. Use flags to override the config for this run only.`,
 
 			a, err := openApp(cmd.Context())
 			if err != nil {
+				if isStorageError(err) {
+					rememberFailure(err) // for `status`, which can't open it either
+				}
 				return err
 			}
 			defer a.Close()
@@ -84,7 +87,7 @@ last run is uploaded. Use flags to override the config for this run only.`,
 			printBackup(out, res)
 
 			if n := a.cfg.Verify.Sample; n > 0 && !noVerify {
-				v, err := a.engine.Verify(cmd.Context(), n)
+				v, err := a.engine.Verify(cmd.Context(), n, false)
 				switch {
 				case err != nil:
 					fmt.Fprintln(out, kv("verified", errStyle("couldn't run: ")+err.Error()))
@@ -142,15 +145,27 @@ func printBackup(out io.Writer, res engine.BackupResult) {
 		fmt.Fprintln(out, kv("not found", caution(missingList(s.Missing))))
 		fmt.Fprintln(out, kv("", dim("Skipped until they're back. If one moved, update it with `frost init`.")))
 	}
-	if len(s.Warnings) > 0 {
-		fmt.Fprintln(out, kv("skipped", caution(fmt.Sprintf("%d items couldn't be read:", len(s.Warnings)))))
-		for i, w := range s.Warnings {
-			if i == 10 {
-				fmt.Fprintf(out, "    ... and %d more\n", len(s.Warnings)-10)
-				break
-			}
-			fmt.Fprintln(out, "    "+printable(w))
+	if s.Stats.Skipped > 0 {
+		fmt.Fprintln(out, kv("skipped", caution(fmt.Sprintf("%d items couldn't be read:", s.Stats.Skipped))))
+		printSome(out, s.Warnings, s.Stats.Skipped)
+	}
+	if s.Stats.Kept > 0 {
+		fmt.Fprintln(out, kv("kept", caution(fmt.Sprintf("%d files kept changing while they were read, so the snapshot has their previous copy:", s.Stats.Kept))))
+		var names []string
+		for _, p := range s.Kept {
+			names = append(names, tildify(filepath.FromSlash(p)))
 		}
+		printSome(out, names, s.Stats.Kept)
+	}
+}
+
+// printSome prints the first ten of items, of which there are total.
+func printSome(out io.Writer, items []string, total int) {
+	for _, it := range items[:min(len(items), 10)] {
+		fmt.Fprintln(out, "    "+printable(it))
+	}
+	if more := total - min(len(items), 10); more > 0 {
+		fmt.Fprintf(out, "    ... and %d more\n", more)
 	}
 }
 

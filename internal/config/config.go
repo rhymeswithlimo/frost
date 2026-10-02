@@ -66,6 +66,10 @@ type Permafrost struct {
 	Token string `toml:"token"`
 }
 
+// DefaultPrefix is the folder inside an S3 bucket that holds everything
+// frost stores, unless storage.s3.prefix says otherwise.
+const DefaultPrefix = "frost"
+
 // Default returns a config with sensible defaults and no storage chosen.
 func Default() Config {
 	return Config{
@@ -73,6 +77,7 @@ func Default() Config {
 		Schedule: Schedule{Enabled: true, Every: "daily"},
 		Verify:   Verify{Sample: 20},
 		Update:   Update{Auto: true},
+		Storage:  Storage{S3: S3{Prefix: DefaultPrefix}},
 	}
 }
 

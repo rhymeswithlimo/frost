@@ -22,7 +22,9 @@ type RestoreOptions struct {
 	// full original path, e.g. <target>/home/me/notes.txt. Empty means
 	// restore in place, over the original locations.
 	Target string
-	// NewTarget refuses an existing target, for the default safe restore.
+	// NewTarget refuses an existing target, for the default safe restore,
+	// unless it holds an unfinished restore of the same snapshot and
+	// selection. Then that restore carries on.
 	NewTarget bool
 	// Base, if set, is stripped from every path under Target, so
 	// <target>/docs/notes.txt instead of <target>/home/me/docs/notes.txt.
@@ -31,8 +33,22 @@ type RestoreOptions struct {
 	// Include limits the restore to these paths and everything under them.
 	// Empty means the whole snapshot.
 	Include []string
-	// Progress, if set, is called after each file is written.
-	Progress func(path string, done, total int)
+	// Progress, if set, is called as files are checked and written.
+	Progress func(RestoreProgress)
+}
+
+// RestoreProgress is a running tally during a restore. It counts regular
+// files only.
+type RestoreProgress struct {
+	// Checking is set while files already at the destination are compared
+	// with the snapshot, before anything downloads. Bytes then counts what's
+	// been read.
+	Checking   bool
+	Path       string
+	Files      int // finished
+	TotalFiles int
+	Bytes      int64 // finished or written so far
+	TotalBytes int64
 }
 
 // RestoreResult summarises a restore.
@@ -40,12 +56,18 @@ type RestoreResult struct {
 	Files int
 	Dirs  int
 	Bytes int64
+	// Unfinished means a failed restore left work behind that running the
+	// same restore again continues.
+	Unfinished bool
 }
 
 // Restore writes files from snapshot id back to disk. Every chunk is
-// decrypted and checked against its ID before a byte is written.
-func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (RestoreResult, error) {
-	var res RestoreResult
+// decrypted and checked against its ID before a byte is written. Chunks
+// download in parallel. A file is written under a partial name and renamed
+// into place when it's complete. If a restore stops, the next run of the
+// same one skips files already in place and continues the partial file
+// from its last good chunk. It doesn't need the manifest.
+func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (res RestoreResult, err error) {
 	tree, err := e.Repo.LoadTree(ctx, id)
 	if err != nil {
 		return res, fmt.Errorf("loading snapshot %s: %w", id, err)
@@ -99,6 +121,9 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 		if _, exists := seen[rel]; exists {
 			return res, fmt.Errorf("duplicate restore destination %q", f.Path)
 		}
+		if opts.NewTarget && strings.EqualFold(rel, restoreMarker) {
+			return res, fmt.Errorf("can't restore %q into a new folder: frost uses that name there", f.Path)
+		}
 		seen[rel] = f.Type
 		if f.Type != snapshot.TypeFile && f.Type != snapshot.TypeDir && f.Type != snapshot.TypeSymlink {
 			return res, fmt.Errorf("unknown file type %q", f.Type)
@@ -119,15 +144,21 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 			}
 		}
 	}
+	// fresh means nothing of this restore can be on disk yet, so there's
+	// nothing to check before downloading.
+	fresh := false
 	if opts.NewTarget {
 		if opts.Target == "" {
 			return res, errors.New("new restore target is empty")
 		}
-		if err := os.Mkdir(opts.Target, 0o700); err != nil {
+		err := os.Mkdir(opts.Target, 0o700)
+		if err != nil && !errors.Is(err, fs.ErrExist) {
 			return res, fmt.Errorf("creating new restore target: %w", err)
 		}
+		fresh = err == nil
 	}
 	var targetRoot *os.Root
+	var mark *os.File
 	if opts.Target != "" {
 		if err := os.MkdirAll(opts.Target, 0o700); err != nil {
 			return res, err
@@ -144,6 +175,22 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 			return res, err
 		}
 		defer targetRoot.Close()
+		if opts.NewTarget {
+			if mark, err = holdMarker(targetRoot, newMarker(id, opts.Include), fresh); err != nil {
+				return res, fmt.Errorf("restoring into %s: %w", opts.Target, err)
+			}
+		}
+	}
+	if mark != nil {
+		// Out here, err is the result: the marker stays until a run succeeds.
+		defer func() {
+			mark.Close()
+			if err == nil {
+				targetRoot.Remove(restoreMarker)
+			} else {
+				res.Unfinished = true
+			}
+		}()
 	}
 
 	dest := func(p string) (string, error) {
@@ -159,7 +206,7 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 
 	// Parents of included files must exist even if they weren't selected.
 	var dirs, links []snapshot.File
-	total := 0 // progress counts regular files only
+	var regular []*restoring
 	for _, f := range files {
 		switch f.Type {
 		case snapshot.TypeDir:
@@ -167,31 +214,23 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 		case snapshot.TypeSymlink:
 			links = append(links, f)
 		case snapshot.TypeFile:
-			total++
+			out, err := dest(f.Path)
+			if err != nil {
+				return res, err
+			}
+			r := &restoring{f: f, out: out, ids: make([]crypto.ID, len(f.Chunks))}
+			for i, c := range f.Chunks {
+				r.ids[i], _ = crypto.ParseID(c) // checked above
+			}
+			regular = append(regular, r)
 		}
 	}
 
-	done := 0
-	for _, f := range files {
-		if ctx.Err() != nil {
-			return res, ctx.Err()
-		}
-		if f.Type != snapshot.TypeFile {
-			continue
-		}
-		out, err := dest(f.Path)
-		if err != nil {
-			return res, err
-		}
-		if err := e.restoreFile(ctx, f, out, targetRoot); err != nil {
-			return res, err
-		}
-		res.Files++
-		res.Bytes += f.Size
-		done++
-		if opts.Progress != nil {
-			opts.Progress(f.Path, done, total)
-		}
+	w, err := e.restoreFiles(ctx, id, targetRoot, regular, !fresh, opts.Progress)
+	res.Files, res.Bytes = w.p.Files, w.p.Bytes
+	if err != nil {
+		res.Unfinished = w.kept
+		return res, err
 	}
 
 	// Symlinks go last so a link can never redirect a later file write.
@@ -244,67 +283,6 @@ func (e *Engine) Restore(ctx context.Context, id string, opts RestoreOptions) (R
 		res.Dirs++
 	}
 	return res, nil
-}
-
-func (e *Engine) restoreFile(ctx context.Context, f snapshot.File, out string, root *os.Root) error {
-	parent, err := restoreParent(out, root)
-	if err != nil {
-		return err
-	}
-	defer parent.Close()
-	// Write to a temp file and rename, so a failed restore never leaves a
-	// half-written file where a good one used to be.
-	name := ".frost-restore-" + rand.Text()
-	tmp, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	defer parent.Remove(name)
-	defer tmp.Close()
-	var written int64
-
-	for _, c := range f.Chunks {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		id, err := crypto.ParseID(c)
-		if err != nil {
-			tmp.Close()
-			return err
-		}
-		data, err := e.Repo.GetChunk(ctx, id)
-		if err != nil {
-			tmp.Close()
-			return fmt.Errorf("restoring %s: %w", f.Path, err)
-		}
-		if int64(len(data)) > f.Size-written {
-			return fmt.Errorf("restoring %s: data exceeds recorded size", f.Path)
-		}
-		if _, err := tmp.Write(data); err != nil {
-			tmp.Close()
-			return err
-		}
-		written += int64(len(data))
-	}
-	if written != f.Size {
-		return fmt.Errorf("restoring %s: size mismatch", f.Path)
-	}
-	if err := tmp.Chmod(fs.FileMode(f.Mode).Perm()); err != nil {
-		return err
-	}
-	if err := parent.Chtimes(name, f.ModTime, f.ModTime); err != nil {
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	return parent.Rename(name, filepath.Base(out))
 }
 
 // Open each parent through a confined directory handle. Existing symlinks
@@ -362,49 +340,57 @@ func withSlash(p string) string {
 	return p + "/"
 }
 
-// NewRestoreFolder is an unused frost-restore-<id> folder in parent, adding
-// -1, -2 and so on when the name is taken. Restore still creates it
-// exclusively, so a race can't reuse one.
-func NewRestoreFolder(parent, id string) (string, error) {
+// NewRestoreFolder is a frost-restore-<id> folder in parent for restoring
+// include from snapshot id, adding -1, -2 and so on when the name is taken.
+// If one of them holds an unfinished restore of the same selection that
+// nothing else is working on, it's returned with resume set, and restoring
+// into it carries on. Otherwise Restore creates the folder exclusively, so a
+// race can't reuse one.
+func NewRestoreFolder(parent, id string, include []string) (dir string, resume bool, err error) {
 	base := filepath.Join(parent, "frost-restore-"+id)
+	want := newMarker(id, include)
 	for n := 0; n < 10000; n++ {
 		candidate := base
 		if n > 0 {
 			candidate = fmt.Sprintf("%s-%d", base, n)
 		}
-		if _, err := os.Lstat(candidate); errors.Is(err, fs.ErrNotExist) {
-			return candidate, nil
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, fs.ErrNotExist) {
+			return candidate, false, nil
 		} else if err != nil {
-			return base, err
+			return base, false, err
+		}
+		if info.IsDir() && unfinished(candidate, want) {
+			return candidate, true, nil
 		}
 	}
-	return base, fmt.Errorf("no unused restore folder found beside %s", base)
+	return base, false, fmt.Errorf("no unused restore folder found beside %s", base)
 }
 
 // BesideFolder is a new restore folder next to the originals, in base (see
 // snapshot.RestoreBase). The error says in plain words why there can't be
 // one.
-func BesideFolder(base, id string) (string, error) {
+func BesideFolder(base, id string, include []string) (dir string, resume bool, err error) {
 	if base == "" {
-		return "", errors.New("the selection is on more than one drive")
+		return "", false, errors.New("the selection is on more than one drive")
 	}
 	if snapshot.IsRoot(base) {
-		return "", errors.New("the selection only shares the top of the drive")
+		return "", false, errors.New("the selection only shares the top of the drive")
 	}
-	dir := filepath.FromSlash(base)
+	dir = filepath.FromSlash(base)
 	if !filepath.IsAbs(dir) {
-		return "", errors.New("the snapshot is from a different kind of computer")
+		return "", false, errors.New("the snapshot is from a different kind of computer")
 	}
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
-		return "", fmt.Errorf("%s isn't on this computer", dir)
+		return "", false, fmt.Errorf("%s isn't on this computer", dir)
 	}
 	probe, err := os.MkdirTemp(dir, ".frost-probe-")
 	if err != nil {
-		return "", fmt.Errorf("can't write to %s", dir)
+		return "", false, fmt.Errorf("can't write to %s", dir)
 	}
 	os.Remove(probe)
-	return NewRestoreFolder(dir, id)
+	return NewRestoreFolder(dir, id, include)
 }
 
 // inPlaceBase finds the deepest existing folder above dir, and the missing

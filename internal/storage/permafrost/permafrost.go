@@ -174,6 +174,13 @@ func (b *Backend) Delete(ctx context.Context, key string) error {
 
 func (b *Backend) String() string { return "permafrost:" + b.base.Host }
 
+// Location tells accounts apart by a hash of the access key, which String
+// leaves out.
+func (b *Backend) Location() string {
+	sum := sha256.Sum256([]byte(b.token))
+	return b.base.String() + "#" + hex.EncodeToString(sum[:8])
+}
+
 type response struct {
 	header http.Header
 	body   []byte

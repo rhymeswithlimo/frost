@@ -34,7 +34,7 @@ The encryption key isn't sent to the storage backend, Permafrost or the frost au
 The provider (an S3 host or Permafrost) can see:
 
 - How many objects you have, their sizes, and when they were uploaded.
-- Which objects are chunks, snapshot headers or file lists (from the key prefix).
+- Which objects are chunks, snapshot headers or file-list indexes (from the key prefix). File lists themselves are stored as chunks.
 - When you back up and restore, and from which IP address.
 - Snapshot IDs (random words and carry no information).
 

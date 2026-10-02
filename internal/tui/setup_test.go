@@ -163,6 +163,9 @@ func walkNewSetup(t *testing.T, w, h int) (map[string]tea.Model, *fakeSetup) {
 		t.Fatalf("after the word check: step %d, err %q", sm(m).step, sm(m).err)
 	}
 	shots["13-review"] = m
+	elsewhere := sm(m)
+	elsewhere.elsewhere = "s3://backups/frost/"
+	shots["13c-review-elsewhere"] = elsewhere
 	if m = step(t, m, key("enter")); sm(m).step != stReview || f.finished != nil {
 		t.Fatal("enter saved on the review screen")
 	}
@@ -779,5 +782,28 @@ func TestSetupDoneScreen(t *testing.T) {
 	}
 	if strings.Contains(v, "setup") {
 		t.Error("done screen still has the setup header")
+	}
+}
+
+// Connecting to empty storage while this machine's backups are elsewhere
+// puts a warning on the review screen.
+func TestSetupWarnsWhenStartingOver(t *testing.T) {
+	local, _ := crypto.NewKey()
+	f := &fakeSetup{state: RepoNew}
+	deps := f.deps(local)
+	deps.Elsewhere = func(config.Storage) string { return "s3://backups/frost/" }
+	m := newSetup(context.Background(), deps, config.Default(), false)
+	m.w, m.h = 120, 40
+	got, _ := m.Update(connectMsg{state: RepoNew})
+	s := got.(setupModel)
+	if s.elsewhere != "s3://backups/frost/" {
+		t.Fatalf("elsewhere = %q", s.elsewhere)
+	}
+	s.newRepo, s.step = true, stReview
+	if v := s.View(); !strings.Contains(v, "This starts a separate set of backups") {
+		t.Fatal("review screen doesn't warn")
+	}
+	if got, _ := s.Update(connectMsg{state: RepoLocalOK}); got.(setupModel).elsewhere != "" {
+		t.Fatal("warning kept after connecting to the existing backups")
 	}
 }

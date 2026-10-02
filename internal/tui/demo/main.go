@@ -86,7 +86,7 @@ func run(latency time.Duration, empty, broken bool) error {
 		if err := buildHistory(ctx, e, src); err != nil {
 			return err
 		}
-		e.Verify(ctx, 10)
+		e.Verify(ctx, 10, false)
 		if broken {
 			breakThings(ctx, e, mem)
 		}
@@ -242,15 +242,29 @@ func sortByTime(s []snapshot.Snapshot) {
 	slices.SortFunc(s, func(a, b snapshot.Snapshot) int { return a.Time.Compare(b.Time) })
 }
 
-// breakThings corrupts a chunk and records a failed backup, to show the
-// error states on the home screen.
+// breakThings corrupts a few chunks of file data and records a failed
+// backup, to show the error states on the home screen. File lists are
+// stored as chunks too, and are left alone so every snapshot still opens.
 func breakThings(ctx context.Context, e *engine.Engine, mem *storagetest.Mem) {
-	keys, _ := mem.List(ctx, "chunks/")
+	snaps, _ := e.Repo.Snapshots(ctx, nil)
+	sortByTime(snaps)
+	var keys []string
+	if len(snaps) > 0 {
+		if tree, err := e.Repo.LoadTree(ctx, snaps[len(snaps)-1].ID); err == nil {
+			for _, f := range tree.Files {
+				for _, c := range f.Chunks {
+					if id, err := crypto.ParseID(c); err == nil && !slices.Contains(keys, repo.ChunkKey(id)) {
+						keys = append(keys, repo.ChunkKey(id))
+					}
+				}
+			}
+		}
+	}
 	for _, k := range keys[:min(3, len(keys))] {
 		b := mem.Raw(k)
 		b[len(b)/2] ^= 0xff
 	}
-	e.Verify(ctx, len(keys))
+	e.Verify(ctx, e.Manifest.ChunkCount(), true)
 	e.Backup(ctx, engine.BackupOptions{Paths: []string{"/does/not/exist"}})
 }
 

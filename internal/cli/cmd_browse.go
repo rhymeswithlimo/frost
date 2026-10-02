@@ -2,6 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -18,11 +21,11 @@ func newBrowseCmd() *cobra.Command {
 		Long: `Opens a full-screen browser for your snapshots: pick one by date, walk its
 files as they were then, compare two snapshots, and choose what to restore.`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return runBrowser(cmd.Context()) },
+		RunE: func(cmd *cobra.Command, _ []string) error { return runBrowser(cmd.Context(), cmd.OutOrStdout()) },
 	}
 }
 
-func runBrowser(ctx context.Context) error {
+func runBrowser(ctx context.Context, out io.Writer) error {
 	a, err := openApp(ctx)
 	if err != nil {
 		return err
@@ -34,5 +37,10 @@ func runBrowser(ctx context.Context) error {
 	st.Version = Version
 	st.Updates, _ = updateSummary(a.cfg, update.LoadState(updateStatePath()), time.Now())
 	st.Updates = strings.ReplaceAll(st.Updates, "`", "") // the TUI doesn't quote commands
-	return tui.Run(ctx, a.engine.Repo, a.cfg, st)
+	err = tui.Run(ctx, a.engine.Repo, a.cfg, st)
+	if stopped := (*tui.RestoreStopped)(nil); errors.As(err, &stopped) {
+		fmt.Fprintln(out, caution("Restore stopped.")+" "+stopped.Advice)
+		return nil
+	}
+	return err
 }

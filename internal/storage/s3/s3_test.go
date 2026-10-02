@@ -46,3 +46,16 @@ func TestConformanceReal(t *testing.T) {
 	}
 	storagetest.Conformance(t, b)
 }
+
+// The same bucket name at another provider is somewhere else.
+func TestLocationIncludesEndpoint(t *testing.T) {
+	a, _ := New(Config{Endpoint: "s3.us-west-004.backblazeb2.com", Bucket: "b", Prefix: "frost"})
+	b, _ := New(Config{Endpoint: "https://abc.r2.cloudflarestorage.com", Bucket: "b", Prefix: "frost"})
+	c, _ := New(Config{Endpoint: "s3.us-west-004.backblazeb2.com", Bucket: "b", Prefix: "other"})
+	if a.String() != b.String() {
+		t.Fatalf("names differ: %s, %s", a, b)
+	}
+	if a.Location() == b.Location() || a.Location() == c.Location() {
+		t.Fatalf("locations collide: %s, %s, %s", a.Location(), b.Location(), c.Location())
+	}
+}

@@ -58,7 +58,7 @@ func TestBuildHistory(t *testing.T) {
 		if err != nil || len(tree.Files) == 0 {
 			t.Fatalf("snapshot tree: %v", err)
 		}
-		if err := r.SaveSnapshot(ctx, s, tree); err == nil {
+		if _, err := r.SaveSnapshot(ctx, s, tree, nil); err == nil {
 			t.Fatal("committed snapshot overwrite was allowed")
 		}
 	}
@@ -68,7 +68,7 @@ func TestBuildHistory(t *testing.T) {
 	if snaps[7].Time.Before(before.Add(-3*time.Hour)) || snaps[7].Time.After(after.Add(-3*time.Hour)) {
 		t.Fatal("newest snapshot has wrong age")
 	}
-	v, err := e.Verify(ctx, m.ChunkCount())
+	v, err := e.Verify(ctx, m.ChunkCount(), false)
 	if err != nil || !v.OK() {
 		t.Fatalf("demo verification: %+v, %v", v, err)
 	}

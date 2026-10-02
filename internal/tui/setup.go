@@ -44,6 +44,9 @@ type SetupDeps struct {
 	Finish    func(ctx context.Context, cfg config.Config, key *crypto.Key, newRepo bool) ([][2]string, error)
 	PickWords func() (int, int)
 	DirExists func(path string) bool
+	// Elsewhere, if set, names where this machine's backups are when that
+	// isn't s, so setup can say it's starting a separate set. "" otherwise.
+	Elsewhere func(s config.Storage) string
 	// Checkout opens the page for getting a Permafrost key. page is its
 	// address, to show in case the browser didn't open. wait blocks until
 	// the access key comes back and is saved, or ctx is cancelled. It
@@ -145,7 +148,8 @@ type setupModel struct {
 	pending   config.Storage
 	connected bool
 	state     RepoState
-	autoTried bool // a saved config gets one silent connect
+	elsewhere string // where this machine's backups are, if not in the storage just connected
+	autoTried bool   // a saved config gets one silent connect
 
 	// Permafrost without a key: getting one in the browser
 	permaCur int // 0 has a key, 1 doesn't
@@ -367,6 +371,10 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.cfg.Storage, m.connected, m.state = m.pending, true, msg.state
+		m.elsewhere = ""
+		if msg.state == RepoNew && m.deps.Elsewhere != nil {
+			m.elsewhere = m.deps.Elsewhere(m.pending)
+		}
 		return m.advance()
 
 	case unlockMsg:

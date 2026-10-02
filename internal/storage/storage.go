@@ -52,3 +52,19 @@ type Backend interface {
 	// String describes the backend for humans, e.g. "s3://bucket/prefix".
 	String() string
 }
+
+// Locator is a Backend that can say exactly where it keeps objects, more
+// precisely than String does: the same bucket name at another provider is
+// somewhere else.
+type Locator interface {
+	Location() string
+}
+
+// Location identifies where b keeps objects. Two backends with the same
+// location see the same objects.
+func Location(b Backend) string {
+	if l, ok := b.(Locator); ok {
+		return l.Location()
+	}
+	return b.String()
+}

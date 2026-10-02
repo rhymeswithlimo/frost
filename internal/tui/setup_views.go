@@ -388,11 +388,15 @@ func (m setupModel) page(w, h int) page {
 			}
 			rows = append(rows, pad(theme.Dim.Render(" "+padPlain("key", 10))+shown+theme.Dim.Render("  "+from), cw))
 		}
-		return page{
+		pg := page{
 			question: "Review and finalise.",
 			sub:      "Adjust your preferences below. When you're ready, press [s] to finish.",
 			body:     rows,
 		}
+		if m.newRepo && m.elsewhere != "" {
+			pg.extra = []string{para(theme.Caution, "This starts a separate set of backups. Your current ones in "+m.elsewhere+" stay there, but frost will only show the new ones, and the first backup uploads everything again.", cw)}
+		}
+		return pg
 	}
 	return page{}
 }

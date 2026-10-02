@@ -76,3 +76,11 @@ func TestRequiresHTTPS(t *testing.T) {
 		t.Fatal("empty token accepted")
 	}
 }
+
+func TestLocationTellsAccountsApart(t *testing.T) {
+	a, _ := New("https://pf.example.com", "one")
+	b, _ := New("https://pf.example.com", "two")
+	if a.String() != b.String() || a.Location() == b.Location() {
+		t.Fatalf("accounts: %s %s, %s %s", a, a.Location(), b, b.Location())
+	}
+}

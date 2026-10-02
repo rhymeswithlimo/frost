@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 // Windows links have no owner to go by, so in-place restores refuse any link
@@ -30,4 +33,15 @@ func resolveParent(dir string) (string, error) {
 		}
 	}
 	return dir, nil
+}
+
+// lockFile takes an exclusive lock on f without waiting. It's released when
+// f is closed or the process ends. It returns errBusy if another process
+// holds it. Filesystems that can't lock are let through.
+func lockFile(f *os.File) error {
+	err := windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, new(windows.Overlapped))
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+		return errBusy
+	}
+	return nil
 }

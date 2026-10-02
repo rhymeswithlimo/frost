@@ -188,7 +188,7 @@ func TestVerifyCatchesTampering(t *testing.T) {
 	e.write("a.bin", random(3<<20, 4))
 	e.backup(BackupOptions{})
 
-	v, err := e.eng.Verify(context.Background(), 100)
+	v, err := e.eng.Verify(context.Background(), 100, false)
 	if err != nil || !v.OK() {
 		t.Fatalf("clean verify: %+v, %v", v, err)
 	}
@@ -199,7 +199,7 @@ func TestVerifyCatchesTampering(t *testing.T) {
 	bad[len(bad)/2] ^= 0xff
 	e.mem.SetRaw(keys[0], bad)
 
-	v, _ = e.eng.Verify(context.Background(), 100)
+	v, _ = e.eng.Verify(context.Background(), 100, false)
 	if v.OK() {
 		t.Fatal("verify missed a tampered chunk")
 	}
@@ -224,9 +224,19 @@ func TestSwappedObjectRejected(t *testing.T) {
 	e.write("a", []byte("aaaa"))
 	e.write("b", []byte("bbbb"))
 	res := e.backup(BackupOptions{})
-	keys, _ := e.mem.List(context.Background(), "chunks/")
+	tree, err := e.eng.Repo.LoadTree(context.Background(), res.Snapshot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, f := range tree.Files {
+		for _, c := range f.Chunks {
+			id, _ := crypto.ParseID(c)
+			keys = append(keys, repo.ChunkKey(id))
+		}
+	}
 	if len(keys) != 2 {
-		t.Fatalf("want 2 chunks, got %d", len(keys))
+		t.Fatalf("want 2 data chunks, got %d", len(keys))
 	}
 	// Provider swaps two valid ciphertexts.
 	a, b := e.mem.Raw(keys[0]), e.mem.Raw(keys[1])
@@ -283,7 +293,7 @@ func TestRestoreProgressReachesTotal(t *testing.T) {
 	var done, total int
 	_, err := e.eng.Restore(context.Background(), res.Snapshot.ID, RestoreOptions{
 		Target:   t.TempDir(),
-		Progress: func(_ string, d, n int) { done, total = d, n },
+		Progress: func(p RestoreProgress) { done, total = p.Files, p.TotalFiles },
 	})
 	if err != nil {
 		t.Fatal(err)

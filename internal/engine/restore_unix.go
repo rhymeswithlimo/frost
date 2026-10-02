@@ -3,9 +3,12 @@
 package engine
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // trustedLink says whether an in-place restore may follow a link above what
@@ -21,3 +24,13 @@ func defaultTrustedLink(info fs.FileInfo) bool {
 }
 
 func resolveParent(dir string) (string, error) { return resolveTrusted(dir, trustedLink) }
+
+// lockFile takes an exclusive lock on f without waiting. It's released when
+// f is closed or the process ends. It returns errBusy if another process
+// holds it. Filesystems that can't lock are let through.
+func lockFile(f *os.File) error {
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); errors.Is(err, unix.EWOULDBLOCK) {
+		return errBusy
+	}
+	return nil
+}

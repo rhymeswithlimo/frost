@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -47,7 +48,7 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				if !isTerminal(os.Stdin) {
 					return errors.New("say which snapshot to restore, e.g. `frost restore latest`")
 				}
-				return runBrowser(cmd.Context())
+				return runBrowser(cmd.Context(), cmd.OutOrStdout())
 			}
 			switch n := btoi(beside) + btoi(overwrite) + btoi(to != ""); {
 			case n == 0:
@@ -90,6 +91,7 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				}
 				include = append(include, filepath.ToSlash(abs))
 			}
+			rerun := rerunCommand(snap.ID, include, beside, to, overwrite)
 
 			// A new folder holds what was backed up, relative to the folder
 			// it all shares. The whole snapshot is its backed-up folders.
@@ -98,14 +100,15 @@ With no arguments in a terminal, opens the snapshot browser.`,
 			}
 			base := snapshot.RestoreBase(include)
 			var target string
+			var resume bool
 			switch {
 			case beside:
-				target, err = engine.BesideFolder(base, snap.ID)
+				target, resume, err = engine.BesideFolder(base, snap.ID, include)
 				if err != nil {
 					return fmt.Errorf("can't restore beside the originals: %w. Use --to <dir> instead", err)
 				}
 			case to != "":
-				if target, err = engine.NewRestoreFolder(to, snap.ID); err != nil {
+				if target, resume, err = engine.NewRestoreFolder(to, snap.ID, include); err != nil {
 					return err
 				}
 			default:
@@ -121,6 +124,9 @@ With no arguments in a terminal, opens the snapshot browser.`,
 			where := "original locations " + caution("(existing files will be replaced)")
 			if target != "" {
 				where = tildify(target)
+				if resume {
+					where += dim(", carrying on with the unfinished restore there")
+				}
 			} else {
 				base = ""
 			}
@@ -141,21 +147,23 @@ With no arguments in a terminal, opens the snapshot browser.`,
 			}
 
 			live := liveOutput()
-			res, err := a.engine.Restore(cmd.Context(), snap.ID, engine.RestoreOptions{
+			opts := engine.RestoreOptions{
 				Target:    target,
 				NewTarget: target != "",
 				Base:      base,
 				Include:   include,
-				Progress: func(p string, done, total int) {
-					if live {
-						statusLine(out, fmt.Sprintf("  %d/%d  %s", done, total, dim(printable(path.Base(p)))))
-					}
-				},
-			})
+			}
+			if live {
+				opts.Progress = restorePrinter(out)
+			}
+			res, err := a.engine.Restore(cmd.Context(), snap.ID, opts)
 			if live {
 				clearStatus(out)
 			}
 			if err != nil {
+				if res.Unfinished {
+					return fmt.Errorf("%w\n\nWhat's restored so far was kept. To carry on from there, run:\n\n  %s", err, rerun)
+				}
 				return err
 			}
 			fmt.Fprintf(out, "%s %s files (%s), every chunk checked against its hash.\n",
@@ -168,6 +176,47 @@ With no arguments in a terminal, opens the snapshot browser.`,
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "restore over the originals, replacing what's there (asks first)")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "don't ask before overwriting")
 	return cmd
+}
+
+// rerunCommand is the restore to run to continue this one. It names the
+// snapshot by ID, because "latest" may mean a newer one by then, and the
+// paths in full, because it may run from another folder.
+func rerunCommand(id string, paths []string, beside bool, to string, overwrite bool) string {
+	quote := func(s string) string {
+		if strings.ContainsAny(s, " \t'\"$&;|<>()*?[]#~`") {
+			return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+		}
+		return s
+	}
+	parts := []string{"frost", "restore", id}
+	for _, p := range paths {
+		parts = append(parts, quote(filepath.FromSlash(p)))
+	}
+	switch {
+	case beside:
+		parts = append(parts, "--beside")
+	case to != "":
+		parts = append(parts, "--to", quote(to))
+	case overwrite:
+		parts = append(parts, "--overwrite")
+	}
+	return strings.Join(parts, " ")
+}
+
+func restorePrinter(out io.Writer) func(engine.RestoreProgress) {
+	last := time.Time{}
+	return func(p engine.RestoreProgress) {
+		if time.Since(last) < 100*time.Millisecond {
+			return
+		}
+		last = time.Now()
+		name := dim(printable(path.Base(p.Path)))
+		if p.Checking {
+			statusLine(out, fmt.Sprintf("  checking what's already there, %s of %s  %s", humanBytes(p.Bytes), humanBytes(p.TotalBytes), name))
+			return
+		}
+		statusLine(out, fmt.Sprintf("  %s/%s files, %s of %s  %s", humanCount(p.Files), humanCount(p.TotalFiles), humanBytes(p.Bytes), humanBytes(p.TotalBytes), name))
+	}
 }
 
 func btoi(b bool) int {

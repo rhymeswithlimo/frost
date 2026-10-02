@@ -71,6 +71,7 @@ func runSetupScreens(cmd *cobra.Command, cfg config.Config, existing bool, local
 		Finish:    finishSetup,
 		PickWords: pickWords,
 		DirExists: func(p string) bool { return len(missingDirs([]string{p})) == 0 },
+		Elsewhere: backupsElsewhere,
 		Checkout:  checkout,
 	}
 	res, err := tui.Setup(cmd.Context(), deps, cfg, existing)
@@ -302,9 +303,10 @@ func askStorage(ctx context.Context, p *prompter, cfg *config.Config) error {
 		if s.S3.Bucket, err = p.required("  Bucket", s.S3.Bucket); err != nil {
 			return err
 		}
-		if s.S3.Prefix, err = p.ask("  Folder inside the bucket (optional)", s.S3.Prefix); err != nil {
+		if s.S3.Prefix, err = p.ask("  Folder inside the bucket (/ for the top level)", s.S3.Prefix); err != nil {
 			return err
 		}
+		s.S3.Prefix = strings.Trim(s.S3.Prefix, "/")
 		if s.S3.AccessKeyID, err = p.required("  Access key ID", s.S3.AccessKeyID); err != nil {
 			return err
 		}
@@ -360,6 +362,17 @@ func promptKey(ctx context.Context, p *prompter, b storage.Backend, state tui.Re
 		return key, false, err
 	}
 	if local != nil {
+		if k := loadKnown(); k.Where != "" && k.Where != storage.Location(b) {
+			fmt.Fprintf(p.out, "\nThere are no backups in %s yet. This machine's backups are in %s.\n", b, k.Shown)
+			fmt.Fprintln(p.out, "They stay there, but frost will only show the ones made here from now on, and the first backup uploads everything again.")
+			ok, err := p.yesNo("Start a separate set of backups here?", false)
+			if err != nil {
+				return nil, false, err
+			}
+			if !ok {
+				return nil, false, errors.New("nothing was changed. To keep using your backups, run `frost init` again and point it at " + k.Shown)
+			}
+		}
 		return local, true, nil
 	}
 	if key, err = newKey(); err != nil {

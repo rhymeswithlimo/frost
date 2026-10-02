@@ -76,6 +76,9 @@ func (m model) summary() string {
 		default:
 			rows = append(rows, row("last backup", theme.Good.Render("ok ")+theme.Text.Render(ago(last.Time))))
 		}
+		if last.Error == "" && last.Kept > 0 {
+			rows = append(rows, row("busy files", theme.Caution.Render(fmt.Sprintf("%d kept their previous copy", last.Kept))))
+		}
 	}
 	if v, ok := m.st.Verify, m.st.HasVerify; !ok {
 		rows = append(rows, row("health", theme.Dim.Render("not checked yet")))
@@ -195,8 +198,11 @@ func (m model) snapDetail(s snapshot.Snapshot, w int) string {
 	for _, p := range s.Paths {
 		lines = append(lines, pad(theme.Text.Render(truncate("  "+shortPath(p, w-2), w)), w))
 	}
-	if n := len(s.Warnings); n > 0 {
+	if n := s.Stats.Skipped; n > 0 {
 		lines = append(lines, fill(w, 1), pad(theme.Caution.Render(fmt.Sprintf("%d items couldn't be read", n)), w))
+	}
+	if n := s.Stats.Kept; n > 0 {
+		lines = append(lines, fill(w, 1), pad(theme.Caution.Render(truncate(fmt.Sprintf("%d busy files kept their previous copy", n), w)), w))
 	}
 	if m.marked != "" && m.marked != s.ID {
 		lines = append(lines, fill(w, 1), pad(theme.Dim.Render("[d] compares with "+m.marked), w))

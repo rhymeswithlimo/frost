@@ -88,15 +88,15 @@ func TestNewRestoreFolder(t *testing.T) {
 	if err := os.WriteFile(base+"-1", []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := NewRestoreFolder(dir, "x")
-	if err != nil || got != base+"-2" {
+	got, resume, err := NewRestoreFolder(dir, "x", nil)
+	if err != nil || got != base+"-2" || resume {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }
 
 func TestBesideFolder(t *testing.T) {
 	dir := t.TempDir()
-	got, err := BesideFolder(filepath.ToSlash(dir), "x")
+	got, _, err := BesideFolder(filepath.ToSlash(dir), "x", nil)
 	if err != nil || got != filepath.Join(dir, "frost-restore-x") {
 		t.Fatalf("got %q, %v", got, err)
 	}
@@ -104,7 +104,7 @@ func TestBesideFolder(t *testing.T) {
 		t.Fatalf("left %d entries behind", len(left))
 	}
 	for _, base := range []string{"", "/", "C:/", filepath.ToSlash(filepath.Join(dir, "missing"))} {
-		if _, err := BesideFolder(base, "x"); err == nil {
+		if _, _, err := BesideFolder(base, "x", nil); err == nil {
 			t.Errorf("%q: accepted", base)
 		}
 	}
@@ -116,7 +116,7 @@ func TestBesideFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(ro, 0o700) })
-	if _, err := BesideFolder(filepath.ToSlash(ro), "x"); err == nil || !strings.Contains(err.Error(), "can't write") {
+	if _, _, err := BesideFolder(filepath.ToSlash(ro), "x", nil); err == nil || !strings.Contains(err.Error(), "can't write") {
 		t.Fatalf("read-only folder: %v", err)
 	}
 }

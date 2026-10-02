@@ -39,19 +39,20 @@ func TestMetadataValidationAndImmutability(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := snapshot.Snapshot{ID: snapshot.NewID()}
-	if err := r.SaveSnapshot(ctx, s, &snapshot.Tree{}); err != nil {
+	if _, err := r.SaveSnapshot(ctx, s, &snapshot.Tree{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.SaveSnapshot(ctx, s, &snapshot.Tree{Files: []snapshot.File{{Path: "/changed"}}}); err == nil {
+	if _, err := r.SaveSnapshot(ctx, s, &snapshot.Tree{Files: []snapshot.File{{Path: "/changed"}}}, nil); err == nil {
 		t.Fatal("overwrote snapshot")
 	}
 	tree, err := r.LoadTree(ctx, s.ID)
 	if err != nil || len(tree.Files) != 0 {
 		t.Fatal("original tree changed")
 	}
+	before, _ := r.ChunkIDs(ctx) // the file list's chunk
 	id := k.ChunkID([]byte("x"))
 	m.SetRaw("chunks/wrong/"+id.String(), []byte("x"))
-	if ids, err := r.ChunkIDs(ctx); err != nil || len(ids) != 0 {
+	if ids, err := r.ChunkIDs(ctx); err != nil || len(ids) != len(before) {
 		t.Fatal("noncanonical chunk counted")
 	}
 	r.Info.ID = "../../escape"

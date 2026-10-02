@@ -13,18 +13,18 @@
 </p>
 
 <p align="center">
-<a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4" alt="Latest release"></a>
-<a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI" alt="CI"></a>
-<a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4" alt="License: BSD 3-Clause"></a>
-<img src="https://img.shields.io/badge/Go-1.26.6%2B-1926c4?logo=go&logoColor=white" alt="Go 1.26.6+">
-<img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1926c4" alt="macOS, Linux, Windows">
+<a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4&style=flat-square" alt="Latest release"></a>
+<a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4?style=flat-square" alt="License: BSD 3-Clause"></a>
+<img src="https://img.shields.io/badge/Go-1.26.6%2B-1926c4?logo=go&logoColor=white&style=flat-square" alt="Go 1.26.6+">
+<img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1926c4?style=flat-square" alt="macOS, Linux, Windows">
 </p>
 
 ---
 
 frost is a single binary that backs up your directories to an S3-compatible bucket or to [Permafrost](https://example.com), on a schedule. Backup data is encrypted on your machine before it's uploaded.
 
-frost generates your encryption key locally and shows it as a 24 word recovery phrase. Storage providers may require an account and separate credentials.
+frost generates your encryption key locally and shows it as a 24 word recovery phrase. That phrase is the only thing protecting your backups: whoever has it can read them, and if you lose it (and the machine it's stored on) they can't be recovered by anyone. Storage providers may require an account and separate credentials.
 
 - **Client-side encryption**: XChaCha20-Poly1305 with a key that never leaves your machine.
 - **Only uploads what's changed**: content-defined chunking means an edit in the middle of a big file re-uploads a chunk or two, not the whole file.
@@ -32,7 +32,6 @@ frost generates your encryption key locally and shows it as a 24 word recovery p
 - **Terminal browser**: browse snapshots, diff them and pick files to restore in frost's very own TUI.
 - **Checks itself**: after each backup, frost re-downloads a random sample of chunks and verifies them, so problems show up in `frost status` before you need a restore.
 - **Runs on a schedule**: launchd, systemd, cron or Task Scheduler, set up for you during `frost init`.
-- **Keeps itself up to date**: scheduled backups install new releases, checked against frost's signing key first. `frost update` does it now.
 
 <div align="center">
    <img alt="frost showcase" src="public/repo/README_Hero_PNG_v2.1__frost.png" width="100%">
@@ -68,7 +67,7 @@ frost browse                # browse snapshots, diff them, pick files to restore
 Every restore says where it goes: `--beside` (a new folder next to the originals), `--to <dir>` (a new folder inside `<dir>`) or `--overwrite` (back over the originals, asks first). Only `--overwrite` can replace existing files.
 
 > [!IMPORTANT]
-> Save your recovery phrase somewhere safe! It's the only way to decrypt your backups, and there's no way to reset it.
+> Save your recovery phrase somewhere safe, like on paper or in a password manager. It's the only way to decrypt your backups, there's no way to reset it, and nobody (including us and your storage provider) can recover it for you. `frost init` shows it once. Run `frost key verify` now and then to check what you wrote down is right, and `frost key import` to put it on a new machine.
 
 > [!NOTE]
 > On macOS, folders like `~/Documents` and `~/Desktop` are privacy protected. If a backup fails with "operation not permitted", add the `frost` binary under System Settings > Privacy & Security > Full Disk Access.
@@ -119,7 +118,17 @@ A snapshot can be `latest`, an ID or its prefix (`maple`), a relative time (`12h
 
 Full reference, including every setting and environment variable: [docs/CLI.md](docs/CLI.md).
 
-## Storage
+## Snapshots and storage
+
+Each backup creates a snapshot: a record of what your files looked like at that moment. Restoring a snapshot gives you your files back as they were then, so an old snapshot is how you recover a file you changed or deleted last week.
+
+frost splits your files into small chunks and uploads each chunk once, encrypted. A snapshot is a list of files and the chunks that make them up. When a file hasn't changed, or two files share content, the existing chunks are reused. That's why the second backup is quick and why keeping lots of snapshots doesn't multiply the size of your storage.
+
+In your bucket you'll see a `frost/` folder (change it with `storage.s3.prefix`) holding a few folders (`chunks/`, `snapshots/`, `trees/`) and a `frost.repo` file. They're all encrypted, and without the recovery phrase they can't be read, including file names. The storage provider can see how many objects there are, their sizes and when you upload, but not what's in them. Details are in [docs/SECURITY.md](docs/SECURITY.md).
+
+Your recovery phrase is stored in plain text in frost's config folder, so scheduled backups can run without you. Use disk encryption and a locked screen on that machine.
+
+### Backends
 
 | Backend | For | Setup |
 |---|---|---|

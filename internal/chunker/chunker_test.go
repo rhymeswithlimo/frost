@@ -89,3 +89,61 @@ func TestSmallAndEmpty(t *testing.T) {
 		t.Fatal("small input should give one chunk")
 	}
 }
+
+func TestSplitMatchesStreaming(t *testing.T) {
+	tab := NewTable(11)
+	data := append(randBytes(20<<20, 4), make([]byte, 20<<20)...) // zeros cut at MaxSize
+	want := split(t, data, tab)
+	got := Split(data, tab)
+	if len(got) != len(want) {
+		t.Fatalf("Split made %d chunks, streaming made %d", len(got), len(want))
+	}
+	for i := range got {
+		if !bytes.Equal(got[i], want[i]) {
+			t.Fatalf("chunk %d differs", i)
+		}
+	}
+}
+
+// A restore can resume from a partly written file because a prefix of the
+// data splits into the same leading chunks as the whole of it. Only the last
+// one, cut short, differs.
+func TestPrefixKeepsLeadingChunks(t *testing.T) {
+	tab := NewTable(5)
+	data := append(randBytes(24<<20, 6), make([]byte, 12<<20)...)
+	whole := split(t, data, tab)
+	for _, cut := range []int{0, 1, MinSize, MinSize + 1, AvgSize, 9 << 20, 17<<20 + 12345, 26 << 20, len(data) - 1} {
+		part := split(t, data[:cut], tab)
+		for i, ch := range part {
+			if i == len(part)-1 {
+				break // may be cut short
+			}
+			if !bytes.Equal(ch, whole[i]) {
+				t.Fatalf("prefix of %d bytes: chunk %d differs from the whole file's", cut, i)
+			}
+		}
+	}
+}
+
+func TestResetReusesBuffer(t *testing.T) {
+	tab := NewTable(9)
+	a, b := randBytes(3<<20, 7), randBytes(5<<20, 8)
+	c := New(bytes.NewReader(a), tab)
+	for {
+		if _, err := c.Next(); err == io.EOF {
+			break
+		}
+	}
+	c.Reset(bytes.NewReader(b))
+	var joined []byte
+	for {
+		ch, err := c.Next()
+		if err == io.EOF {
+			break
+		}
+		joined = append(joined, ch...)
+	}
+	if !bytes.Equal(joined, b) {
+		t.Fatal("chunker didn't start over after Reset")
+	}
+}

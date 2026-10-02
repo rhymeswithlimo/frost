@@ -81,3 +81,26 @@ func TestSetGet(t *testing.T) {
 		t.Fatal("5h accepted")
 	}
 }
+
+func TestS3FolderDefault(t *testing.T) {
+	t.Setenv("FROST_CONFIG_DIR", t.TempDir())
+	if p := Default().Storage.S3.Prefix; p != "frost" {
+		t.Fatalf("default folder = %q, want frost", p)
+	}
+	// Saved as the bucket's top level, it stays there.
+	c := Default()
+	c.Storage.S3.Prefix = ""
+	if err := Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := LoadFile(); err != nil || got.Storage.S3.Prefix != "" {
+		t.Fatalf("top-level folder came back as %q, %v", got.Storage.S3.Prefix, err)
+	}
+	// A file that doesn't mention it gets the default.
+	if err := os.WriteFile(Path(), []byte("[storage]\nbackend = \"s3\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := LoadFile(); err != nil || got.Storage.S3.Prefix != "frost" {
+		t.Fatalf("missing folder came back as %q, %v", got.Storage.S3.Prefix, err)
+	}
+}

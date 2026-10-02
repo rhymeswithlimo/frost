@@ -139,7 +139,7 @@ func newRestoreState(s snapshot.Snapshot, paths []string, t *tree) restoreState 
 		}
 	}
 	slices.Sort(rs.tops)
-	rs.beside, rs.besideErr = engine.BesideFolder(rs.base, s.ID)
+	rs.beside, _, rs.besideErr = engine.BesideFolder(rs.base, s.ID, paths)
 	rs.overErr = engine.CanOverwrite(paths)
 	if rs.besideErr != nil {
 		rs.dest = destNew // never overwrite by default
@@ -283,7 +283,7 @@ func (m model) confirmRestore(key string) (tea.Model, tea.Cmd) {
 			current, parent = m.rs.chosen, m.rs.picked
 		}
 		// Something may have taken the name since it was shown.
-		folder, err := engine.NewRestoreFolder(parent, m.rs.snap.ID)
+		folder, _, err := engine.NewRestoreFolder(parent, m.rs.snap.ID, m.rs.paths)
 		if err != nil {
 			m.rs.err, m.rs.phase = err, phaseDone
 			return m, nil
@@ -401,7 +401,7 @@ func (rs *restoreState) setPicked(dir string) error {
 	if info, err := os.Stat(abs); err != nil || !info.IsDir() {
 		return fmt.Errorf("There's no folder at %s.", shortPath(abs, 60))
 	}
-	chosen, err := engine.NewRestoreFolder(abs, rs.snap.ID)
+	chosen, _, err := engine.NewRestoreFolder(abs, rs.snap.ID, rs.paths)
 	if err != nil {
 		return err
 	}
@@ -414,9 +414,9 @@ func (m *model) startRestore() tea.Cmd {
 	m.rs.ch = ch
 	opts := engine.RestoreOptions{
 		Include: m.rs.paths,
-		Progress: func(p string, done, total int) {
+		Progress: func(p engine.RestoreProgress) {
 			select {
-			case ch <- restoreProgressMsg{done, total, p}:
+			case ch <- restoreProgressMsg{p.Files, p.TotalFiles, p.Path}:
 			default: // the UI is behind, skip this update
 			}
 		},
@@ -682,7 +682,9 @@ func (m model) restoreContent(w int) string {
 			if to != "" {
 				lines = append(lines, to)
 			}
-			if rs.res.Files > 0 {
+			if rs.res.Unfinished {
+				para(theme.Caution, carryOn)
+			} else if rs.res.Files > 0 {
 				para(theme.Caution, "Earlier changes remain. A file may have been written before a metadata error.")
 			}
 			lines = append(lines, fill(w, 1))
@@ -699,6 +701,9 @@ func (m model) restoreContent(w int) string {
 
 	return stack(lines...)
 }
+
+// carryOn is what to do after a restore stopped partway.
+const carryOn = "What's restored so far was kept. Restore the same files to the same place again and frost carries on where it stopped."
 
 // readyActions are the three things to do once a new location is chosen,
 // shown on the screen and in the footer.

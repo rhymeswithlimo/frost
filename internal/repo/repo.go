@@ -5,9 +5,9 @@
 // without failing to decrypt.
 //
 //	frost.repo              repository info, doubles as the key check
-//	chunks/<ab>/<abcd...>   file data, named by keyed chunk ID
+//	chunks/<ab>/<abcd...>   file data and file lists, named by keyed chunk ID
 //	snapshots/<id>          snapshot header (time, paths, stats)
-//	trees/<id>              snapshot file list
+//	trees/<id>              the chunks that hold the snapshot's file list, in order
 package repo
 
 import (
@@ -29,7 +29,7 @@ import (
 
 const (
 	infoKey       = "frost.repo"
-	layoutVersion = 1
+	layoutVersion = 2
 )
 
 var (
@@ -171,24 +171,81 @@ func (r *Repo) ChunkIDs(ctx context.Context) ([]crypto.ID, error) {
 	return ids, nil
 }
 
-// SaveSnapshot uploads the tree first and the header second, so a snapshot
-// never shows up in listings before its file list exists.
-func (r *Repo) SaveSnapshot(ctx context.Context, s snapshot.Snapshot, t *snapshot.Tree) error {
+// treeIndex is stored in trees/<id>. The file list is JSON, split into
+// chunks like file data, so it has no size limit, every piece fits any
+// backend, and the parts that didn't change since the last snapshot are
+// already stored.
+type treeIndex struct {
+	Size   int64    `json:"size"`
+	Chunks []string `json:"chunks"`
+}
+
+// SaveSnapshot stores a snapshot: the file list's chunks first, then the
+// list of them, then the header, so a snapshot never shows up in listings
+// before its file list exists. have reports chunks already stored, which
+// aren't uploaded again; nil means none are. It returns the chunks it
+// uploaded, with their sizes, even when it fails partway.
+func (r *Repo) SaveSnapshot(ctx context.Context, s snapshot.Snapshot, t *snapshot.Tree, have func(crypto.ID) bool) (map[crypto.ID]int, error) {
 	if !snapshot.ValidID(s.ID) {
-		return fmt.Errorf("invalid snapshot id %q", s.ID)
+		return nil, fmt.Errorf("invalid snapshot id %q", s.ID)
 	}
 	if _, err := r.Backend.Get(ctx, "snapshots/"+s.ID); err == nil {
-		return fmt.Errorf("snapshot %s already exists", s.ID)
+		return nil, fmt.Errorf("snapshot %s already exists", s.ID)
 	} else if !errors.Is(err, storage.ErrNotFound) {
-		return err
+		return nil, err
 	}
-	if err := r.putJSON(ctx, "trees/"+s.ID, t); err != nil {
-		return fmt.Errorf("saving file list: %w", err)
+	data, err := json.Marshal(t)
+	if err != nil {
+		return nil, err
+	}
+	idx := treeIndex{Size: int64(len(data))}
+	var todo [][]byte
+	queued := make(map[crypto.ID]bool)
+	for _, piece := range chunker.Split(data, chunker.NewTable(r.Key.ChunkerSeed())) {
+		id := r.Key.ChunkID(piece)
+		idx.Chunks = append(idx.Chunks, id.String())
+		if queued[id] || (have != nil && have(id)) {
+			continue
+		}
+		queued[id] = true
+		todo = append(todo, piece)
+	}
+
+	uploaded := make(map[crypto.ID]int)
+	var (
+		wg       sync.WaitGroup
+		mu       sync.Mutex
+		firstErr error
+		sem      = make(chan struct{}, 4)
+	)
+	for _, piece := range todo {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			id := r.Key.ChunkID(piece)
+			_, err := r.PutChunk(ctx, id, piece)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				return
+			}
+			uploaded[id] = len(piece)
+		})
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return uploaded, fmt.Errorf("saving file list: %w", firstErr)
+	}
+	if err := r.putJSON(ctx, "trees/"+s.ID, idx); err != nil {
+		return uploaded, fmt.Errorf("saving file list: %w", err)
 	}
 	if err := r.putJSON(ctx, "snapshots/"+s.ID, s); err != nil {
-		return fmt.Errorf("saving snapshot: %w", err)
+		return uploaded, fmt.Errorf("saving snapshot: %w", err)
 	}
-	return nil
+	return uploaded, nil
 }
 
 // LoadSnapshot fetches one snapshot header.
@@ -204,14 +261,45 @@ func (r *Repo) LoadSnapshot(ctx context.Context, id string) (snapshot.Snapshot, 
 	return s, err
 }
 
-// LoadTree fetches a snapshot's file list.
+// LoadTree fetches a snapshot's file list. Every piece is authenticated
+// like a chunk, and the list of pieces is sealed, so none can be dropped,
+// swapped or reordered.
 func (r *Repo) LoadTree(ctx context.Context, id string) (*snapshot.Tree, error) {
 	if !snapshot.ValidID(id) {
 		return nil, fmt.Errorf("invalid snapshot id %q", id)
 	}
-	var t snapshot.Tree
-	if err := r.getJSON(ctx, "trees/"+id, &t); err != nil {
+	var idx treeIndex
+	if err := r.getJSON(ctx, "trees/"+id, &idx); err != nil {
 		return nil, err
+	}
+	ids := make([]crypto.ID, len(idx.Chunks))
+	for i, c := range idx.Chunks {
+		cid, err := crypto.ParseID(c)
+		if err != nil {
+			return nil, fmt.Errorf("file list: %w", err)
+		}
+		ids[i] = cid
+	}
+	if idx.Size < 0 || idx.Size > int64(len(ids))*chunker.MaxSize {
+		return nil, errors.New("file list has an invalid size")
+	}
+	data := make([]byte, 0, idx.Size)
+	err := r.Fetch(ctx, ids, fetchWorkers, func(_ int, piece []byte) error {
+		if int64(len(data)+len(piece)) > idx.Size {
+			return errors.New("file list is longer than recorded")
+		}
+		data = append(data, piece...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("file list: %w", err)
+	}
+	if int64(len(data)) != idx.Size {
+		return nil, errors.New("file list is shorter than recorded")
+	}
+	var t snapshot.Tree
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, fmt.Errorf("file list: %w", err)
 	}
 	return &t, nil
 }

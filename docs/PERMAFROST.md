@@ -42,7 +42,7 @@ Responses: `204` stored, `400`, `401`, `403`, `412 already_exists`, `413` object
 
 Conditional writes are required for `frost.repo`, snapshot headers and trees. Servers must enforce them atomically, including requests from different clients. An existing object must never be overwritten by a conditional request.
 
-Max object size is 16 MiB. frost chunks are at most 8 MiB before encryption.
+Max object size is 16 MiB. frost chunks, including the ones holding snapshot file lists, are at most 8 MiB before encryption. Everything else it stores is small.
 
 ### `GET /v1/objects/{key}`
 

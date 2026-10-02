@@ -31,7 +31,7 @@ func TestRestoreInPlaceThroughLinks(t *testing.T) {
 	restore := func(p string) error {
 		s := snapshot.Snapshot{ID: snapshot.NewID()}
 		tree := &snapshot.Tree{Files: []snapshot.File{{Path: filepath.ToSlash(p), Type: snapshot.TypeFile, Mode: 0o600}}}
-		if err := e.eng.Repo.SaveSnapshot(ctx, s, tree); err != nil {
+		if _, err := e.eng.Repo.SaveSnapshot(ctx, s, tree, nil); err != nil {
 			t.Fatal(err)
 		}
 		_, err := e.eng.Restore(ctx, s.ID, RestoreOptions{})

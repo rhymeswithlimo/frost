@@ -96,12 +96,13 @@ func openApp(ctx context.Context) (*app, error) {
 	r, err := repo.Open(ctx, b, key)
 	switch {
 	case errors.Is(err, repo.ErrNotInitialized):
-		return nil, fmt.Errorf("%s has no frost repository, run `frost init`", b)
+		return nil, cantOpen(fmt.Sprintf("%s has no frost repository", b), cfg.Storage, b, true)
 	case errors.Is(err, repo.ErrWrongKey):
-		return nil, fmt.Errorf("the key on this machine doesn't match %s (check it with `frost key verify`)", b)
+		return nil, cantOpen(fmt.Sprintf("the key on this machine doesn't match %s (check it with `frost key verify`)", b), cfg.Storage, b, false)
 	case err != nil:
 		return nil, fmt.Errorf("connecting to %s: %w", b, err)
 	}
+	rememberStorage(cfg.Storage, b, r.Info.ID)
 	m, err := manifest.Open(manifestPath(r.Info.ID))
 	if errors.Is(err, manifest.ErrLocked) {
 		return nil, errors.New("a backup or restore is already running, try again when it's done")

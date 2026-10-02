@@ -72,12 +72,17 @@ Changing schedule.enabled or schedule.every updates the OS scheduled job.`,
 				if len(args) < 2 {
 					return errors.New("usage: frost config set <key> <value...>")
 				}
-				before := cfg.Schedule
+				before, was := cfg.Schedule, cfg.Storage
 				if err := cfg.Set(args[1], args[2:]); err != nil {
 					return err
 				}
 				if err := cfg.Validate(); err != nil && !onlyUnrelated(err, args[1]) {
 					return err
+				}
+				if strings.HasPrefix(args[1], "storage.") {
+					if err := checkStorageChange(cmd.Context(), out, was, cfg.Storage, false); err != nil {
+						return err
+					}
 				}
 				if err := config.Save(cfg); err != nil {
 					return err
@@ -86,7 +91,7 @@ Changing schedule.enabled or schedule.every updates the OS scheduled job.`,
 				return resync(cmd, before, cfg)
 
 			case "edit":
-				before := cfg.Schedule
+				before, was := cfg.Schedule, cfg.Storage
 				if err := editFile(config.Path()); err != nil {
 					return err
 				}
@@ -97,6 +102,7 @@ Changing schedule.enabled or schedule.every updates the OS scheduled job.`,
 				if err := cfg.Validate(); err != nil {
 					fmt.Fprintln(out, caution("warning: ")+err.Error())
 				}
+				checkStorageChange(cmd.Context(), out, was, cfg.Storage, true)
 				return resync(cmd, before, cfg)
 			}
 			return fmt.Errorf("unknown config action %q (use get, set or edit)", args[0])

@@ -20,6 +20,7 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/manifest"
 	"github.com/rhymeswithlimo/frost/internal/repo"
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
+	"github.com/rhymeswithlimo/frost/internal/storage"
 )
 
 // Engine ties a repository to its manifest.
@@ -28,12 +29,23 @@ type Engine struct {
 	Manifest *manifest.Manifest
 	// Uploaders is how many chunks upload in parallel. Defaults to 4.
 	Uploaders int
+	// Downloaders is how many chunks download in parallel during restores
+	// and verification. Defaults to 8.
+	Downloaders int
+}
+
+func (e *Engine) downloaders() int {
+	if e.Downloaders > 0 {
+		return e.Downloaders
+	}
+	return 8
 }
 
 // Meta keys stored in the manifest.
 const (
 	metaLastBackup = "last_backup"
 	metaVerify     = "verify"
+	metaChunkSync  = "chunk_sync"
 )
 
 // LastRun records the outcome of the most recent backup attempt.
@@ -42,8 +54,23 @@ type LastRun struct {
 	SnapshotID string    `json:"snapshot_id,omitempty"`
 	Error      string    `json:"error,omitempty"`
 	Skipped    int       `json:"skipped,omitempty"` // items that couldn't be read
+	Kept       int       `json:"kept,omitempty"`    // busy files that kept their previous copy
 	Missing    []string  `json:"missing,omitempty"` // configured paths that weren't there
 }
+
+// maxListed caps the warnings and kept files listed in a snapshot header.
+// Headers are fetched for every listing, so they stay small; the counts in
+// Stats are complete.
+const maxListed = 100
+
+// changedError means a file changed while it was being read.
+type changedError struct{ path string }
+
+func (e *changedError) Error() string { return "file changed while reading " + e.path }
+
+// chunkRead, if set, is called after each chunk of a file is read. Tests
+// use it to change files mid-read.
+var chunkRead func(path string)
 
 // BackupOptions controls one backup run.
 type BackupOptions struct {
@@ -95,15 +122,17 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	}
 	if !opts.DryRun {
 		defer func() {
-			run := LastRun{Time: time.Now(), SnapshotID: res.Snapshot.ID, Skipped: len(res.Snapshot.Warnings), Missing: res.Snapshot.Missing}
+			run := LastRun{Time: time.Now(), SnapshotID: res.Snapshot.ID, Skipped: res.Snapshot.Stats.Skipped, Kept: res.Snapshot.Stats.Kept, Missing: res.Snapshot.Missing}
 			if err != nil {
 				run.Error = err.Error()
 			}
 			err = errors.Join(err, e.Manifest.PutMeta(metaLastBackup, run))
 		}()
 	}
-	if err := e.syncChunks(ctx); err != nil {
-		return res, fmt.Errorf("reading repository chunk list: %w", err)
+	if e.syncDue() {
+		if err := e.syncChunks(ctx); err != nil {
+			return res, fmt.Errorf("reading repository chunk list: %w", err)
+		}
 	}
 
 	host, _ := os.Hostname()
@@ -132,6 +161,28 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 			opts.Progress(pr)
 		}
 	}
+	warn := func(msg string) {
+		snap.Stats.Skipped++
+		if len(snap.Warnings) < maxListed {
+			snap.Warnings = append(snap.Warnings, msg)
+		}
+	}
+	addFile := func(p string, f snapshot.File, planned PlannedFile) {
+		if planned.NewBytes > 0 {
+			res.Planned = append(res.Planned, planned)
+		}
+		snap.Stats.Files++
+		snap.Stats.Bytes += f.Size
+		tree.Files = append(tree.Files, f)
+		report(p)
+	}
+	// Files that changed while they were read get one more try after the
+	// walk, when whatever was writing them may have finished.
+	type retry struct {
+		p string
+		f snapshot.File
+	}
+	var retries []retry
 
 	for _, root := range opts.Paths {
 		abs, err := filepath.Abs(root)
@@ -159,11 +210,14 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 				if p == abs {
 					return fmt.Errorf("can't read %s: %w", abs, err)
 				}
-				snap.Warnings = append(snap.Warnings, err.Error())
+				warn(err.Error())
 				if d != nil && d.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
+			}
+			if p != abs && d.Type().IsRegular() && isPartial(d.Name()) {
+				return nil // left by a restore that stopped partway over the originals
 			}
 			if p != abs && ex.match(p) {
 				if d.IsDir() {
@@ -180,7 +234,7 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 				if p == abs {
 					return fmt.Errorf("can't read %s: %w", abs, err)
 				}
-				snap.Warnings = append(snap.Warnings, err.Error())
+				warn(err.Error())
 				return nil
 			}
 			f := snapshot.File{Path: filepath.ToSlash(p), Mode: uint32(info.Mode().Perm()), ModTime: info.ModTime().UTC()}
@@ -192,7 +246,7 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 				f.Type = snapshot.TypeSymlink
 				target, err := os.Readlink(p)
 				if err != nil {
-					snap.Warnings = append(snap.Warnings, err.Error())
+					warn(err.Error())
 					return nil
 				}
 				// Stored with forward slashes, like paths, so links restore on any OS.
@@ -205,15 +259,15 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 					if ctx.Err() != nil {
 						return context.Cause(ctx)
 					}
-					snap.Warnings = append(snap.Warnings, err.Error())
+					if ce := (*changedError)(nil); errors.As(err, &ce) {
+						retries = append(retries, retry{p, f})
+					} else {
+						warn(err.Error())
+					}
 					return nil
 				}
-				if planned.NewBytes > 0 {
-					res.Planned = append(res.Planned, planned)
-				}
-				snap.Stats.Files++
-				snap.Stats.Bytes += f.Size
-				report(p)
+				addFile(p, f, planned)
+				return nil
 			default:
 				return nil // sockets, devices, pipes: skip
 			}
@@ -224,6 +278,45 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 			cancel(walkErr)
 			break
 		}
+	}
+
+	for _, r := range retries {
+		if ctx.Err() != nil {
+			break
+		}
+		info, err := os.Lstat(r.p)
+		if err != nil {
+			warn(err.Error())
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			warn(fmt.Sprintf("%s stopped being a regular file during the backup", r.p))
+			continue
+		}
+		f := r.f
+		f.Size, f.ModTime, f.Mode, f.Chunks = info.Size(), info.ModTime().UTC(), uint32(info.Mode().Perm()), nil
+		planned, err := b.file(ctx, r.p, &f)
+		if err == nil {
+			addFile(r.p, f, planned)
+			continue
+		}
+		if ce := (*changedError)(nil); ctx.Err() != nil || !errors.As(err, &ce) {
+			warn(err.Error())
+			continue
+		}
+		// Still changing. A torn copy could be worse than useless (think of
+		// a database), so the last clean copy stays, if there is one. Its
+		// manifest entry is left alone, so the next run reads it again.
+		if prev, ok := e.Manifest.File(f.Path); ok && (prev.Size == 0 || len(prev.Chunks) > 0) && b.allKnown(prev.Chunks) {
+			f.Size, f.ModTime, f.Chunks = prev.Size, prev.ModTime, prev.Chunks
+			snap.Stats.Kept++
+			if len(snap.Kept) < maxListed {
+				snap.Kept = append(snap.Kept, f.Path)
+			}
+			addFile(r.p, f, PlannedFile{})
+			continue
+		}
+		warn(fmt.Sprintf("%s kept changing while it was read and has no earlier copy, so it wasn't backed up", r.p))
 	}
 
 	if err := b.finish(); err != nil {
@@ -246,7 +339,10 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	}
 
 	tree.Sort()
-	if err := e.Repo.SaveSnapshot(ctx, snap, &tree); err != nil {
+	// The file list is stored as chunks too, so the parts of it that
+	// didn't change since the last snapshot aren't uploaded again.
+	listed, err := e.Repo.SaveSnapshot(ctx, snap, &tree, e.Manifest.HasChunk)
+	if err := errors.Join(err, e.Manifest.AddChunks(listed)); err != nil {
 		return res, err
 	}
 	if err := e.Manifest.PutFiles(b.files); err != nil {
@@ -261,14 +357,59 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	return res, e.Manifest.SetSnapshots(all)
 }
 
-// syncChunks refreshes remote presence before reusing cached chunks. A stale
-// cache must not cause new snapshots to reference deleted remote objects.
+// syncEvery is how long the local chunk list is trusted before a backup
+// lists the repository again.
+const syncEvery = 7 * 24 * time.Hour
+
+// chunkSync records when and where the local chunk list last matched the
+// repository.
+type chunkSync struct {
+	Time time.Time `json:"time"`
+	// Where is the storage.Location it was checked against. The same
+	// repository can sit in two places (a copy, or a frost.repo moved on
+	// its own), and what one holds says nothing about the other.
+	Where string `json:"where"`
+	// Needed is set when a verification found a chunk missing.
+	Needed bool `json:"needed,omitempty"`
+}
+
+// syncDue reports whether the local chunk list should be refreshed from
+// storage before it's trusted. Between syncs, backups and verification use
+// the local list and don't list the repository. That's safe because frost
+// never deletes chunks: one can only go missing from outside, and the
+// sampled check after each backup asks for a sync when it finds one gone.
+// Storage that isn't where the list was checked always gets a sync.
+func (e *Engine) syncDue() bool {
+	var s chunkSync
+	if !e.Manifest.GetMeta(metaChunkSync, &s) || s.Needed || e.Manifest.ChunkCount() == 0 {
+		return true
+	}
+	if s.Where != storage.Location(e.Repo.Backend) {
+		return true
+	}
+	age := time.Since(s.Time)
+	return age < 0 || age > syncEvery
+}
+
+// syncChunks replaces the local chunk list with what's in storage. Missing
+// chunks are uploaded again by the next backup that still has their data.
 func (e *Engine) syncChunks(ctx context.Context) error {
 	ids, err := e.Repo.ChunkIDs(ctx)
 	if err != nil {
 		return err
 	}
-	return e.Manifest.ReplaceChunks(ids)
+	if err := e.Manifest.ReplaceChunks(ids); err != nil {
+		return err
+	}
+	return e.Manifest.PutMeta(metaChunkSync, chunkSync{Time: time.Now(), Where: storage.Location(e.Repo.Backend)})
+}
+
+// requestSync makes the next backup refresh the chunk list.
+func (e *Engine) requestSync() error {
+	var s chunkSync
+	e.Manifest.GetMeta(metaChunkSync, &s)
+	s.Needed = true
+	return e.Manifest.PutMeta(metaChunkSync, s)
 }
 
 // run is the state of one backup in progress.
@@ -362,9 +503,13 @@ func (b *run) file(ctx context.Context, p string, f *snapshot.File) (PlannedFile
 	if err != nil {
 		return planned, err
 	}
-	if !before.Mode().IsRegular() || before.Size() != f.Size || !before.ModTime().Equal(f.ModTime) {
-		return planned, fmt.Errorf("file changed before reading %s", p)
+	if !before.Mode().IsRegular() {
+		return planned, fmt.Errorf("%s isn't a regular file any more", p)
 	}
+	// It may have changed since the walk saw it. What's open now is what
+	// gets read.
+	f.Size, f.ModTime, f.Mode = before.Size(), before.ModTime().UTC(), uint32(before.Mode().Perm())
+	planned.Size = f.Size
 
 	c := chunker.New(fh, b.table)
 	var read int64
@@ -381,10 +526,13 @@ func (b *run) file(ctx context.Context, p string, f *snapshot.File) (PlannedFile
 		}
 		read += int64(len(data))
 		if read > f.Size {
-			return planned, fmt.Errorf("file grew while reading %s", p)
+			return planned, &changedError{p}
 		}
 		id := b.e.Repo.Key.ChunkID(data)
 		f.Chunks = append(f.Chunks, id.String())
+		if chunkRead != nil {
+			chunkRead(p)
+		}
 
 		if b.e.Manifest.HasChunk(id) {
 			continue
@@ -418,7 +566,7 @@ func (b *run) file(ctx context.Context, p string, f *snapshot.File) (PlannedFile
 		return planned, err
 	}
 	if read != f.Size || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) || !os.SameFile(before, current) {
-		return planned, fmt.Errorf("file changed while reading %s", p)
+		return planned, &changedError{p}
 	}
 	b.remember(f)
 	return planned, nil

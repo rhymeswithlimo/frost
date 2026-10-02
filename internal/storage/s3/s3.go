@@ -33,6 +33,7 @@ type Backend struct {
 	bucket string
 	prefix string
 	desc   string
+	loc    string
 }
 
 // New connects to an S3-compatible endpoint. It doesn't make any requests.
@@ -64,8 +65,12 @@ func New(c Config) (*Backend, error) {
 		bucket: c.Bucket,
 		prefix: prefix,
 		desc:   "s3://" + c.Bucket + "/" + prefix,
+		loc:    "s3://" + strings.ToLower(endpoint) + "/" + c.Bucket + "/" + prefix,
 	}, nil
 }
+
+// Location includes the endpoint, which String leaves out.
+func (b *Backend) Location() string { return b.loc }
 
 func (b *Backend) Put(ctx context.Context, key string, data []byte) error {
 	_, err := b.client.PutObject(ctx, b.bucket, b.prefix+key, bytes.NewReader(data), int64(len(data)),

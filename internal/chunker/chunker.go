@@ -65,6 +65,25 @@ func New(r io.Reader, t *Table) *Chunker {
 	return &Chunker{r: r, table: t, buf: make([]byte, MaxSize*2)}
 }
 
+// Reset makes c chunk r from the start, keeping its buffer. Chunks from
+// before the reset are no longer valid.
+func (c *Chunker) Reset(r io.Reader) {
+	c.r, c.start, c.end, c.eof = r, 0, 0, false
+}
+
+// Split cuts data into the same chunks a Chunker reading it would return.
+// The chunks are subslices of data, nothing is copied.
+func Split(data []byte, t *Table) [][]byte {
+	c := Chunker{table: t}
+	var out [][]byte
+	for len(data) > 0 {
+		n := c.cutpoint(data)
+		out = append(out, data[:n])
+		data = data[n:]
+	}
+	return out
+}
+
 // Next returns the next chunk. The slice is only valid until the next call.
 // It returns io.EOF once the stream is exhausted.
 func (c *Chunker) Next() ([]byte, error) {

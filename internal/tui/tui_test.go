@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -221,7 +222,7 @@ func testEngine(t *testing.T) (*engine.Engine, string) {
 	write("Documents/new.txt", "new file")
 	os.Remove(filepath.Join(src, "Documents/taxes/2025.pdf"))
 	e.Backup(ctx, engine.BackupOptions{Paths: []string{src}})
-	e.Verify(ctx, 5)
+	e.Verify(ctx, 5, false)
 	return e, src
 }
 
@@ -330,6 +331,16 @@ func TestScreens(t *testing.T) {
 		done.rs.phase, done.rs.folder = phaseDone, "/backup/frost-restore-demo"
 		done.rs.res = engine.RestoreResult{Files: 5, Bytes: 120000}
 		shots["8-restore-done"] = done
+		unfinished := failed
+		unfinished.rs.res.Unfinished = true
+		shots["8-restore-unfinished"] = unfinished
+		kept := shots["1-home"].(model)
+		kept.st.HasLast, kept.st.Last = true, engine.LastRun{Time: time.Now().Add(-time.Hour), Skipped: 3, Kept: 2}
+		shots["1-home-kept"] = kept
+		keptSnap := shots["2-snapshots"].(model)
+		keptSnap.snaps = slices.Clone(keptSnap.snaps)
+		keptSnap.snaps[0].Stats.Kept = 2
+		shots["2-snapshots-kept"] = keptSnap
 		m = step(t, m, key("esc"))
 		shots["9-diff"] = step(t, m, key("d"))
 

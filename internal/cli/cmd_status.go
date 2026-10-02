@@ -33,12 +33,16 @@ downloaded and checked against its hashes).
 "frost status --verify" in your own scheduler to check on a separate cadence.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			out := cmd.OutOrStdout()
 			a, err := openApp(cmd.Context())
 			if err != nil {
+				if isStorageError(err) {
+					printStorageProblem(out, err)
+					return errors.New("can't open your backups")
+				}
 				return err
 			}
 			defer a.Close()
-			out := cmd.OutOrStdout()
 			e := a.engine
 			verifyFailed := false
 
@@ -48,7 +52,7 @@ downloaded and checked against its hashes).
 					n = 20
 				}
 				fmt.Fprintf(out, dim("Checking %d random chunks... "), n)
-				v, err := e.Verify(cmd.Context(), n)
+				v, err := e.Verify(cmd.Context(), n, true)
 				if err != nil {
 					return err
 				}
@@ -56,11 +60,8 @@ downloaded and checked against its hashes).
 				fmt.Fprintln(out, dim("done"))
 			}
 
-			snaps, err := e.Repo.Snapshots(cmd.Context(), e.Manifest.Snapshots())
+			snaps, gone, err := e.RefreshSnapshots(cmd.Context())
 			if err != nil {
-				return err
-			}
-			if err := e.Manifest.SetSnapshots(snaps); err != nil {
 				return err
 			}
 			slices.SortFunc(snaps, func(x, y snapshot.Snapshot) int { return y.Time.Compare(x.Time) })
@@ -75,13 +76,16 @@ downloaded and checked against its hashes).
 				if v, ok := recentlyUpdated(); ok && runtime.GOOS == "darwin" && strings.Contains(last.Error, "operation not permitted") {
 					fmt.Fprintln(out, kv("", dim("frost updated itself to "+v+". "+fdaHint)))
 				}
-			} else if len(last.Missing) > 0 || last.Skipped > 0 {
+			} else if len(last.Missing) > 0 || last.Skipped > 0 || last.Kept > 0 {
 				var buts []string
 				if len(last.Missing) > 0 {
 					buts = append(buts, "not found: "+missingList(last.Missing))
 				}
 				if last.Skipped > 0 {
 					buts = append(buts, fmt.Sprintf("%d items couldn't be read", last.Skipped))
+				}
+				if last.Kept > 0 {
+					buts = append(buts, fmt.Sprintf("%d busy files kept their previous copy", last.Kept))
 				}
 				fmt.Fprintln(out, kv("last backup", caution("ok, but "+strings.Join(buts, "; ")+" ")+ago(last.Time)+dim("  "+last.SnapshotID)))
 			} else {
@@ -114,6 +118,10 @@ downloaded and checked against its hashes).
 				fmt.Fprintln(out, kv("protected", fmt.Sprintf("%s files, %s, in %d snapshots",
 					humanCount(snaps[0].Stats.Files), humanBytes(snaps[0].Stats.Bytes), len(snaps))))
 			}
+			if gone > 0 {
+				fmt.Fprintln(out, kv("missing", caution(engine.GoneText(gone)+".")))
+				fmt.Fprintln(out, kv("", dim("If you moved your backups, "+moveHint(a.cfg.Storage, e.Repo.Backend.String())+".")))
+			}
 
 			fmt.Fprintln(out)
 			printSnapshots(out, snaps, all)
@@ -126,6 +134,20 @@ downloaded and checked against its hashes).
 	cmd.Flags().BoolVar(&verify, "verify", false, "run a verification now")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "list every snapshot, not just the latest 10")
 	return cmd
+}
+
+// printStorageProblem is `status` when the storage won't open: what's
+// wrong, how to fix it, and whether backups are failing because of it.
+func printStorageProblem(out io.Writer, err error) {
+	fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(Version))
+	lines := strings.Split(err.Error(), "\n")
+	fmt.Fprintln(out, kv("storage", errStyle("PROBLEM: ")+printable(lines[0])))
+	for _, l := range lines[1:] {
+		fmt.Fprintln(out, kv("", printable(l)))
+	}
+	if f := loadKnown().Failed; f != nil {
+		fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(f.Time)+dim(", it couldn't open the storage either")))
+	}
 }
 
 // nextRun estimates the next scheduled backup from the last one and the

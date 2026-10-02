@@ -42,9 +42,27 @@ Each bullet is 2-3 sentences: one bolded sentence stating what changed, in plain
 
 - **One-line install.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, downloads the right binary and checks its SHA-256 before installing it.
 
+- **Interrupted restores carry on.** If a restore stops, frost prints the command that continues it in the same folder. Files already there are checked and skipped, and the file it was writing picks up from its last good chunk.
+
 ### Improved
 
 - **Restores say where they go.** Choose `--beside` for a new folder next to the originals, `--to <dir>` for a new folder somewhere else, or `--overwrite` to replace the originals. Only `--overwrite` can replace files, and each file is checked and written to a temporary file before it lands.
+
+- **Restores download in parallel.** Chunks download 8 at a time across all the files being restored, instead of one after another. A chunk that repeats, like the empty parts of a disk image, downloads once.
+
+- **No size limit on snapshots.** A snapshot's file list is stored in chunks like file data, so it fits Permafrost's 16 MiB object limit at any size. The parts of it that didn't change since the last backup aren't uploaded again.
+
+- **Backups don't list your whole bucket.** frost trusts its local record of what's stored and compares it with the bucket once a week, after a check finds something missing, or when the storage moved. `frost status --verify` always compares.
+
+- **Storage changes are checked.** `frost config set` checks a new storage location before saving it, and refuses one with no backups, backups made with another key, or a `frost.repo` without its snapshots. `frost init` asks before starting a separate set of backups when this machine's are somewhere else.
+
+- **Lost backups are explained.** When frost can't find your backups, the error and `frost status` say where they were last and how to get back to them, and a failed scheduled backup shows in `frost status`. Snapshots that go missing from storage are reported too.
+
+- **Busy files keep their last good copy.** A file that changes while it's read is read again at the end of the backup. If it's still changing, the snapshot keeps its previous copy instead of dropping the file, and `frost backup` and `frost status` say which.
+
+- **Restoring over the originals skips what's already right.** `frost restore --overwrite` checks each original against the snapshot first. Files that already match aren't downloaded again.
+
+- **S3 backups go in a frost folder.** New setups keep everything in a `frost/` folder inside the bucket, so the bucket can hold other things too. Set `storage.s3.prefix` to change it, or empty it for the top level.
 
 - **Interrupted backups resume cheaply.** Uploaded chunks are recorded as the run goes, not just at the end. If a backup is cut off, the next run skips everything that already made it up the chain.
 

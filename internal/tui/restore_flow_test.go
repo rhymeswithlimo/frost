@@ -379,6 +379,11 @@ func TestRestoreFailureDetails(t *testing.T) {
 			t.Fatalf("missing %q", want)
 		}
 	}
+	// One that can carry on says so instead.
+	m.rs.res.Unfinished = true
+	if view := m.viewRestore(); !strings.Contains(view, "frost carries on where it stopped") || strings.Contains(view, "Earlier changes remain") {
+		t.Fatal("unfinished restore doesn't say it can carry on")
+	}
 }
 
 func TestLongSnapshotListLabel(t *testing.T) {
