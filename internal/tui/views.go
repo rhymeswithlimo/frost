@@ -121,6 +121,7 @@ func (m *model) indexSnapshots() {
 		m.snapSizeW = max(m.snapSizeW, len(humanBytes(s.Stats.Bytes)))
 	}
 	m.snapLayout = rows
+	m.short = snapshot.Shorten(m.snaps)
 }
 
 func (m model) viewSnapshots() string {
@@ -150,7 +151,7 @@ func (m model) viewSnapshots() string {
 		if s.ID == m.marked {
 			mark = "* "
 		}
-		text := snapshotListLabel(s, mark, m.snapCountW, m.snapSizeW, inner)
+		text := snapshotListLabel(s, m.short.Of(s.ID), mark, m.snapCountW, m.snapSizeW, inner)
 		if r.idx == m.snapCur {
 			lines = append(lines, theme.Selected.Render(padPlain(text, inner)))
 		} else if s.ID == m.marked {
@@ -167,16 +168,17 @@ func (m model) viewSnapshots() string {
 	return side(theme.Gap, list, detail)
 }
 
-// snapshotListLabel is one row of the snapshot list. The file count and
-// size are right-aligned in columns countW and sizeW wide, so they line up.
-func snapshotListLabel(s snapshot.Snapshot, mark string, countW, sizeW, width int) string {
+// snapshotListLabel is one row of the snapshot list, showing s by id. The
+// file count and size are right-aligned in columns countW and sizeW wide, so
+// they line up.
+func snapshotListLabel(s snapshot.Snapshot, id, mark string, countW, sizeW, width int) string {
 	prefix := mark + s.Time.Local().Format("15:04") + "  "
 	suffix := fmt.Sprintf("  %*d files  %*s  ", countW, s.Stats.Files, sizeW, humanBytes(s.Stats.Bytes))
 	idWidth := width - lipgloss.Width(prefix) - lipgloss.Width(suffix)
 	if idWidth < 8 {
-		return truncate(prefix+s.ID, max(width-2, 0)) + strings.Repeat(" ", min(width, 2))
+		return truncate(prefix+id, max(width-2, 0)) + strings.Repeat(" ", min(width, 2))
 	}
-	return prefix + padPlain(truncate(s.ID, idWidth), idWidth) + suffix
+	return prefix + padPlain(truncate(id, idWidth), idWidth) + suffix
 }
 
 func (m model) snapDetail(s snapshot.Snapshot, w int) string {
@@ -184,7 +186,7 @@ func (m model) snapDetail(s snapshot.Snapshot, w int) string {
 		return pad(theme.Dim.Render(fmt.Sprintf("%-10s", k))+theme.Text.Render(truncate(v, w-10)), w)
 	}
 	lines := []string{
-		pad(theme.Bold.Render(truncate(s.ID, w)), w),
+		pad(theme.Bold.Render(truncate(m.short.Of(s.ID), w)), w),
 		fill(w, 1),
 		row("taken", s.Time.Local().Format("2006-01-02 15:04:05")),
 		row("", ago(s.Time)),
@@ -205,7 +207,7 @@ func (m model) snapDetail(s snapshot.Snapshot, w int) string {
 		lines = append(lines, fill(w, 1), pad(theme.Caution.Render(truncate(fmt.Sprintf("%d busy files kept their previous copy", n), w)), w))
 	}
 	if m.marked != "" && m.marked != s.ID {
-		lines = append(lines, fill(w, 1), pad(theme.Dim.Render("[d] compares with "+m.marked), w))
+		lines = append(lines, fill(w, 1), pad(theme.Dim.Render("[d] compares with "+m.short.Of(m.marked)), w))
 	}
 	return strings.Join(lines, "\n")
 }

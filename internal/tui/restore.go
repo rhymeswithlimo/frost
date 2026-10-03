@@ -42,6 +42,7 @@ const (
 
 type restoreState struct {
 	snap  snapshot.Snapshot
+	shown string // the snapshot's ID as the browser shows it
 	paths []string
 	files int
 	bytes int64
@@ -112,12 +113,12 @@ var openFolder = func(path string, file bool) error {
 	return desktop.Open(path)
 }
 
-func newRestoreState(s snapshot.Snapshot, paths []string, t *tree) restoreState {
+func newRestoreState(s snapshot.Snapshot, shown string, paths []string, t *tree) restoreState {
 	sel := map[string]bool{}
 	for _, p := range paths {
 		sel[p] = true
 	}
-	rs := restoreState{snap: s, paths: paths, show: snapshot.CommonDir(paths), base: snapshot.RestoreBase(paths)}
+	rs := restoreState{snap: s, shown: shown, paths: paths, show: snapshot.CommonDir(paths), base: snapshot.RestoreBase(paths)}
 	if len(paths) == 1 {
 		f := t.files[paths[0]]
 		rs.showFile = f != nil && f.Type != snapshot.TypeDir
@@ -617,7 +618,7 @@ func (m model) restoreContent(w int) string {
 	case phasePicking:
 		lines = append(lines, line(theme.Bold.Render("Choose a folder")), fill(w, 1))
 		para(theme.Text, "Pick where to restore in the window that opened.")
-		para(theme.Dim, "frost makes a new frost-restore-"+rs.snap.ID+" folder inside it.")
+		para(theme.Dim, "frost makes a new "+engine.RestoreFolderName(rs.snap.ID)+" folder inside it.")
 
 	case phaseReady:
 		para(theme.Bold, restoreTitle(rs))
@@ -641,7 +642,7 @@ func (m model) restoreContent(w int) string {
 
 	case phaseTyping:
 		lines = append(lines, line(theme.Bold.Render("Type a folder")))
-		para(theme.Dim, "frost makes a new frost-restore-"+rs.snap.ID+" folder inside it.")
+		para(theme.Dim, "frost makes a new "+engine.RestoreFolderName(rs.snap.ID)+" folder inside it.")
 		lines = append(lines, fill(w, 1), inputBox(rs.input.fields[0], false, true, w))
 		if rs.inputErr != "" {
 			para(theme.Error, printable(rs.inputErr))
@@ -743,7 +744,7 @@ func landing(rs restoreState, w int) []string {
 
 func restoreTitle(rs restoreState) string {
 	if rs.files == 0 {
-		return "Restore empty folders from " + rs.snap.ID
+		return "Restore empty folders from " + rs.shown
 	}
-	return fmt.Sprintf("Restore %d files (%s) from %s", rs.files, humanBytes(rs.bytes), rs.snap.ID)
+	return fmt.Sprintf("Restore %d files (%s) from %s", rs.files, humanBytes(rs.bytes), rs.shown)
 }

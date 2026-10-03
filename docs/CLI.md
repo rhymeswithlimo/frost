@@ -80,10 +80,12 @@ Restores files from a snapshot. With no arguments in a terminal, it opens the [s
 
 ### Picking a snapshot
 
+frost shows a snapshot's ID as two words and 4 more characters, like `maple-absurd-3f1c`. When two IDs would look the same, it shows more characters for both. If an ID you type matches more than one snapshot, frost asks for more of it. The full ID has 11 characters after the words. It names the snapshot's objects in storage, and the command that [carries on a restore](#interrupted-restores) uses it.
+
 | You type | You get |
 |---|---|
 | `latest` | The newest snapshot |
-| `maple-otter-3f1c9a0b2e7` or `maple` | That ID, or the only ID that starts with what you typed |
+| `maple-absurd-3f1c` or `maple` | The snapshot with that ID, or the only one whose ID starts with what you typed |
 | `3 days ago`, `12h`, `2w`, `1 month ago` | The newest snapshot at or before that time |
 | `yesterday`, `today` | The newest snapshot by the end of that day |
 | `2026-09-20`, `2026-09-20 14:30` | The newest snapshot at or before that day or minute, in local time |
@@ -112,7 +114,7 @@ In a new folder, what you restore keeps its own name, relative to the folder the
 
 Without paths, the selection is the snapshot's backed-up folders. `--beside` doesn't work when the selection only shares the top of a drive, when that folder isn't on this computer (a snapshot from another machine), or when you can't write to it. Backing up your whole home folder, for example, would put the new folder in `/Users` or `/home`. Use `--to` in those cases.
 
-A new folder never overwrites anything. If `frost-restore-<id>` is taken, frost adds `-1`, `-2` and so on.
+A new folder never overwrites anything. Its name always uses the ID with 4 characters, and if that name is taken, frost adds `-1`, `-2` and so on.
 
 Every chunk is decrypted and checked against its ID before it's written, and chunks download in parallel. Each file is written to a hidden `.frost-partial-...` file and renamed into place when it's complete, so a failed restore never leaves a half-written file where a real one was.
 
@@ -124,7 +126,7 @@ Originals that already match the snapshot are checked and skipped, so they aren'
 
 ### Interrupted restores
 
-If a restore stops (a lost connection, Ctrl+C, the machine sleeping), frost prints the command that carries on. It's the same restore with the snapshot's ID in place of `latest` or a time, so a backup in between doesn't change which snapshot it means.
+If a restore stops (a lost connection, Ctrl+C, the machine sleeping), frost prints the command that carries on. It's the same restore with the snapshot's full ID in place of `latest` or a time, so a backup in between doesn't change which snapshot it means.
 
 The new run carries on in the same folder. Files already there are checked and skipped, and the file it was writing continues from its last good chunk. Until the restore finishes, the folder holds a `.frost-restore` marker and the unfinished file's `.frost-partial-...`. `--overwrite` carries on the same way.
 

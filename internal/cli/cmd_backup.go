@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rhymeswithlimo/frost/internal/engine"
+	"github.com/rhymeswithlimo/frost/internal/snapshot"
 )
 
 func newBackupCmd() *cobra.Command {
@@ -108,7 +110,7 @@ last run is uploaded. Use flags to override the config for this run only.`,
 				printDryRun(out, res)
 				return nil
 			}
-			printBackup(out, res)
+			printBackup(out, res, snapshot.Shorten(slices.Collect(maps.Values(a.engine.Manifest.Snapshots()))))
 
 			if n := a.cfg.Verify.Sample; n > 0 && !noVerify {
 				v, err := a.engine.Verify(cmd.Context(), n, false)
@@ -204,9 +206,11 @@ func progressPrinter(out io.Writer) func(engine.Progress) {
 	}
 }
 
-func printBackup(out io.Writer, res engine.BackupResult) {
+// printBackup prints what a backup saved. short holds the snapshots its ID
+// is told apart from, the new one included.
+func printBackup(out io.Writer, res engine.BackupResult, short snapshot.ShortIDs) {
 	s := res.Snapshot
-	fmt.Fprintf(out, "%s %s\n", heading("snapshot "+s.ID), dim(when(s.Time)))
+	fmt.Fprintf(out, "%s %s\n", heading("snapshot "+short.Of(s.ID)), dim(when(s.Time)))
 	fmt.Fprintln(out, kv("files", fmt.Sprintf("%s (%s)", humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes))))
 	if s.Stats.NewChunks == 0 {
 		fmt.Fprintln(out, kv("new data", "none, everything was already backed up"))

@@ -41,7 +41,7 @@ with --beside gives ~/Documents/frost-restore-<id>/taxes.
 With no arguments in a terminal, opens the snapshot browser.`,
 		Example: `  frost restore latest --beside
   frost restore "3 days ago" ~/Documents/taxes --beside
-  frost restore maple-otter --to ~/Desktop
+  frost restore maple-absurd-3f1c --to ~/Desktop
   frost restore latest ~/notes.txt --overwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -131,7 +131,7 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				base = ""
 			}
 
-			fmt.Fprintf(out, "%s %s %s\n", heading("restore "+snap.ID), dim(when(snap.Time)), dim("("+ago(snap.Time)+")"))
+			fmt.Fprintf(out, "%s %s %s\n", heading("restore "+snapshot.Shorten(snaps).Of(snap.ID)), dim(when(snap.Time)), dim("("+ago(snap.Time)+")"))
 			if len(include) > 0 {
 				fmt.Fprintln(out, kv("paths", strings.Join(include, "\n               ")))
 			} else {
@@ -179,8 +179,9 @@ With no arguments in a terminal, opens the snapshot browser.`,
 }
 
 // rerunCommand is the restore to run to continue this one. It names the
-// snapshot by ID, because "latest" may mean a newer one by then, and the
-// paths in full, because it may run from another folder.
+// snapshot by its full ID, because "latest" may mean a newer one by then
+// and a later snapshot could share a short ID, and the paths in full,
+// because it may run from another folder.
 func rerunCommand(id string, paths []string, beside bool, to string, overwrite bool) string {
 	quote := func(s string) string {
 		if strings.ContainsAny(s, " \t'\"$&;|<>()*?[]#~`") {

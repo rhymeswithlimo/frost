@@ -216,7 +216,7 @@ func TestRestoreRefusesBusyFolderAndPartial(t *testing.T) {
 	parent := t.TempDir()
 
 	// A folder whose restore another process is running isn't reused.
-	busy := filepath.Join(parent, "frost-restore-"+id)
+	busy := filepath.Join(parent, RestoreFolderName(id))
 	os.Mkdir(busy, 0o700)
 	m, _ := os.Create(filepath.Join(busy, restoreMarker))
 	m.WriteString(`{"snapshot":"` + id + `","include":["` + include[0] + `"]}`)

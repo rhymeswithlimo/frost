@@ -172,7 +172,8 @@ type model struct {
 	snapCountW    int                 // widest file count and size, so the list's
 	snapSizeW     int                 // columns line up
 	snapCur       int
-	marked        string // snapshot ID marked as the "from" side of a diff
+	marked        string            // snapshot ID marked as the "from" side of a diff
+	short         snapshot.ShortIDs // how each snapshot's ID is shown
 
 	// files screen
 	snap    snapshot.Snapshot
@@ -495,7 +496,7 @@ func (m model) snapshotsKey(key string) (tea.Model, tea.Cmd) {
 		m.snapCur = n - 1
 	case "enter", "right", "l":
 		if n > 0 {
-			m.loading = "Loading files for " + m.snaps[m.snapCur].ID
+			m.loading = "Loading files for " + m.short.Of(m.snaps[m.snapCur].ID)
 			return m, tea.Batch(m.spin.Tick, m.loadTree(m.snaps[m.snapCur]))
 		}
 	case "m":
@@ -506,7 +507,7 @@ func (m model) snapshotsKey(key string) (tea.Model, tea.Cmd) {
 			m.marked = ""
 		} else {
 			m.marked = id
-			m.flash = "Marked " + id + ". Move to another snapshot and press [d] to compare."
+			m.flash = "Marked " + m.short.Of(id) + ". Move to another snapshot and press [d] to compare."
 		}
 	case "d":
 		if n == 0 {
@@ -613,7 +614,7 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 		if len(paths) == 0 {
 			break
 		}
-		rs := newRestoreState(m.snap, paths, m.tree)
+		rs := newRestoreState(m.snap, m.short.Of(m.snap.ID), paths, m.tree)
 		rs.pickSeq = m.rs.pickSeq + 1 // never reuse an earlier attempt's picker ID
 		m.rs = rs
 		m.screen = scrRestore
@@ -732,13 +733,14 @@ func (m model) header() string {
 			crumb += fmt.Sprintf("  %d of %d", m.snapCur+1, len(m.snaps))
 		}
 	case scrFiles:
-		idW := min(lipgloss.Width(m.snap.ID), max((m.innerW()-12)/2, 8))
-		crumb = truncate(m.snap.ID, idW) + "  " + shortPath(m.dir, max(m.innerW()-idW-11, 1))
+		id := m.short.Of(m.snap.ID)
+		idW := min(lipgloss.Width(id), max((m.innerW()-12)/2, 8))
+		crumb = truncate(id, idW) + "  " + shortPath(m.dir, max(m.innerW()-idW-11, 1))
 	case scrDiff:
 		idW := max((m.innerW()-18)/2, 1)
-		crumb = "compare " + truncate(m.diffFrom.ID, idW) + " → " + truncate(m.diffTo.ID, idW)
+		crumb = "compare " + truncate(m.short.Of(m.diffFrom.ID), idW) + " → " + truncate(m.short.Of(m.diffTo.ID), idW)
 	case scrRestore:
-		crumb = "restore from " + m.rs.snap.ID
+		crumb = "restore from " + m.rs.shown
 	}
 	if m.game != nil {
 		crumb = "icebreaker"

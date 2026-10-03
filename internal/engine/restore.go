@@ -340,14 +340,21 @@ func withSlash(p string) string {
 	return p + "/"
 }
 
-// NewRestoreFolder is a frost-restore-<id> folder in parent for restoring
-// include from snapshot id, adding -1, -2 and so on when the name is taken.
-// If one of them holds an unfinished restore of the same selection that
-// nothing else is working on, it's returned with resume set, and restoring
-// into it carries on. Otherwise Restore creates the folder exclusively, so a
-// race can't reuse one.
+// RestoreFolderName is the name of a new folder for restoring snapshot id
+// into. It uses snapshot.Short(id) alone, never a longer form that depends
+// on the other snapshots, so a later backup can't rename the folder an
+// interrupted restore carries on in.
+func RestoreFolderName(id string) string { return "frost-restore-" + snapshot.Short(id) }
+
+// NewRestoreFolder is a RestoreFolderName(id) folder in parent for
+// restoring include from snapshot id, adding -1, -2 and so on when the name
+// is taken. If one of them holds an unfinished restore of the same selection
+// that nothing else is working on, it's returned with resume set, and
+// restoring into it carries on. The marker holds the full ID, so a snapshot
+// with the same short ID never resumes another's folder. Otherwise Restore
+// creates the folder exclusively, so a race can't reuse one.
 func NewRestoreFolder(parent, id string, include []string) (dir string, resume bool, err error) {
-	base := filepath.Join(parent, "frost-restore-"+id)
+	base := filepath.Join(parent, RestoreFolderName(id))
 	want := newMarker(id, include)
 	for n := 0; n < 10000; n++ {
 		candidate := base

@@ -12,7 +12,7 @@ import (
 // Resolve picks one snapshot out of snaps using a selector:
 //
 //	latest (or empty)       the newest snapshot
-//	maple-otter-3f1c, map   an exact ID or a unique ID prefix
+//	maple-absurd-3f1c, map  an exact ID or a unique ID prefix
 //	3 days ago, 12h, 2w     the newest snapshot at or before that point
 //	yesterday               the newest snapshot before today started
 //	2026-09-20              the newest snapshot on or before that day

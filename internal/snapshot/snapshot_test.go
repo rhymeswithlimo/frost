@@ -1,7 +1,10 @@
 package snapshot
 
 import (
+	"maps"
 	"runtime"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,6 +16,66 @@ func TestNewID(t *testing.T) {
 	}
 	if NewID() == id {
 		t.Fatal("two IDs in a row were equal")
+	}
+}
+
+func TestShort(t *testing.T) {
+	cases := map[string]string{
+		"maple-absurd-3f1c9a0b2e7": "maple-absurd-3f1c",
+		"apple-bread-0001":         "apple-bread-0001", // already short
+		"apple-bread-00012":        "apple-bread-0001",
+		"x":                        "x",
+		"":                         "",
+	}
+	for id, want := range cases {
+		if got := Short(id); got != want {
+			t.Errorf("Short(%q) = %q, want %q", id, got, want)
+		}
+	}
+	id := NewID()
+	if got := Short(id); len(got) != len(id)-7 || !strings.HasPrefix(id, got) {
+		t.Errorf("Short(%q) = %q, want the words and 4 hex characters", id, got)
+	}
+}
+
+func TestShorten(t *testing.T) {
+	snaps := []Snapshot{
+		{ID: "maple-absurd-3f1c9a0b2e7"},
+		{ID: "maple-absurd-3f1c0000000"}, // same 4 characters as the first
+		{ID: "maple-absurd-3f2d0000000"},
+		{ID: "maple-acid-3f1c9a0b2e7"},
+		{ID: "old-style-0001"},
+		{ID: "old-style-00011"}, // starts with the whole of the one before
+		{ID: "x"},
+	}
+	want := ShortIDs{
+		"maple-absurd-3f1c9a0b2e7": "maple-absurd-3f1c9",
+		"maple-absurd-3f1c0000000": "maple-absurd-3f1c0",
+		"maple-absurd-3f2d0000000": "maple-absurd-3f2d",
+		"maple-acid-3f1c9a0b2e7":   "maple-acid-3f1c",
+		"old-style-0001":           "old-style-0001",
+		"old-style-00011":          "old-style-00011",
+		"x":                        "x",
+	}
+	got := Shorten(snaps)
+	if !maps.Equal(got, want) {
+		t.Fatalf("Shorten =\n%v\nwant\n%v", got, want)
+	}
+	if dup := Shorten(append(slices.Clone(snaps), snaps[0])); !maps.Equal(dup, want) {
+		t.Errorf("a duplicate ID changed Shorten to\n%v", dup)
+	}
+	if s := got.Of("birch-cable-0123456789a"); s != "birch-cable-0123" {
+		t.Errorf("Of an unknown ID = %q, want Short of it", s)
+	}
+	if s := ShortIDs(nil).Of("birch-cable-0123456789a"); s != "birch-cable-0123" {
+		t.Errorf("Of on a nil map = %q", s)
+	}
+
+	// Every short ID typed back picks the snapshot it was shown for.
+	for id, short := range got {
+		if s, err := Resolve(snaps, short, time.Now()); err != nil || s.ID != id {
+			t.Errorf("Resolve(%q) = %q, %v, want %q", short, s.ID, err, id)
+		}
 	}
 }
 

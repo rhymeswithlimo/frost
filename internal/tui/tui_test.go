@@ -460,6 +460,50 @@ func TestEmptyListCursor(t *testing.T) {
 	m.View()
 }
 
+func TestShortSnapshotIDs(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	e, _ := testEngine(t)
+	now := time.Now()
+	snaps := []snapshot.Snapshot{
+		{ID: "maple-absurd-3f1c9a0b2e7", Time: now},
+		{ID: "maple-absurd-3f1c0000000", Time: now.Add(-time.Hour)}, // the same 4 characters
+		{ID: "birch-cable-0123456789a", Time: now.Add(-2 * time.Hour)},
+	}
+	var m tea.Model = newModel(context.Background(), e.Repo, config.Default(), State{})
+	m = step(t, m, tea.WindowSizeMsg{Width: 120, Height: 36})
+	m = step(t, m, snapsMsg{snaps: snaps})
+	m = step(t, m, key("enter"))
+
+	// The list and detail show 4 characters, and more only where two match.
+	view := stripANSI(m.View())
+	for _, want := range []string{"maple-absurd-3f1c9 ", "maple-absurd-3f1c0 ", "birch-cable-0123 "} {
+		if !strings.Contains(view, want) {
+			t.Errorf("snapshots screen doesn't show %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "3f1c9a") || strings.Contains(view, "01234") {
+		t.Errorf("snapshots screen shows a full ID:\n%s", view)
+	}
+	m = step(t, m, key("m"))
+	if f := m.(model).flash; !strings.HasPrefix(f, "Marked maple-absurd-3f1c9. ") {
+		t.Errorf("flash = %q", f)
+	}
+
+	// The restore screens name the snapshot the same way, and the folder
+	// by its 4 characters.
+	rs := restoreState{snap: snaps[2], shown: m.(model).short.Of(snaps[2].ID), phase: phasePicking, files: 1}
+	mm := model{w: 100, h: 30, repo: e.Repo, screen: scrRestore, rs: rs}
+	if crumb := stripANSI(mm.header()); !strings.Contains(crumb, "restore from birch-cable-0123 ") {
+		t.Errorf("header = %q", crumb)
+	}
+	if title := restoreTitle(rs); !strings.HasSuffix(title, " from birch-cable-0123") {
+		t.Errorf("title = %q", title)
+	}
+	if body := stripANSI(mm.restoreContent(80)); !strings.Contains(body, "new frost-restore-birch-cable-0123 folder") {
+		t.Errorf("picking screen:\n%s", body)
+	}
+}
+
 func TestDiffScrollStopsAtLastChange(t *testing.T) {
 	m := model{w: 80, h: 24, screen: scrDiff}
 	for range 50 {

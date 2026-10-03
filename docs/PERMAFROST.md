@@ -18,7 +18,7 @@ Version: `v1`
 
 ## Object keys
 
-Keys are paths like `chunks/ab/ab12...` or `snapshots/maple-otter-3f1c9a0b2e7`.
+Keys are paths like `chunks/ab/ab12...` or `snapshots/maple-absurd-3f1c9a0b2e7`.
 
 - Allowed characters are `a-z`, `0-9`, `.`, `_`, `-` and `/`.
 - A key is 1 to 1024 bytes, with no leading `/`, no empty segments, and no `.` or `..` segments.

@@ -20,7 +20,7 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **Backups rarely list your bucket.** frost trusts its local record of what's stored and compares it with storage once a week, after a check finds something missing, or when the storage moved. `frost status --verify` always compares.
 
-- **Every backup is a snapshot with a readable ID.** IDs look like `maple-otter-3f1c9a0b2e7`. You can restore by ID or by time, like `latest`, `3 days ago` or `2026-09-20`.
+- **Every backup is a snapshot with a short, readable ID.** IDs look like `maple-absurd-3f1c`. You can restore by ID or by time, like `latest`, `3 days ago` or `2026-09-20`.
 
 - **Snapshots have no size limit.** A snapshot's file list is stored in chunks like file data, so it fits Permafrost's 16 MiB object limit at any size. The parts that didn't change since the last backup aren't uploaded again.
 

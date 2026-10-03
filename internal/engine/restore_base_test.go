@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path"
 	"path/filepath"
@@ -91,6 +92,31 @@ func TestNewRestoreFolder(t *testing.T) {
 	got, resume, err := NewRestoreFolder(dir, "x", nil)
 	if err != nil || got != base+"-2" || resume {
 		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestNewRestoreFolderSharedShortID(t *testing.T) {
+	dir := t.TempDir()
+	a, b := "maple-absurd-3f1c9a0b2e7", "maple-absurd-3f1c0000000"
+	got, _, err := NewRestoreFolder(dir, a, nil)
+	if err != nil || got != filepath.Join(dir, "frost-restore-maple-absurd-3f1c") {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	// An unfinished restore of a, in that folder.
+	if err := os.Mkdir(got, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(newMarker(a, nil))
+	if err := os.WriteFile(filepath.Join(got, restoreMarker), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// b has the same short ID, so it gets the next name, not a's restore.
+	if other, resume, err := NewRestoreFolder(dir, b, nil); err != nil || other != got+"-1" || resume {
+		t.Fatalf("b got %q, resume %v, %v", other, resume, err)
+	}
+	if again, resume, err := NewRestoreFolder(dir, a, nil); err != nil || again != got || !resume {
+		t.Fatalf("a got %q, resume %v, %v", again, resume, err)
 	}
 }
 

@@ -1,8 +1,8 @@
 // Package storage defines the contract every frost backend implements.
 //
 // Backends are dumb object stores. They only ever see encrypted blobs under
-// opaque keys like "chunks/ab/ab12..." or "snapshots/maple-otter-3f1c", so
-// nothing here needs to know about encryption.
+// opaque keys like "chunks/ab/ab12..." or "snapshots/maple-absurd-3f1c9a0b2e7",
+// so nothing here needs to know about encryption.
 package storage
 
 import (

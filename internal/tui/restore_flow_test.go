@@ -49,7 +49,7 @@ func TestRestoreStateShow(t *testing.T) {
 		{[]string{"/home/me/docs"}, "/home/me/docs", "/home/me", false},
 		{[]string{"/home/me/docs/a.txt", "/home/me/b.txt"}, "/home/me", "/home/me", false},
 	} {
-		rs := newRestoreState(s, c.paths, tr)
+		rs := newRestoreState(s, s.ID, c.paths, tr)
 		if rs.show != c.show || rs.base != c.base || rs.showFile != c.file {
 			t.Errorf("%q: got %q %q %v", c.paths, rs.show, rs.base, rs.showFile)
 		}
@@ -326,7 +326,7 @@ func TestRestoreDestinations(t *testing.T) {
 		return m
 	}
 	fresh := func() model {
-		return model{ctx: ctx, repo: e.Repo, cfg: config.Default(), screen: scrRestore, rs: newRestoreState(snap, paths, newTree(snap, tr))}
+		return model{ctx: ctx, repo: e.Repo, cfg: config.Default(), screen: scrRestore, rs: newRestoreState(snap, snapshot.Short(snap.ID), paths, newTree(snap, tr))}
 	}
 
 	m := fresh()
@@ -334,7 +334,7 @@ func TestRestoreDestinations(t *testing.T) {
 		t.Fatalf("option 1 unavailable: %v", m.rs.besideErr)
 	}
 	m = run(m)
-	want := filepath.Join(src, "frost-restore-"+snap.ID, "Documents", "notes.md")
+	want := filepath.Join(src, engine.RestoreFolderName(snap.ID), "Documents", "notes.md")
 	if data, err := os.ReadFile(want); err != nil || string(data) != "hello, changed" {
 		t.Fatalf("beside: %q, %v", data, err)
 	}
@@ -348,7 +348,7 @@ func TestRestoreDestinations(t *testing.T) {
 		t.Fatalf("tops %q", m.rs.tops)
 	}
 	m = run(m)
-	want = filepath.Join(dir, "frost-restore-"+snap.ID, "Documents", "new.txt")
+	want = filepath.Join(dir, engine.RestoreFolderName(snap.ID), "Documents", "new.txt")
 	if data, err := os.ReadFile(want); err != nil || string(data) != "new file" {
 		t.Fatalf("new location: %q, %v", data, err)
 	}
@@ -391,7 +391,7 @@ func TestLongSnapshotListLabel(t *testing.T) {
 	s.Stats.Files = 52
 	s.Stats.Bytes = 1024
 	for _, width := range []int{12, 20, 40, 50, 68, 100} {
-		label := snapshotListLabel(s, "  ", 2, 8, width)
+		label := snapshotListLabel(s, s.ID, "  ", 2, 8, width)
 		if lipgloss.Width(label) != width || !strings.HasSuffix(label, "  ") {
 			t.Fatalf("width %d: missing right padding in %q", width, label)
 		}

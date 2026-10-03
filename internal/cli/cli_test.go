@@ -23,6 +23,7 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/crypto"
 	"github.com/rhymeswithlimo/frost/internal/desktop"
 	"github.com/rhymeswithlimo/frost/internal/schedule"
+	"github.com/rhymeswithlimo/frost/internal/snapshot"
 	"github.com/rhymeswithlimo/frost/internal/storage/permafrost"
 	"github.com/rhymeswithlimo/frost/internal/update"
 )
@@ -235,6 +236,39 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if out := must(t, lines("show"), "key", "show"); !strings.Contains(out, f.phrase[23]) {
 		t.Fatal("key show didn't print the phrase")
+	}
+}
+
+func TestShortSnapshotIDs(t *testing.T) {
+	f := setup(t)
+	must(t, f.initAnswers(f.phrase[2], f.phrase[17]), "init")
+	backup := must(t, "", "backup")
+
+	a, err := openApp(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for k := range a.engine.Manifest.Snapshots() {
+		id = k
+	}
+	a.Close()
+	short := snapshot.Short(id)
+	if short == id {
+		t.Fatalf("ID %q has no short form", id)
+	}
+
+	// The shown ID is enough to restore by, and names the new folder.
+	target := t.TempDir()
+	restore := must(t, "", "restore", short, "--to", target)
+	if _, err := os.Stat(filepath.Join(target, "frost-restore-"+short)); err != nil {
+		t.Errorf("restore folder: %v", err)
+	}
+	status := must(t, "", "status")
+	for name, out := range map[string]string{"backup": backup, "restore": restore, "status": status} {
+		if out = strings.ToLower(out); !strings.Contains(out, short) || strings.Contains(out, id) {
+			t.Errorf("%s should show %s, not %s:\n%s", name, short, id, out)
+		}
 	}
 }
 

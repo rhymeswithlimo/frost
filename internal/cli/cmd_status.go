@@ -65,6 +65,7 @@ downloaded and checked against its hashes).
 				return err
 			}
 			slices.SortFunc(snaps, func(x, y snapshot.Snapshot) int { return y.Time.Compare(x.Time) })
+			short := snapshot.Shorten(snaps)
 
 			fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(Version+"  "+e.Repo.Backend.String()+"  key "+e.Repo.Key.Fingerprint()))
 
@@ -87,9 +88,9 @@ downloaded and checked against its hashes).
 				if last.Kept > 0 {
 					buts = append(buts, fmt.Sprintf("%d busy files kept their previous copy", last.Kept))
 				}
-				fmt.Fprintln(out, kv("last backup", caution("ok, but "+strings.Join(buts, "; ")+" ")+ago(last.Time)+dim("  "+last.SnapshotID)))
+				fmt.Fprintln(out, kv("last backup", caution("ok, but "+strings.Join(buts, "; ")+" ")+ago(last.Time)+dim("  "+short.Of(last.SnapshotID))))
 			} else {
-				fmt.Fprintln(out, kv("last backup", good("ok ")+ago(last.Time)+dim("  "+last.SnapshotID)))
+				fmt.Fprintln(out, kv("last backup", good("ok ")+ago(last.Time)+dim("  "+short.Of(last.SnapshotID))))
 			}
 
 			// Next run.
@@ -124,7 +125,7 @@ downloaded and checked against its hashes).
 			}
 
 			fmt.Fprintln(out)
-			printSnapshots(out, snaps, all)
+			printSnapshots(out, snaps, short, all)
 			if verifyFailed {
 				return errors.New("verification failed")
 			}
@@ -171,22 +172,22 @@ func nextRun(cfg config.Config, e *engine.Engine) string {
 	return "~" + in(last.Time.Add(every)) + how
 }
 
-func printSnapshots(out io.Writer, snaps []snapshot.Snapshot, all bool) {
+func printSnapshots(out io.Writer, snaps []snapshot.Snapshot, short snapshot.ShortIDs, all bool) {
 	if len(snaps) == 0 {
 		fmt.Fprintln(out, dim("  No snapshots yet. Run `frost backup`."))
 		return
 	}
-	idWidth := 22
-	for _, s := range snaps {
-		idWidth = max(idWidth, len(s.ID))
-	}
-	fmt.Fprintln(out, dim(fmt.Sprintf("  %-*s %-18s %8s %10s %10s", idWidth, "SNAPSHOT", "TAKEN", "FILES", "SIZE", "NEW")))
 	shown := snaps
 	if !all && len(shown) > 10 {
 		shown = shown[:10]
 	}
+	idWidth := len("SNAPSHOT")
 	for _, s := range shown {
-		fmt.Fprintf(out, "  %-*s %-18s %8s %10s %10s\n", idWidth, s.ID, when(s.Time),
+		idWidth = max(idWidth, len(short.Of(s.ID)))
+	}
+	fmt.Fprintln(out, dim(fmt.Sprintf("  %-*s %-18s %8s %10s %10s", idWidth, "SNAPSHOT", "TAKEN", "FILES", "SIZE", "NEW")))
+	for _, s := range shown {
+		fmt.Fprintf(out, "  %-*s %-18s %8s %10s %10s\n", idWidth, short.Of(s.ID), when(s.Time),
 			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes), humanBytes(s.Stats.NewBytes))
 	}
 	if len(shown) < len(snaps) {

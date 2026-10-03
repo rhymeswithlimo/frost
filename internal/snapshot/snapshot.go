@@ -92,6 +92,66 @@ func NewID() string {
 	return fmt.Sprintf("%s-%s-%011x", w1, w2, n>>22)
 }
 
+// shortHex is how much of an ID's hex suffix is shown.
+const shortHex = 4
+
+// Short is how a snapshot ID is shown when it's alone: its two words and
+// the first 4 characters of its suffix, like maple-absurd-3f1c. An ID
+// without a longer suffix is returned whole. Storage, restore markers and
+// anything that must name one snapshot for good use the full ID.
+func Short(id string) string {
+	i := strings.LastIndexByte(id, '-')
+	if i < 0 || len(id)-i-1 <= shortHex {
+		return id
+	}
+	return id[:i+1+shortHex]
+}
+
+// ShortIDs maps full snapshot IDs to the short ones that are shown.
+type ShortIDs map[string]string
+
+// Shorten gives every snapshot in snaps a short ID. It's Short(id), with
+// more of the suffix where two IDs would otherwise look the same, so each
+// short ID starts only its own ID in snaps and Resolve finds it again.
+func Shorten(snaps []Snapshot) ShortIDs {
+	ids := make([]string, 0, len(snaps))
+	for _, s := range snaps {
+		ids = append(ids, s.ID)
+	}
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	out := make(ShortIDs, len(ids))
+	for i, id := range ids {
+		// In sorted order, the longest start an ID shares with any
+		// other is the one it shares with a neighbour.
+		n := len(Short(id))
+		if i > 0 {
+			n = max(n, commonPrefix(id, ids[i-1])+1)
+		}
+		if i+1 < len(ids) {
+			n = max(n, commonPrefix(id, ids[i+1])+1)
+		}
+		out[id] = id[:min(n, len(id))]
+	}
+	return out
+}
+
+// Of returns id's short ID, or Short(id) for an ID s doesn't know.
+func (s ShortIDs) Of(id string) string {
+	if short, ok := s[id]; ok {
+		return short
+	}
+	return Short(id)
+}
+
+func commonPrefix(a, b string) int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		n++
+	}
+	return n
+}
+
 // ValidID reports whether s looks like a snapshot ID. It guards object keys
 // built from IDs that came off the network.
 func ValidID(s string) bool {
