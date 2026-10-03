@@ -63,7 +63,7 @@ update.auto is false.`,
 			st := update.LoadState(path)
 			rel, err := latestRelease(cmd.Context())
 			if errors.Is(err, update.ErrNoRelease) {
-				fmt.Fprintln(out, "frost "+Version+dim(", no releases have been published yet"))
+				single(out, "frost "+Version+dim(", no releases have been published yet"))
 				return nil
 			}
 			if err != nil {
@@ -76,21 +76,26 @@ update.auto is false.`,
 			}
 
 			if !update.Newer(rel.Version, Version) {
-				fmt.Fprintln(out, "frost "+Version+dim(" is the latest release"))
+				single(out, "frost "+Version+dim(" is the latest release"))
 				return nil
 			}
-			fmt.Fprintf(out, "%s %s%s\n", heading("new release"), bold(rel.Version), dim(", you have "+Version))
-			fmt.Fprintln(out, kv("notes", rel.Page))
+			b := newBlock(out)
+			b.open("new release", rel.Version+", you have "+Version)
+			b.gap()
+			b.row("notes", rel.Page)
 			if check {
-				fmt.Fprintln(out, kv("", dim("Run `frost update` to install it.")))
+				b.gap()
+				b.close("Install it with " + bold("frost update"))
 				return nil
 			}
-			fmt.Fprintln(out, kv("download", rel.Archive))
+			b.row("download", rel.Archive)
 			if err := installRelease(cmd.Context(), rel, exe); err != nil {
 				return err
 			}
 			st.Installed, st.From, st.InstalledAt = rel.Version, Version, time.Now()
-			fmt.Fprintln(out, kv("installed", good("ok ")+printable(tildify(exe))))
+			b.row("installed", good("ok ")+printable(tildify(exe)))
+			b.gap()
+			b.close(good("Updated") + " to frost " + bold(rel.Version))
 			return nil
 		},
 	}

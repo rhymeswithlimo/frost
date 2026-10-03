@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -39,7 +38,7 @@ func runBrowser(ctx context.Context, out io.Writer) error {
 	st.Updates = strings.ReplaceAll(st.Updates, "`", "") // the TUI doesn't quote commands
 	err = tui.Run(ctx, a.engine.Repo, a.cfg, st)
 	if stopped := (*tui.RestoreStopped)(nil); errors.As(err, &stopped) {
-		fmt.Fprintln(out, caution("Restore stopped.")+" "+stopped.Advice)
+		single(out, caution("Restore stopped.")+" "+stopped.Advice)
 		return nil
 	}
 	return err

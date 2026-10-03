@@ -20,11 +20,13 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **Backups rarely list your bucket.** frost trusts its local record of what's stored and compares it with storage once a week, after a check finds something missing, or when the storage moved. `frost status --verify` always compares.
 
-- **Every backup is a snapshot with a short, readable ID.** IDs look like `maple-absurd-3f1c`. You can restore by ID or by time, like `latest`, `3 days ago` or `2026-09-20`.
+- **Snapshots have short, readable IDs.** IDs look like `maple-absurd-3f1c`. You can restore by ID or by time, like `latest`, `3 days ago` or `2026-09-20`.
+
+- **A backup with nothing new saves no snapshot.** If nothing changed since the last snapshot, `frost backup` says it's already backed up instead of saving a copy. Otherwise it says how many files were added, changed and removed.
 
 - **Snapshots have no size limit.** A snapshot's file list is stored in chunks like file data, so it fits Permafrost's 16 MiB object limit at any size. The parts that didn't change since the last backup aren't uploaded again.
 
-- **`frost backup --dry-run` shows what would upload.** It lists every file with new data, and the total.
+- **`frost backup --dry-run` shows what would upload.** It says what changed and lists every file with new data, and the total.
 
 - **Busy files keep their last good copy.** A file that changes while it's read is read again at the end of the backup. If it's still changing, the snapshot keeps its previous copy, and `frost backup` and `frost status` say which files.
 
@@ -46,7 +48,7 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **Restores from the browser open in your file manager.** When a restore finishes, frost shows what it restored in Finder, Explorer or your Linux file manager. Nothing opens over SSH or when the restore fails.
 
-- **Every backup checks itself.** Afterwards, frost downloads a random sample of chunks and checks them against their IDs. `frost status` shows the result, and `frost status --verify` runs a check on demand.
+- **Backups check themselves.** After a backup that saves a snapshot, and at least once a day otherwise, frost downloads a random sample of chunks and checks them against their IDs. `frost status` shows the result, and `frost status --verify` runs a check on demand.
 
 - **Storage changes are checked.** `frost config set` checks a new storage location before saving it, and refuses one with no backups, backups made with another key, or a `frost.repo` without its snapshots. `frost init` asks before starting a separate set of backups when this machine's are somewhere else.
 
@@ -58,12 +60,6 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **`frost key` manages your recovery phrase.** It shows the phrase behind a confirmation, checks a phrase against your backups, or imports one on a new machine.
 
+- **`frost config edit` saves only after you check the changes.** It opens a copy of `config.toml`, lists the settings you changed, and saves the copy as written, comments and all, once you type `yes`. A file that doesn't parse goes back to the editor instead of breaking scheduled backups, and a `config.toml` that's already broken can still be opened and fixed.
+
 - **frost installs with one line.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, checks the download against the release's signed checksums, and installs the binary. The signature check needs `ssh-keygen` from OpenSSH 8.1 or newer.
-
-### Fixed
-
-- **Windows scheduled backups write a run log.** Backup output, failures and update results go to `frost.log`, including with existing tasks. New tasks pass the configured log path directly to frost.
-
-- **Storage checks preserve network and permission errors.** Setup checks listing access and reports failed test-object cleanup. Changing storage through `frost config set` also checks conditional writes before saving.
-
-- **Scheduled jobs keep their config and cache directories.** Jobs pass the directories chosen at setup, so environment overrides also work when the scheduler doesn't inherit your shell's environment.

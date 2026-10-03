@@ -24,6 +24,7 @@ var Version = "dev"
 func NewRoot() *cobra.Command {
 	var configDir string
 	var cacheDir string
+	blockOpen = false
 	root := &cobra.Command{
 		Use:   "frost",
 		Short: "Encrypted, incremental backups to storage you choose",
@@ -48,6 +49,10 @@ can read your files, not the storage provider and not the frost authors.`,
 	cobra.EnableCommandSorting = false
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetHelpCommand(&cobra.Command{Hidden: true})
+	// Every -h shows the same help, with all of it.
+	root.SetHelpFunc(func(*cobra.Command, []string) {
+		rootHelp(root, terminalWidth(root.OutOrStdout()))
+	})
 
 	root.AddCommand(
 		newInitCmd(),
@@ -75,10 +80,26 @@ func Execute() int {
 		}
 	}
 	if err := NewRoot().ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, errStyle("error:"), errorText(err))
+		// An error that ends a block on the screen closes it. Otherwise it
+		// stands alone, spaced like a block.
+		closes := blockOpen && isTerminal(os.Stdout) && isTerminal(os.Stderr)
+		s := errorLine(err, closes)
+		if !closes {
+			s = "\n" + s
+		}
+		fmt.Fprintln(os.Stderr, s+"\n")
 		return 1
 	}
 	return 0
+}
+
+// errorLine is err as frost prints it, closing an open block if closes.
+func errorLine(err error, closes bool) string {
+	s := errStyle("error:") + " " + errorText(err)
+	if closes {
+		return closeLine(s)
+	}
+	return s
 }
 
 // errorText is err for the terminal. Line breaks frost put in to lay out a

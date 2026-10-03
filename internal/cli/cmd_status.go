@@ -46,18 +46,23 @@ downloaded and checked against its hashes).
 			e := a.engine
 			verifyFailed := false
 
+			b := newBlock(out)
+			b.open("frost", Version+"  "+e.Repo.Backend.String()+"  key "+e.Repo.Key.Fingerprint())
+			b.gap()
 			if verify {
 				n := a.cfg.Verify.Sample
 				if n == 0 {
 					n = 20
 				}
-				fmt.Fprintf(out, dim("Checking %d random chunks... "), n)
+				fmt.Fprint(out, railed(dim(fmt.Sprintf("Checking %d random chunks... ", n))))
 				v, err := e.Verify(cmd.Context(), n, true)
 				if err != nil {
+					fmt.Fprintln(out)
 					return err
 				}
 				verifyFailed = !v.OK()
 				fmt.Fprintln(out, dim("done"))
+				b.gap()
 			}
 
 			snaps, gone, err := e.RefreshSnapshots(cmd.Context())
@@ -67,16 +72,15 @@ downloaded and checked against its hashes).
 			slices.SortFunc(snaps, func(x, y snapshot.Snapshot) int { return y.Time.Compare(x.Time) })
 			short := snapshot.Shorten(snaps)
 
-			fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(Version+"  "+e.Repo.Backend.String()+"  key "+e.Repo.Key.Fingerprint()))
-
 			// Last run.
 			if last, ok := e.LastBackup(); !ok {
-				fmt.Fprintln(out, kv("last backup", dim("never")))
+				b.row("last backup", dim("never"))
 			} else if last.Error != "" {
-				fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(last.Time)+": "+printable(last.Error)))
+				text := errStyle("failed") + " " + ago(last.Time) + ": " + printable(last.Error)
 				if v, ok := recentlyUpdated(); ok && runtime.GOOS == "darwin" && strings.Contains(last.Error, "operation not permitted") {
-					fmt.Fprintln(out, kv("", dim("frost updated itself to "+v+". "+fdaHint)))
+					text += "\n" + dim("frost updated itself to "+v+". "+fdaHint)
 				}
+				b.failRow("last backup", text)
 			} else if len(last.Missing) > 0 || last.Skipped > 0 || last.Kept > 0 {
 				var buts []string
 				if len(last.Missing) > 0 {
@@ -88,44 +92,54 @@ downloaded and checked against its hashes).
 				if last.Kept > 0 {
 					buts = append(buts, fmt.Sprintf("%d busy files kept their previous copy", last.Kept))
 				}
-				fmt.Fprintln(out, kv("last backup", caution("ok, but "+strings.Join(buts, "; ")+" ")+ago(last.Time)+dim("  "+short.Of(last.SnapshotID))))
+				b.warnRow("last backup", caution("ok, but "+strings.Join(buts, "; ")+" ")+ago(last.Time)+dim("  "+short.Of(last.SnapshotID)))
+			} else if last.Unchanged {
+				b.row("last backup", good("ok ")+ago(last.Time)+dim(", nothing new since "+short.Of(last.SnapshotID)))
 			} else {
-				fmt.Fprintln(out, kv("last backup", good("ok ")+ago(last.Time)+dim("  "+short.Of(last.SnapshotID))))
+				b.row("last backup", good("ok ")+ago(last.Time)+dim("  "+short.Of(last.SnapshotID)))
 			}
 
 			// Next run.
-			fmt.Fprintln(out, kv("next backup", nextRun(a.cfg, e)))
+			switch text, level := nextRun(a.cfg, e); level {
+			case levelFail:
+				b.failRow("next backup", text)
+			case levelWarn:
+				b.warnRow("next backup", text)
+			default:
+				b.row("next backup", text)
+			}
 
 			// Health.
 			if v, ok := e.LastVerify(); !ok {
-				fmt.Fprintln(out, kv("health", dim("not checked yet")))
+				b.row("health", dim("not checked yet"))
 			} else if v.OK() {
-				fmt.Fprintln(out, kv("health", good("ok ")+fmt.Sprintf("%d objects checked %s", v.Checked, ago(v.Time))))
+				b.row("health", good("ok ")+fmt.Sprintf("%d objects checked %s", v.Checked, ago(v.Time)))
 			} else {
-				fmt.Fprintln(out, kv("health", errStyle(fmt.Sprintf("PROBLEM: %d of %d checks failed %s", len(v.Failures), v.Checked, ago(v.Time)))))
+				text := errStyle(fmt.Sprintf("%d of %d checks failed", len(v.Failures), v.Checked)) + " " + ago(v.Time)
 				for _, f := range v.Failures {
-					fmt.Fprintln(out, "               "+printable(f))
+					text += "\n" + printable(f)
 				}
-				fmt.Fprintln(out, "               "+dim("Run a new backup to re-upload anything missing, then `frost status --verify`."))
+				text += "\n" + dim("Run a new backup to re-upload anything missing, then `frost status --verify`.")
+				b.failRow("health", text)
 			}
 
 			if text, warn := updateSummary(a.cfg, update.LoadState(updateStatePath()), time.Now()); warn {
-				fmt.Fprintln(out, kv("updates", caution(printable(text))))
+				b.warnRow("updates", caution(printable(text)))
 			} else {
-				fmt.Fprintln(out, kv("updates", printable(text)))
+				b.row("updates", printable(text))
 			}
 
 			if len(snaps) > 0 {
-				fmt.Fprintln(out, kv("protected", fmt.Sprintf("%s files, %s, in %d snapshots",
-					humanCount(snaps[0].Stats.Files), humanBytes(snaps[0].Stats.Bytes), len(snaps))))
+				b.row("protected", fmt.Sprintf("%s files, %s, in %s",
+					humanCount(snaps[0].Stats.Files), humanBytes(snaps[0].Stats.Bytes), plural(len(snaps), "snapshot")))
 			}
 			if gone > 0 {
-				fmt.Fprintln(out, kv("missing", caution(engine.GoneText(gone)+".")))
-				fmt.Fprintln(out, kv("", dim("If you moved your backups, "+moveHint(a.cfg.Storage, e.Repo.Backend.String())+".")))
+				b.warnRow("missing", caution(engine.GoneText(gone)+".")+"\n"+
+					dim("If you moved your backups, "+moveHint(a.cfg.Storage, e.Repo.Backend.String())+"."))
 			}
 
-			fmt.Fprintln(out)
-			printSnapshots(out, snaps, short, all)
+			b.gap()
+			printSnapshots(b, snaps, short, all)
 			if verifyFailed {
 				return errors.New("verification failed")
 			}
@@ -140,57 +154,75 @@ downloaded and checked against its hashes).
 // printStorageProblem is `status` when the storage won't open: what's
 // wrong, how to fix it, and whether backups are failing because of it.
 func printStorageProblem(out io.Writer, err error) {
-	fmt.Fprintf(out, "%s %s\n", heading("frost"), dim(Version))
+	b := newBlock(out)
+	b.open("frost", Version)
+	b.gap()
 	lines := strings.Split(err.Error(), "\n")
-	fmt.Fprintln(out, kv("storage", errStyle("PROBLEM: ")+printable(lines[0])))
-	for _, l := range lines[1:] {
-		fmt.Fprintln(out, kv("", printable(l)))
+	for i, l := range lines {
+		lines[i] = printable(l)
 	}
+	b.failRow("storage", errStyle("problem: ")+strings.Join(lines, "\n"))
 	if f := loadKnown().Failed; f != nil {
-		fmt.Fprintln(out, kv("last backup", errStyle("FAILED ")+ago(f.Time)+dim(", it couldn't open the storage either")))
+		b.failRow("last backup", errStyle("failed ")+ago(f.Time)+dim(", it couldn't open the storage either"))
 	}
+	b.gap()
 }
+
+// How much a status row needs attention.
+const (
+	levelOK = iota
+	levelWarn
+	levelFail
+)
 
 // nextRun estimates the next scheduled backup from the last one and the
 // interval. OS schedulers don't expose this in a portable way.
-func nextRun(cfg config.Config, e *engine.Engine) string {
+func nextRun(cfg config.Config, e *engine.Engine) (string, int) {
 	if !cfg.Schedule.Enabled {
-		return dim("automatic backups are off (") + "frost config set schedule.enabled true" + dim(")")
+		return dim("automatic backups are off (") + "frost config set schedule.enabled true" + dim(")"), levelOK
 	}
 	every, err := config.Interval(cfg.Schedule.Every)
 	if err != nil {
-		return errStyle(err.Error())
+		return errStyle(err.Error()), levelFail
 	}
 	if !scheduleInstalled() {
-		return caution("scheduled job is missing, run `frost init` or `frost config set schedule.enabled true`")
+		return caution("scheduled job is missing, run `frost init` or `frost config set schedule.enabled true`"), levelWarn
 	}
 	how := dim("  " + cfg.Schedule.Every + " via " + scheduleKind())
 	last, ok := e.LastBackup()
 	if !ok {
-		return "soon" + how
+		return "soon" + how, levelOK
 	}
-	return "~" + in(last.Time.Add(every)) + how
+	return "~" + in(last.Time.Add(every)) + how, levelOK
 }
 
-func printSnapshots(out io.Writer, snaps []snapshot.Snapshot, short snapshot.ShortIDs, all bool) {
+// printSnapshots lists snaps, newest first, as the last section of b and
+// closes it.
+func printSnapshots(b *block, snaps []snapshot.Snapshot, short snapshot.ShortIDs, all bool) {
 	if len(snaps) == 0 {
-		fmt.Fprintln(out, dim("  No snapshots yet. Run `frost backup`."))
+		b.close("No snapshots yet. Run " + bold("frost backup") + ".")
 		return
 	}
 	shown := snaps
 	if !all && len(shown) > 10 {
 		shown = shown[:10]
 	}
-	idWidth := len("SNAPSHOT")
+	idWidth := len("snapshot")
 	for _, s := range shown {
 		idWidth = max(idWidth, len(short.Of(s.ID)))
 	}
-	fmt.Fprintln(out, dim(fmt.Sprintf("  %-*s %-18s %8s %10s %10s", idWidth, "SNAPSHOT", "TAKEN", "FILES", "SIZE", "NEW")))
+	b.section("snapshots")
+	b.gap()
+	const columns = "%-*s    %-16s    %8s    %9s    %9s"
+	b.line(dim(fmt.Sprintf(columns, idWidth, "snapshot", "taken", "files", "size", "new")))
 	for _, s := range shown {
-		fmt.Fprintf(out, "  %-*s %-18s %8s %10s %10s\n", idWidth, short.Of(s.ID), when(s.Time),
-			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes), humanBytes(s.Stats.NewBytes))
+		b.line(fmt.Sprintf(columns, idWidth, short.Of(s.ID), when(s.Time),
+			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes), humanBytes(s.Stats.NewBytes)))
 	}
 	if len(shown) < len(snaps) {
-		fmt.Fprintln(out, dim(fmt.Sprintf("  ... %d older, use --all to see them", len(snaps)-len(shown))))
+		b.gap()
+		b.close(fmt.Sprintf("%d older, see them with %s", len(snaps)-len(shown), bold("frost status --all")))
+		return
 	}
+	b.close("")
 }

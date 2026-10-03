@@ -121,26 +121,28 @@ With no arguments in a terminal, opens the snapshot browser.`,
 					return fmt.Errorf("can't overwrite the originals: %w. Use --beside or --to <dir> instead", err)
 				}
 			}
-			where := "original locations " + caution("(existing files will be replaced)")
+			p := newPrompter(cmd)
+			p.open("restore "+snapshot.Shorten(snaps).Of(snap.ID), when(snap.Time)+" ("+ago(snap.Time)+")")
+			p.gap()
+			if len(include) > 0 {
+				p.row("paths", strings.Join(include, "\n"))
+			} else {
+				p.row("paths", "everything")
+			}
 			if target != "" {
-				where = tildify(target)
+				where := tildify(target)
 				if resume {
 					where += dim(", carrying on with the unfinished restore there")
 				}
+				p.row("into", where)
 			} else {
 				base = ""
+				p.warnRow("into", "original locations "+caution("(existing files will be replaced)"))
 			}
-
-			fmt.Fprintf(out, "%s %s %s\n", heading("restore "+snapshot.Shorten(snaps).Of(snap.ID)), dim(when(snap.Time)), dim("("+ago(snap.Time)+")"))
-			if len(include) > 0 {
-				fmt.Fprintln(out, kv("paths", strings.Join(include, "\n               ")))
-			} else {
-				fmt.Fprintln(out, kv("paths", "everything"))
-			}
-			fmt.Fprintln(out, kv("into", where))
 
 			if overwrite && !yes {
-				ok, err := newPrompter(cmd).yesNo("Go ahead?", false)
+				p.gap()
+				ok, err := p.yesNo("Go ahead?", false)
 				if err != nil || !ok {
 					return errors.Join(err, errors.New("cancelled"))
 				}
@@ -166,8 +168,9 @@ With no arguments in a terminal, opens the snapshot browser.`,
 				}
 				return err
 			}
-			fmt.Fprintf(out, "%s %s files (%s), every chunk checked against its hash.\n",
-				good("Restored"), humanCount(res.Files), humanBytes(res.Bytes))
+			p.gap()
+			p.close(fmt.Sprintf("%s %s files (%s), every chunk checked against its hash.",
+				good("Restored"), humanCount(res.Files), humanBytes(res.Bytes)))
 			return nil
 		},
 	}
@@ -213,10 +216,10 @@ func restorePrinter(out io.Writer) func(engine.RestoreProgress) {
 		last = time.Now()
 		name := dim(printable(path.Base(p.Path)))
 		if p.Checking {
-			statusLine(out, fmt.Sprintf("  checking what's already there, %s of %s  %s", humanBytes(p.Bytes), humanBytes(p.TotalBytes), name))
+			statusLine(out, railed(fmt.Sprintf("checking what's already there, %s of %s  %s", humanBytes(p.Bytes), humanBytes(p.TotalBytes), name)))
 			return
 		}
-		statusLine(out, fmt.Sprintf("  %s/%s files, %s of %s  %s", humanCount(p.Files), humanCount(p.TotalFiles), humanBytes(p.Bytes), humanBytes(p.TotalBytes), name))
+		statusLine(out, railed(fmt.Sprintf("%s/%s files, %s of %s  %s", humanCount(p.Files), humanCount(p.TotalFiles), humanBytes(p.Bytes), humanBytes(p.TotalBytes), name)))
 	}
 }
 

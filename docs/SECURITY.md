@@ -37,6 +37,7 @@ The provider (an S3 host or Permafrost) can see:
 - Which objects are chunks, snapshot headers or file-list indexes, from the key prefix. The file lists themselves are stored as chunks.
 - When you back up and restore, and from which IP address.
 - How much new data each backup uploads, which hints at how much changed.
+- When your files changed. A backup that finds nothing changed saves no snapshot, so new snapshots only appear after something changed.
 - Snapshot IDs, which are random and carry no information.
 
 A small file fits in a single chunk, so the provider can see roughly how big it is after compression, but not what it is or what it's called. A large file is split into chunks of varying size, so it never shows up as one object of its size, though a backup's total upload is visible.
@@ -51,7 +52,7 @@ Every object is authenticated. Decryption fails if a single bit changes, if the 
 
 Authentication stops a provider forging content without the key. It doesn't stop a provider deleting or withholding objects.
 
-The spot check after each backup downloads a random sample of chunks. It catches missing or damaged data early, but damage to chunks it didn't sample can go unnoticed.
+The spot check after a backup downloads a random sample of chunks. It runs after every backup that saves a snapshot, and at least once a day otherwise. It catches missing or damaged data early, but damage to chunks it didn't sample can go unnoticed.
 
 ## Threat model
 

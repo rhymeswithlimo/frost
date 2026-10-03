@@ -295,8 +295,8 @@ enabled = {{.Schedule.Enabled}}
 every = {{q .Schedule.Every}}
 
 [verify]
-# After each backup, download this many random chunks and check them.
-# 0 turns the check off.
+# After a backup that saves a snapshot, and at least once a day otherwise,
+# download this many random chunks and check them. 0 turns the check off.
 sample = {{.Verify.Sample}}
 
 [update]

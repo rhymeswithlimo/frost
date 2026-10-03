@@ -80,16 +80,24 @@ func runSetupScreens(cmd *cobra.Command, cfg config.Config, existing bool, local
 		return err
 	}
 	if !res.Saved {
-		fmt.Fprintln(out, dim("Setup closed. Nothing was changed."))
+		single(out, dim("Setup closed. Nothing was changed."))
 		return nil
 	}
-	fmt.Fprintln(out, good("frost is set up."))
+	b := newBlock(out)
+	b.open("frost setup", "")
+	b.gap()
 	for _, r := range res.Rows {
-		fmt.Fprintln(out, kv(r[0], r[1]))
+		b.row(r[0], r[1])
 	}
-	fmt.Fprintf(out, "\nPreview your first backup with %s, or start it with %s.\n",
-		bold("frost backup --dry-run"), bold("frost backup"))
+	b.gap()
+	b.close(setUp())
 	return nil
+}
+
+// setUp is the line that closes a finished setup.
+func setUp() string {
+	return fmt.Sprintf("%s Preview your first backup with %s, or start it with %s.",
+		good("frost is set up."), bold("frost backup --dry-run"), bold("frost backup"))
 }
 
 // finishSetup creates the repository if it's new, then saves the config and
@@ -132,14 +140,13 @@ func finishSetup(ctx context.Context, cfg config.Config, key *crypto.Key, newRep
 // plain questions, one per line.
 func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local *crypto.Key) error {
 	ctx := cmd.Context()
-	out := cmd.OutOrStdout()
 	p := newPrompter(cmd)
 
-	fmt.Fprintln(out, heading("frost setup"))
+	p.open("frost setup", "")
 	if existing {
-		fmt.Fprintln(out, dim("Existing config found. Press enter to keep a value."))
+		p.line(dim("Existing config found. Press enter to keep a value."))
 	}
-	fmt.Fprintln(out)
+	p.gap()
 
 	// 1. Where. It goes first because it's the step that can fail.
 	var b storage.Backend
@@ -148,19 +155,19 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 		if err := askStorage(ctx, p, &cfg); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s ... ", dim("Connecting"))
+		p.question(dim("Connecting ..."))
 		var err error
 		if b, state, err = connect(ctx, cfg.Storage, local); err == nil {
-			fmt.Fprintln(out, good("ok"))
+			fmt.Fprintln(p.out, good("ok"))
 			break
 		}
-		fmt.Fprintln(out, errStyle("failed"))
-		fmt.Fprintln(out, caution("  "+err.Error()))
-		fmt.Fprintln(out)
+		fmt.Fprintln(p.out, errStyle("failed"))
+		p.fail(caution(err.Error()))
+		p.gap()
 	}
 
 	// 2. What. No default: frost shouldn't back up anything you didn't pick.
-	fmt.Fprintln(out)
+	p.gap()
 	for {
 		list, err := p.list(bold("Folders to back up")+dim(" (full paths, comma separated)"), cfg.Paths)
 		if err != nil {
@@ -184,10 +191,10 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 		}
 		switch {
 		case problem != "":
-			fmt.Fprintln(out, caution("  "+problem))
+			p.warn(caution(problem))
 			continue
 		case len(paths) == 0:
-			fmt.Fprintln(out, dim("  add at least one folder"))
+			p.line(dim("  add at least one folder"))
 			continue
 		}
 		cfg.Paths = paths
@@ -195,7 +202,7 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 		if len(missing) == 0 {
 			break
 		}
-		fmt.Fprintln(out, caution("  not found: "+strings.Join(missing, ", ")))
+		p.warn(caution("not found: " + strings.Join(missing, ", ")))
 		ok, err := p.yesNo("  Add anyway? They're skipped until they exist.", false)
 		if err != nil {
 			return err
@@ -213,11 +220,11 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 		if bad < 0 {
 			break
 		}
-		fmt.Fprintln(out, caution(fmt.Sprintf("  %q isn't a valid pattern, check its brackets", cfg.Exclude[bad])))
+		p.warn(caution(fmt.Sprintf("%q isn't a valid pattern, check its brackets", cfg.Exclude[bad])))
 	}
 
 	// 3. When.
-	fmt.Fprintln(out)
+	p.gap()
 	if cfg.Schedule.Enabled, err = p.yesNo(bold("Back up automatically?"), cfg.Schedule.Enabled || !existing); err != nil {
 		return err
 	}
@@ -229,7 +236,7 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 			if _, err := config.Interval(cfg.Schedule.Every); err == nil {
 				break
 			}
-			fmt.Fprintln(out, dim("  pick one of: "+strings.Join(config.Intervals, ", ")))
+			p.line(dim("  pick one of: " + strings.Join(config.Intervals, ", ")))
 		}
 	}
 	if err := cfg.Validate(); err != nil {
@@ -247,12 +254,12 @@ func runInitPrompts(cmd *cobra.Command, cfg config.Config, existing bool, local 
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out)
+	p.gap()
 	for _, r := range rows {
-		fmt.Fprintln(out, kv(r[0], r[1]))
+		p.row(r[0], r[1])
 	}
-	fmt.Fprintf(out, "\n%s Preview your first backup with %s, or start it with %s.\n",
-		good("Done."), bold("frost backup --dry-run"), bold("frost backup"))
+	p.gap()
+	p.close(setUp())
 	return nil
 }
 
@@ -323,12 +330,12 @@ func askStorage(ctx context.Context, p *prompter, cfg *config.Config) error {
 func getToken(ctx context.Context, p *prompter, s *config.Storage) error {
 	page, wait, err := checkout(ctx, *s)
 	if err != nil {
-		fmt.Fprintln(p.out, caution("  "+err.Error()))
+		p.warn(caution(err.Error()))
 		return nil
 	}
-	fmt.Fprintln(p.out, "  Grab one in your browser.")
-	fmt.Fprintf(p.out, "  %s %s%s\n", dim("If it didn't open, go to"), bold(page), dim(", then paste the key below."))
-	fmt.Fprintf(p.out, "  %s ... ", dim("Waiting"))
+	p.line("  Grab one in your browser.")
+	p.line(fmt.Sprintf("  %s %s%s", dim("If it didn't open, go to"), bold(page), dim(", then paste the key below.")))
+	p.question("  " + dim("Waiting ..."))
 	token, err := wait()
 	if token != "" {
 		s.Permafrost.Token = token
@@ -337,10 +344,10 @@ func getToken(ctx context.Context, p *prompter, s *config.Storage) error {
 		fmt.Fprintln(p.out, errStyle("stopped"))
 	}
 	if err != nil {
-		fmt.Fprintln(p.out, caution("  "+err.Error()))
+		p.warn(caution(err.Error()))
 	}
 	if token == "" {
-		fmt.Fprintln(p.out, dim("  Paste your access key, or press ctrl+c and run frost init again to retry."))
+		p.line(dim("  Paste your access key, or press ctrl+c and run frost init again to retry."))
 	}
 	return nil
 }
@@ -350,22 +357,26 @@ func getToken(ctx context.Context, p *prompter, s *config.Storage) error {
 func promptKey(ctx context.Context, p *prompter, b storage.Backend, state tui.RepoState, local *crypto.Key) (key *crypto.Key, newRepo bool, err error) {
 	switch state {
 	case tui.RepoLocalOK:
-		fmt.Fprintln(p.out, good("Your key on this machine opens this storage."))
+		p.gap()
+		p.ok("Your key on this machine opens this storage.")
 		return local, false, nil
 	case tui.RepoNeedsPhrase:
-		fmt.Fprintln(p.out, "\nThis storage already has frost backups. Enter the recovery phrase to connect.")
+		p.gap()
+		p.line("This storage already has frost backups. Enter the recovery phrase to connect.")
 		key, err = askPhraseFor(ctx, p, b)
 		return key, false, err
 	case tui.RepoLocalWrong:
-		fmt.Fprintln(p.out, "\nThis storage has backups made with a different key than the one on this machine.")
-		fmt.Fprintln(p.out, "Enter the recovery phrase for these backups, and frost will use that key here instead.")
+		p.gap()
+		p.line("This storage has backups made with a different key than the one on this machine.")
+		p.line("Enter the recovery phrase for these backups, and frost will use that key here instead.")
 		key, err = askPhraseFor(ctx, p, b)
 		return key, false, err
 	}
 	if local != nil {
 		if k := loadKnown(); k.Where != "" && k.Where != storage.Location(b) {
-			fmt.Fprintf(p.out, "\nThere are no backups in %s yet. This machine's backups are in %s.\n", b, k.Shown)
-			fmt.Fprintln(p.out, "They stay there, but frost will only show the ones made here from now on, and the first backup uploads everything again.")
+			p.gap()
+			p.warn(fmt.Sprintf("There are no backups in %s yet. This machine's backups are in %s.", b, k.Shown))
+			p.line("They stay there, but frost will only show the ones made here from now on, and the first backup uploads everything again.")
 			ok, err := p.yesNo("Start a separate set of backups here?", false)
 			if err != nil {
 				return nil, false, err
@@ -390,11 +401,11 @@ func askPhraseFor(ctx context.Context, p *prompter, b storage.Backend) (*crypto.
 		}
 		key, err := phraseKey(phrase)
 		if err != nil {
-			fmt.Fprintln(p.out, errStyle("  "+err.Error()))
+			p.fail(err.Error())
 			continue
 		}
 		if err := opensRepo(ctx, b, key); err != nil {
-			fmt.Fprintln(p.out, errStyle("  "+err.Error()))
+			p.fail(err.Error())
 			continue
 		}
 		return key, nil
@@ -405,13 +416,15 @@ func askPhraseFor(ctx context.Context, p *prompter, b storage.Backend) (*crypto.
 // showNewPhrase shows the recovery phrase once and makes the user prove
 // they wrote it down.
 func showNewPhrase(p *prompter, key *crypto.Key) error {
-	out := p.out
-	fmt.Fprintf(out, "\n%s\n\n", heading("your recovery phrase"))
-	fmt.Fprint(out, phraseGrid(key.Phrase()))
-	fmt.Fprintf(out, "\n%s\n", bold("Write these 24 words down and keep them somewhere safe."))
-	fmt.Fprintln(out, "They're the only way to restore your files if this machine is lost.")
-	fmt.Fprintln(out, "Nobody can recover them for you: not your storage provider, not us.")
-	fmt.Fprintln(out)
+	p.gap()
+	p.section("your recovery phrase")
+	p.gap()
+	p.line(phraseGrid(key.Phrase()))
+	p.gap()
+	p.line(bold("Write these 24 words down and keep them somewhere safe."))
+	p.line("They're the only way to restore your files if this machine is lost.")
+	p.line("Nobody can recover them for you: not your storage provider, not us.")
+	p.gap()
 
 	words := strings.Fields(key.Phrase())
 	for {
@@ -428,16 +441,18 @@ func showNewPhrase(p *prompter, key *crypto.Key) error {
 			return err
 		}
 		if strings.EqualFold(a, words[i]) && strings.EqualFold(c, words[j]) {
-			fmt.Fprintln(out, good("Correct."))
+			p.ok("Correct.")
 			return nil
 		}
-		fmt.Fprintln(out, caution("That doesn't match."))
+		p.warn(caution("That doesn't match."))
 		again, err := p.yesNo("See the words again?", true)
 		if err != nil {
 			return err
 		}
 		if again {
-			fmt.Fprint(out, phraseGrid(key.Phrase()))
+			p.gap()
+			p.line(phraseGrid(key.Phrase()))
+			p.gap()
 		}
 	}
 }
@@ -457,22 +472,21 @@ func randomWords() (int, int) {
 	return min(i, j), max(i, j)
 }
 
-// phraseGrid lays the 24 words out in numbered columns.
+// phraseGrid lays the 24 words out in numbered columns, one row per line.
 func phraseGrid(phrase string) string {
 	words := strings.Fields(phrase)
-	var b strings.Builder
-	rows := (len(words) + 3) / 4
+	rows := make([]string, (len(words)+3)/4)
 	for r := range rows {
-		b.WriteString("  ")
+		var b strings.Builder
 		for c := range 4 {
-			i := c*rows + r
+			i := c*len(rows) + r
 			if i < len(words) {
 				fmt.Fprintf(&b, "%s %-10s", dim(fmt.Sprintf("%2d.", i+1)), words[i])
 			}
 		}
-		b.WriteString("\n")
+		rows[r] = strings.TrimRight(b.String(), " ")
 	}
-	return b.String()
+	return strings.Join(rows, "\n")
 }
 
 // syncSchedule makes the OS scheduler match the config. It's a variable so

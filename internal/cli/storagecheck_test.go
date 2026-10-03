@@ -106,7 +106,7 @@ func TestStorageFolderChanges(t *testing.T) {
 		t.Fatal("backup to an empty folder worked")
 	}
 	out, err = run(t, "", "status")
-	for _, want := range []string{"PROBLEM", "Your backups were last opened in s3://backups/frost/", "storage.s3.prefix changed from frost to elsewhere", "frost config set storage.s3.prefix frost", "FAILED"} {
+	for _, want := range []string{"problem: ", "Your backups were last opened in s3://backups/frost/", "storage.s3.prefix changed from frost to elsewhere", "frost config set storage.s3.prefix frost", "failed"} {
 		if err == nil || !strings.Contains(out, want) {
 			t.Fatalf("status after a folder change is missing %q (%v):\n%s", want, err, out)
 		}
@@ -123,17 +123,17 @@ func TestStorageFolderChanges(t *testing.T) {
 	copyFolder(t, f.folder(t, "frost"), f.folder(t, "moved"), false)
 	must(t, "", "config", "set", "storage.s3.prefix", "moved")
 	out = must(t, "", "backup")
-	if !strings.Contains(out, "none, everything was already backed up") {
+	if !strings.Contains(out, "Already backed up") || strings.Contains(out, "uploaded after compression") {
 		t.Fatalf("backup after a full move re-uploaded:\n%s", out)
 	}
-	if out := must(t, "", "status"); strings.Contains(out, "FAILED") || strings.Contains(out, "missing") {
+	if out := must(t, "", "status"); strings.Contains(out, "failed") || strings.Contains(out, "missing") {
 		t.Fatalf("status after the move still complains:\n%s", out)
 	}
 
 	// Forced onto the half folder, the lost snapshots are reported.
 	setPrefix(t, "half")
 	out, _ = run(t, "", "status")
-	if !strings.Contains(out, "aren't in storage any more") {
+	if !strings.Contains(out, "in storage any more") {
 		t.Fatalf("status didn't notice the snapshots are gone:\n%s", out)
 	}
 }

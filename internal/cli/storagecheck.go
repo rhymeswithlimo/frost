@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
 	"github.com/rhymeswithlimo/frost/internal/crypto"
@@ -15,13 +14,13 @@ import (
 // checkStorageChange looks at where storage settings point before frost
 // starts using them, so a typo or a half-moved folder doesn't quietly stop
 // backups or start a second set of them. It refuses the change with an
-// error, or with warnOnly (the file is already saved) it prints a warning.
+// error, or with warnOnly it prints a warning on b.
 // Credentials that change without changing where backups are aren't
 // checked: rotating keys takes two settings, and the first would fail.
-func checkStorageChange(ctx context.Context, out io.Writer, was, now config.Storage, warnOnly bool) error {
+func checkStorageChange(ctx context.Context, b *block, was, now config.Storage, warnOnly bool) error {
 	problem := func(msg string) error {
 		if warnOnly {
-			fmt.Fprintln(out, caution("warning: ")+msg)
+			b.warn(caution(msg))
 			return nil
 		}
 		return fmt.Errorf("%s\n\nNothing was saved. To change it without this check, use `frost config edit`", msg)
@@ -72,7 +71,7 @@ func checkStorageChange(ctx context.Context, out io.Writer, was, now config.Stor
 		return problem("couldn't check " + where + ": " + explainConnect(err).Error())
 	}
 	if k.RepoID != "" && r.Info.ID != k.RepoID {
-		fmt.Fprintln(out, caution("note: ")+"those are different backups from the ones in "+k.Shown+". frost will show their snapshots instead. Yours stay where they are.")
+		b.warn("Those are different backups from the ones in " + k.Shown + ". frost will show their snapshots instead. Yours stay where they are.")
 	}
 	return nil
 }

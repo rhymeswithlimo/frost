@@ -11,22 +11,24 @@ import (
 	"golang.org/x/term"
 )
 
-// prompter asks questions on the command's stdin and stdout.
+// prompter asks questions on the command's stdin and stdout. Its questions
+// and hints sit on the rail of the block it prints.
 type prompter struct {
+	*block
 	in  *bufio.Reader
-	out io.Writer
 	tty *os.File // stdin, when it's a terminal, for reading secrets unechoed
 }
 
 func newPrompter(cmd *cobra.Command) *prompter {
-	p := &prompter{in: bufio.NewReader(cmd.InOrStdin()), out: cmd.OutOrStdout()}
+	p := &prompter{block: newBlock(cmd.OutOrStdout()), in: bufio.NewReader(cmd.InOrStdin())}
 	if f, ok := cmd.InOrStdin().(*os.File); ok && isTerminal(f) {
 		p.tty = f
 	}
 	return p
 }
 
-func (p *prompter) line() (string, error) {
+// answer reads one line of input.
+func (p *prompter) answer() (string, error) {
 	s, err := p.in.ReadString('\n')
 	if err != nil && (err != io.EOF || s == "") {
 		return "", fmt.Errorf("no answer (input closed)")
@@ -34,14 +36,16 @@ func (p *prompter) line() (string, error) {
 	return strings.TrimSpace(s), nil
 }
 
+// question prints q on the rail and leaves the cursor after it.
+func (p *prompter) question(q string) { fmt.Fprint(p.out, railed(q)+" ") }
+
 // ask prompts with an optional default shown in brackets.
 func (p *prompter) ask(q, def string) (string, error) {
 	if def != "" {
-		fmt.Fprintf(p.out, "%s %s ", q, dim("["+def+"]"))
-	} else {
-		fmt.Fprintf(p.out, "%s ", q)
+		q += " " + dim("["+def+"]")
 	}
-	s, err := p.line()
+	p.question(q)
+	s, err := p.answer()
 	if err != nil {
 		return "", err
 	}
@@ -58,7 +62,7 @@ func (p *prompter) required(q, def string) (string, error) {
 		if err != nil || s != "" {
 			return s, err
 		}
-		fmt.Fprintln(p.out, dim("  this one's required"))
+		p.line(dim("  this one's required"))
 	}
 }
 
@@ -70,7 +74,7 @@ func (p *prompter) secret(q, current string) (string, error) {
 		hint = " " + dim("[enter keeps the current one]")
 	}
 	for {
-		fmt.Fprintf(p.out, "%s%s ", q, hint)
+		p.question(q + hint)
 		s, err := p.hidden()
 		if err != nil {
 			return "", err
@@ -81,14 +85,14 @@ func (p *prompter) secret(q, current string) (string, error) {
 		case current != "":
 			return current, nil
 		}
-		fmt.Fprintln(p.out, dim("  this one's required"))
+		p.line(dim("  this one's required"))
 	}
 }
 
 // hidden reads a line without echoing it when stdin is a terminal.
 func (p *prompter) hidden() (string, error) {
 	if p.tty == nil {
-		return p.line()
+		return p.answer()
 	}
 	b, err := term.ReadPassword(int(p.tty.Fd()))
 	fmt.Fprintln(p.out)
@@ -105,8 +109,8 @@ func (p *prompter) yesNo(q string, def bool) (bool, error) {
 		hint = "Y/n"
 	}
 	for {
-		fmt.Fprintf(p.out, "%s %s ", q, dim("["+hint+"]"))
-		s, err := p.line()
+		p.question(q + " " + dim("["+hint+"]"))
+		s, err := p.answer()
 		if err != nil {
 			return false, err
 		}
@@ -121,20 +125,27 @@ func (p *prompter) yesNo(q string, def bool) (bool, error) {
 	}
 }
 
+// confirm asks the user to type word, for steps that deserve more than a
+// y. Anything else is a no.
+func (p *prompter) confirm(word, to string) (bool, error) {
+	s, err := p.ask("Type "+bold(word)+" to "+to+":", "")
+	return s == word, err
+}
+
 // choose asks the user to pick one of options by number. def is the index
 // enter picks, or -1 for no default.
 func (p *prompter) choose(q string, options []string, def int) (int, error) {
-	fmt.Fprintln(p.out, q)
+	p.line(q)
 	for i, o := range options {
-		fmt.Fprintf(p.out, "  %s %s\n", accent(fmt.Sprintf("[%d]", i+1)), o)
+		p.line(fmt.Sprintf("  %s %s", bold(fmt.Sprintf("[%d]", i+1)), o))
 	}
-	prompt := "> "
+	prompt := ">"
 	if def >= 0 {
-		prompt = dim(fmt.Sprintf("[%d]", def+1)) + " > "
+		prompt = dim(fmt.Sprintf("[%d]", def+1)) + " >"
 	}
 	for {
-		fmt.Fprint(p.out, prompt)
-		s, err := p.line()
+		p.question(prompt)
+		s, err := p.answer()
 		if err != nil {
 			return 0, err
 		}
@@ -145,7 +156,7 @@ func (p *prompter) choose(q string, options []string, def int) (int, error) {
 		if _, err := fmt.Sscanf(s, "%d", &n); err == nil && n >= 1 && n <= len(options) {
 			return n - 1, nil
 		}
-		fmt.Fprintln(p.out, dim(fmt.Sprintf("  type a number from 1 to %d", len(options))))
+		p.line(dim(fmt.Sprintf("  type a number from 1 to %d", len(options))))
 	}
 }
 

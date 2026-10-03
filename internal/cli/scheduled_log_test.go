@@ -22,19 +22,20 @@ func TestScheduledBackupLogsResultsAndUpdates(t *testing.T) {
 	t.Setenv("FROST_CACHE_DIR", cacheDir)
 	u.checkErr = errors.New("network is down")
 	path := filepath.Join(t.TempDir(), "log folder & 100% !", "frost.log")
-	for range 2 {
+	// The second run has nothing new to save.
+	for _, want := range []string{"Saved snapshot", "Already backed up"} {
 		out := must(t, "", "backup", "--scheduled", "--log-file", path)
-		if !strings.Contains(out, "SNAPSHOT") {
-			t.Fatalf("backup output lost: %s", out)
+		if !strings.Contains(out, want) {
+			t.Fatalf("backup output lost, want %q: %s", want, out)
 		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"scheduled backup starting", "SNAPSHOT", "verified"} {
-		if strings.Count(string(data), want) != 2 {
-			t.Fatalf("log must contain two %q entries:\n%s", want, data)
+	for want, n := range map[string]int{"scheduled backup starting": 2, "verified": 2, "Saved snapshot": 1, "Already backed up": 1} {
+		if strings.Count(string(data), want) != n {
+			t.Fatalf("log must contain %d %q entries:\n%s", n, want, data)
 		}
 	}
 	if !bytes.Contains(data, []byte("update check failed: network is down")) {
@@ -109,7 +110,7 @@ func TestScheduledLogFailureDoesNotStopBackup(t *testing.T) {
 	f := setup(t)
 	must(t, f.initAnswers(f.phrase[2], f.phrase[17]), "init")
 	out := must(t, "", "backup", "--scheduled", "--log-file", t.TempDir())
-	if !strings.Contains(out, "couldn't open scheduled run log") || !strings.Contains(out, "SNAPSHOT") {
+	if !strings.Contains(out, "couldn't open scheduled run log") || !strings.Contains(out, "Saved snapshot") {
 		t.Fatalf("missing warning or backup result: %s", out)
 	}
 }

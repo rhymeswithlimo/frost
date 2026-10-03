@@ -22,6 +22,11 @@ var (
 	CLIOK   = lipgloss.Color("#3fb950")
 	CLIWarn = lipgloss.Color("#d29922")
 	CLIBad  = lipgloss.Color("#f85149")
+
+	// CLIAccent is the rail CLI output hangs off, and the wordmark in
+	// `frost -h`. It's Ter lifted so it reads on dark terminals as well as
+	// light ones.
+	CLIAccent = lipgloss.Color("#4353ff")
 )
 
 // Bg is the TUI background.

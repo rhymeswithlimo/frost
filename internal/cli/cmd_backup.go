@@ -66,7 +66,7 @@ last run is uploaded. Use flags to override the config for this run only.`,
 				defer autoUpdate(cmd.Context(), out)
 				defer func() {
 					if log != nil && runErr != nil {
-						fmt.Fprintln(log, "error:", errorText(runErr))
+						fmt.Fprintln(log, ansi.Strip(errorLine(runErr, blockOpen))+"\n")
 					}
 				}()
 			}
@@ -88,6 +88,12 @@ last run is uploaded. Use flags to override the config for this run only.`,
 			if len(paths) > 0 {
 				opts.Paths = paths
 			}
+			b := newBlock(out)
+			if dryRun {
+				b.open("dry run", a.engine.Repo.Backend.String())
+			} else {
+				b.open("backup", a.engine.Repo.Backend.String())
+			}
 			live := !scheduled && liveOutput()
 			if live {
 				opts.Progress = progressPrinter(out)
@@ -106,35 +112,50 @@ last run is uploaded. Use flags to override the config for this run only.`,
 				}
 				return err
 			}
+			short := snapshot.Shorten(slices.Collect(maps.Values(a.engine.Manifest.Snapshots())))
 			if dryRun {
-				printDryRun(out, res)
+				printDryRun(b, res, short)
 				return nil
 			}
-			printBackup(out, res, snapshot.Shorten(slices.Collect(maps.Values(a.engine.Manifest.Snapshots()))))
+			b.gap()
+			printBackup(b, res)
 
 			if n := a.cfg.Verify.Sample; n > 0 && !noVerify {
+				// A run that saved nothing new only checks once a day.
+				if last, ok := a.engine.LastVerify(); ok && res.Unchanged && !a.engine.VerifyDue() {
+					b.row("verified", good("ok ")+fmt.Sprintf("%s, %d objects checked", ago(last.Time), last.Checked))
+					b.gap()
+					b.close(alreadyBackedUp(res, short))
+					return nil
+				}
 				v, err := a.engine.Verify(cmd.Context(), n, false)
 				switch {
 				case err != nil:
-					fmt.Fprintln(out, kv("verified", errStyle("couldn't run: ")+err.Error()))
+					b.failRow("verified", "couldn't run: "+err.Error())
 					return fmt.Errorf("verification couldn't complete: %w", err)
 				case v.OK():
-					fmt.Fprintln(out, kv("verified", good("ok")+dim(fmt.Sprintf(", %d random objects re-downloaded and checked", v.Checked))))
+					b.row("verified", good("ok")+dim(fmt.Sprintf(", %d random objects re-downloaded and checked", v.Checked)))
 				default:
-					fmt.Fprintln(out, kv("verified", errStyle(fmt.Sprintf("%d of %d checks FAILED", len(v.Failures), v.Checked))))
+					b.failRow("verified", errStyle("failed")+fmt.Sprintf(", %d of %d checks didn't pass:", len(v.Failures), v.Checked))
 					for _, f := range v.Failures {
-						fmt.Fprintln(out, "    "+f)
+						b.row("", "  "+printable(f))
 					}
 					return fmt.Errorf("verification failed, see `frost status`")
 				}
+			}
+			b.gap()
+			if res.Unchanged {
+				b.close(alreadyBackedUp(res, short))
+			} else {
+				b.close(good("Saved") + " snapshot " + bold(short.Of(res.Snapshot.ID)))
 			}
 			return nil
 		},
 	}
 	f := cmd.Flags()
+	f.BoolVarP(&dryRun, "dry-run", "n", false, "show what would be uploaded without uploading anything")
 	f.StringArrayVar(&paths, "path", nil, "back up this directory instead of the configured ones (repeatable)")
 	f.StringArrayVar(&exclude, "exclude", nil, "also skip files matching this pattern (repeatable)")
-	f.BoolVarP(&dryRun, "dry-run", "n", false, "show what would be uploaded without uploading anything")
 	f.BoolVar(&noVerify, "no-verify", false, "skip the spot check after the backup")
 	f.BoolVar(&scheduled, "scheduled", false, "log-friendly output for scheduled runs")
 	f.MarkHidden("scheduled")
@@ -201,71 +222,125 @@ func progressPrinter(out io.Writer) func(engine.Progress) {
 		if w := ansi.StringWidth(name); w > 40 {
 			name = "..." + ansi.TruncateLeft(name, w-37, "")
 		}
-		statusLine(out, fmt.Sprintf("  %s files, %s scanned, %s new  %s",
-			humanCount(p.Files), humanBytes(p.Bytes), humanBytes(p.NewBytes), dim(name)))
+		statusLine(out, railed(fmt.Sprintf("%s files, %s scanned, %s new  %s",
+			humanCount(p.Files), humanBytes(p.Bytes), humanBytes(p.NewBytes), dim(name))))
 	}
 }
 
-// printBackup prints what a backup saved. short holds the snapshots its ID
-// is told apart from, the new one included.
-func printBackup(out io.Writer, res engine.BackupResult, short snapshot.ShortIDs) {
+// printBackup prints what a backup saved, as rows of b.
+func printBackup(b *block, res engine.BackupResult) {
 	s := res.Snapshot
-	fmt.Fprintf(out, "%s %s\n", heading("snapshot "+short.Of(s.ID)), dim(when(s.Time)))
-	fmt.Fprintln(out, kv("files", fmt.Sprintf("%s (%s)", humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes))))
-	if s.Stats.NewChunks == 0 {
-		fmt.Fprintln(out, kv("new data", "none, everything was already backed up"))
-	} else {
-		fmt.Fprintln(out, kv("new data", fmt.Sprintf("%s in %s chunks %s", humanBytes(s.Stats.NewBytes),
-			humanCount(s.Stats.NewChunks), dim("("+humanBytes(s.Stats.UploadedBytes)+" uploaded after compression)"))))
+	if res.Compared && !res.Unchanged && !res.Changes.None() {
+		b.row("changes", changesText(res.Changes))
+	}
+	b.row("files", fmt.Sprintf("%s (%s)", humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes)))
+	uploaded := fmt.Sprintf("%s in %s chunks %s", humanBytes(s.Stats.NewBytes),
+		humanCount(s.Stats.NewChunks), dim("("+humanBytes(s.Stats.UploadedBytes)+" uploaded after compression)"))
+	switch {
+	case res.Unchanged && s.Stats.NewChunks > 0 && s.Stats.Kept == 0:
+		// Nothing changed, so these were missing from storage.
+		b.row("new data", uploaded+"\n"+dim("Uploaded again because storage was missing them."))
+	case res.Unchanged && s.Stats.NewChunks > 0:
+		// Read from a busy file before it changed. The kept row explains.
+		b.row("new data", uploaded)
+	case res.Unchanged:
+	case s.Stats.NewChunks == 0:
+		b.row("new data", "none")
+	default:
+		b.row("new data", uploaded)
 	}
 	if len(s.Missing) > 0 {
-		fmt.Fprintln(out, kv("not found", caution(missingList(s.Missing))))
-		fmt.Fprintln(out, kv("", dim("Skipped until they're back. If one moved, update it with `frost init`.")))
+		b.warnRow("not found", caution(missingList(s.Missing))+"\n"+
+			dim("Skipped until they're back. If one moved, update it with `frost init`."))
 	}
 	if s.Stats.Skipped > 0 {
-		fmt.Fprintln(out, kv("skipped", caution(fmt.Sprintf("%d items couldn't be read:", s.Stats.Skipped))))
-		printSome(out, s.Warnings, s.Stats.Skipped)
+		b.warnRow("skipped", caution(fmt.Sprintf("%d items couldn't be read:", s.Stats.Skipped))+someOf(s.Warnings, s.Stats.Skipped))
 	}
 	if s.Stats.Kept > 0 {
-		fmt.Fprintln(out, kv("kept", caution(fmt.Sprintf("%d files kept changing while they were read, so the snapshot has their previous copy:", s.Stats.Kept))))
 		var names []string
 		for _, p := range s.Kept {
 			names = append(names, tildify(filepath.FromSlash(p)))
 		}
-		printSome(out, names, s.Stats.Kept)
+		b.warnRow("kept", caution(fmt.Sprintf("%d files kept changing while they were read, so the snapshot has their previous copy:", s.Stats.Kept))+someOf(names, s.Stats.Kept))
 	}
 }
 
-// printSome prints the first ten of items, of which there are total.
-func printSome(out io.Writer, items []string, total int) {
+// someOf lists the first ten of items, of which there are total, one per
+// line and indented, to follow a row's value.
+func someOf(items []string, total int) string {
+	var b strings.Builder
 	for _, it := range items[:min(len(items), 10)] {
-		fmt.Fprintln(out, "    "+printable(it))
+		b.WriteString("\n  " + printable(it))
 	}
 	if more := total - min(len(items), 10); more > 0 {
-		fmt.Fprintf(out, "    ... and %d more\n", more)
+		fmt.Fprintf(&b, "\n  ... and %d more", more)
 	}
+	return b.String()
 }
 
-func printDryRun(out io.Writer, res engine.BackupResult) {
+// alreadyBackedUp closes a backup that found nothing new to save.
+func alreadyBackedUp(res engine.BackupResult, short snapshot.ShortIDs) string {
+	return good("Already backed up.") + " Nothing has changed since snapshot " + bold(short.Of(res.Snapshot.ID)) + ", saved " + ago(res.Snapshot.Time) + "."
+}
+
+// changesText says what changed, like "3 added, 1 changed, 2 removed".
+// Bare counts are files, and folders are named.
+func changesText(c engine.Changes) string {
+	var parts []string
+	for _, p := range []struct {
+		n    int
+		what string
+	}{
+		{c.Files.Added, "added"}, {c.Files.Changed, "changed"}, {c.Files.Removed, "removed"},
+	} {
+		if p.n > 0 {
+			parts = append(parts, humanCount(p.n)+" "+p.what)
+		}
+	}
+	for _, p := range []struct {
+		n    int
+		what string
+	}{
+		{c.Folders.Added, "added"}, {c.Folders.Changed, "changed"}, {c.Folders.Removed, "removed"},
+	} {
+		if p.n > 0 {
+			parts = append(parts, plural(p.n, "folder")+" "+p.what)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func printDryRun(b *block, res engine.BackupResult, short snapshot.ShortIDs) {
 	s := res.Snapshot
-	fmt.Fprintln(out, heading("dry run")+dim(" nothing was uploaded"))
+	b.gap()
+	if res.Compared && !res.Unchanged && !res.Changes.None() {
+		b.row("changes", changesText(res.Changes))
+	}
+	b.row("files", fmt.Sprintf("%s (%s)", humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes)))
 	if len(s.Missing) > 0 {
-		fmt.Fprintln(out, kv("not found", caution(missingList(s.Missing))))
+		b.warnRow("not found", caution(missingList(s.Missing)))
 	}
-	if len(res.Planned) == 0 {
-		fmt.Fprintf(out, "\nNothing to upload. All %s files (%s) are already backed up.\n",
-			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes))
+	b.gap()
+	switch {
+	case res.Unchanged:
+		b.close("Nothing has changed since snapshot " + bold(short.Of(s.ID)) + ", saved " + ago(s.Time) + ", so there's nothing to back up.")
 		return
+	case len(res.Planned) == 0:
+		b.line("No new data to upload. Everything in these files is already stored.")
+	default:
+		planned := slices.Clone(res.Planned)
+		slices.SortFunc(planned, func(a, b engine.PlannedFile) int { return strings.Compare(a.Path, b.Path) })
+		b.line(fmt.Sprintf("Would upload new data from %s:", plural(len(planned), "file")))
+		b.gap()
+		for _, p := range planned {
+			b.line(fmt.Sprintf("%10s  %s", humanBytes(p.NewBytes), printable(tildify(filepath.FromSlash(p.Path)))))
+		}
+		b.gap()
+		b.row("total", fmt.Sprintf("%s new, in %s chunks, out of %s scanned",
+			bold(humanBytes(s.Stats.NewBytes)), humanCount(s.Stats.NewChunks), humanBytes(s.Stats.Bytes)))
 	}
-	planned := slices.Clone(res.Planned)
-	slices.SortFunc(planned, func(a, b engine.PlannedFile) int { return strings.Compare(a.Path, b.Path) })
-	fmt.Fprintf(out, "\nWould upload new data from %s files:\n\n", humanCount(len(planned)))
-	for _, p := range planned {
-		fmt.Fprintf(out, "  %10s  %s\n", humanBytes(p.NewBytes), printable(tildify(filepath.FromSlash(p.Path))))
-	}
-	fmt.Fprintf(out, "\n%s\n", kv("total", fmt.Sprintf("%s new, in %s chunks, out of %s scanned",
-		bold(humanBytes(s.Stats.NewBytes)), humanCount(s.Stats.NewChunks), humanBytes(s.Stats.Bytes))))
-	fmt.Fprintln(out, kv("", dim("Run without --dry-run to upload.")))
+	b.gap()
+	b.close("Nothing was uploaded. Run without " + bold("--dry-run") + " to back up.")
 }
 
 // trimLog keeps the scheduled-run log from growing forever.

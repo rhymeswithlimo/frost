@@ -135,14 +135,14 @@ func TestIncrementalUploadsOnlyChanges(t *testing.T) {
 		t.Fatal("first backup uploaded nothing")
 	}
 
-	// Nothing changed: nothing uploaded, only snapshot objects written.
+	// Nothing changed: nothing uploaded, and no new snapshot either.
 	putsBefore := e.mem.Puts
 	second := e.backup(BackupOptions{})
 	if second.Snapshot.Stats.NewChunks != 0 {
 		t.Fatalf("unchanged backup uploaded %d chunks", second.Snapshot.Stats.NewChunks)
 	}
-	if got := e.mem.Puts - putsBefore; got != 2 {
-		t.Fatalf("unchanged backup made %d puts, want 2 (tree + header)", got)
+	if got := e.mem.Puts - putsBefore; got != 0 || !second.Unchanged || second.Snapshot.ID != first.Snapshot.ID {
+		t.Fatalf("unchanged backup made %d puts (unchanged %v, snapshot %s), want none and %s", got, second.Unchanged, second.Snapshot.ID, first.Snapshot.ID)
 	}
 
 	// Edit a few bytes in the middle: only one or two chunks change.

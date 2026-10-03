@@ -1,6 +1,6 @@
 # CLI reference
 
-frost has eight commands. Every one takes `--config-dir <dir>` to use a different config directory, and `-h` (`--help`) to show its help. `frost --version` prints the version.
+frost has eight commands. Every one takes `--config-dir <dir>` to use a different config directory, and `-h` (`--help`) to show frost's help, which lists every command and flag. `frost --version` prints the version.
 
 ## `frost init`
 
@@ -44,16 +44,18 @@ These findings were checked against documentation and source on 2 October 2026, 
 
 ## `frost backup`
 
-Backs up the configured folders now. Only data that changed since the last run is uploaded.
+Backs up the configured folders now. Only data that changed since the last run is uploaded, and `backup` says how many files were added, changed and removed since the last snapshot. If nothing changed, it saves no new snapshot and says it's already backed up.
+
+A change is a file or folder added or removed, or a file whose contents, size, permissions or modification time changed. A folder's modification time alone doesn't count, because temporary and excluded files change it all the time.
 
 | Flag | Does |
 |---|---|
-| `-n`, `--dry-run` | List the files with new data and the total, without uploading anything or saving a snapshot |
+| `-n`, `--dry-run` | Say what changed and list the files with new data and the total, without uploading anything or saving a snapshot |
 | `--path <dir>` | Back up this folder instead of the configured ones. Repeatable |
 | `--exclude <pattern>` | Also skip this pattern for this run. Repeatable |
 | `--no-verify` | Skip the spot check after the backup |
 
-After a backup, frost downloads `verify.sample` random chunks and checks them. If any check fails, `backup` exits with `1`.
+After a backup that saves a snapshot, frost downloads `verify.sample` random chunks and checks them. When nothing changed, it only checks if the last check is more than a day old or found a problem, and shows the last result otherwise. If any check fails, `backup` exits with `1`.
 
 ### What's backed up
 
@@ -193,8 +195,8 @@ On macOS, Full Disk Access may need turning off and on again for the new binary.
 |---|---|
 | `frost config` | Print every setting. Credentials are masked unless you add `--show-secrets` |
 | `frost config get <key>` | Print one setting. Lists print one item per line, and secrets need `--show-secrets` |
-| `frost config set <key> <value...>` | Change one setting. Lists take one value per item |
-| `frost config edit` | Open `config.toml` in `$VISUAL`, `$EDITOR`, nano, vim or vi (Notepad on Windows) |
+| `frost config set <key> <value...>` | Change one setting and show what changed. Lists take one value per item |
+| `frost config edit [editor]` | Open a copy of `config.toml` in the editor you name, `$VISUAL` or `$EDITOR`, or nano, vim or vi (Notepad on Windows). When you close it, frost lists what changed and saves the copy once you type `yes`. A file that doesn't parse goes back to the editor |
 
 Changing `schedule.enabled` or `schedule.every`, with `set` or `edit`, updates the OS scheduled job straight away.
 
@@ -206,7 +208,7 @@ Changing `schedule.enabled` or `schedule.every`, with `set` or `edit`, updates t
 | `exclude` | `.DS_Store`, `Thumbs.db`, `*.tmp`, `*.swp`, `node_modules`, `.cache` | A bare name or pattern matches anywhere. A pattern with a `/` is a full path (`~` works) and matches that path and everything under it |
 | `schedule.enabled` | `true` | Run backups automatically |
 | `schedule.every` | `daily` | `hourly`, `2h`, `3h`, `4h`, `6h`, `8h`, `12h`, `daily` or `weekly` |
-| `verify.sample` | `20` | Chunks downloaded and checked after each backup. `0` turns the check off |
+| `verify.sample` | `20` | Chunks downloaded and checked after a backup that saves a snapshot, and at least once a day otherwise. `0` turns the check off |
 | `update.auto` | `true` | Install new releases after scheduled backups. `false` only tells you about them |
 | `storage.backend` | | `s3` or `permafrost` |
 | `storage.s3.endpoint` | | Like `s3.us-east-1.amazonaws.com`. A full `https://` URL also works, and an `http://` one turns off TLS |
@@ -227,7 +229,7 @@ Changing `schedule.enabled` or `schedule.every`, with `set` or `edit`, updates t
 | Start a separate set of backups somewhere else | Run `frost init` and point it at the empty location. The old backups stay where they are, but frost only shows the new ones |
 | Go back to backups you moved away from | Set the old location again |
 
-Moving only `frost.repo` doesn't move your backups. `frost config set` checks a new location before saving it, and refuses one with no backups, backups made with another key, or a `frost.repo` without its snapshots. `frost config edit` only warns about these, because your editor has already saved the file. If frost can't find your backups, the error and `frost status` say where they were last opened and how to get back to them.
+Moving only `frost.repo` doesn't move your backups. `frost config set` checks a new location before saving it, and refuses one with no backups, backups made with another key, or a `frost.repo` without its snapshots. `frost config edit` shows them as warnings before you save, so it can still make a change `set` refuses. If frost can't find your backups, the error and `frost status` say where they were last opened and how to get back to them.
 
 ### Environment variables
 

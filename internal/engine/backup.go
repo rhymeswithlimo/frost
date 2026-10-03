@@ -52,10 +52,13 @@ const (
 type LastRun struct {
 	Time       time.Time `json:"time"`
 	SnapshotID string    `json:"snapshot_id,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	Skipped    int       `json:"skipped,omitempty"` // items that couldn't be read
-	Kept       int       `json:"kept,omitempty"`    // busy files that kept their previous copy
-	Missing    []string  `json:"missing,omitempty"` // configured paths that weren't there
+	// Unchanged means nothing had changed since SnapshotID, so the run
+	// didn't save a new one.
+	Unchanged bool     `json:"unchanged,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	Skipped   int      `json:"skipped,omitempty"` // items that couldn't be read
+	Kept      int      `json:"kept,omitempty"`    // busy files that kept their previous copy
+	Missing   []string `json:"missing,omitempty"` // configured paths that weren't there
 }
 
 // maxListed caps the warnings and kept files listed in a snapshot header.
@@ -99,13 +102,24 @@ type PlannedFile struct {
 
 // BackupResult is what a run produced.
 type BackupResult struct {
+	// Snapshot is the snapshot that holds what was backed up, with this
+	// run's stats. When Unchanged, its ID and Time are those of the
+	// existing snapshot, and no new one was saved.
 	Snapshot snapshot.Snapshot
+	// Unchanged means nothing changed since the last snapshot.
+	Unchanged bool
+	// Changes counts what's different from the last snapshot this machine
+	// saved of the same folders. It's only set when Compared.
+	Changes  Changes
+	Compared bool
 	// Planned lists files that have new data. It's filled in for dry runs.
 	Planned []PlannedFile
 }
 
-// Backup snapshots opts.Paths. A dry run refreshes chunk presence and scans
-// files, reusing unchanged entries, without uploading or saving a snapshot.
+// Backup snapshots opts.Paths. When nothing changed since the last
+// snapshot, it saves no new one (see compare). A dry run refreshes chunk
+// presence and scans files, reusing unchanged entries, without uploading or
+// saving a snapshot.
 func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResult, err error) {
 	if len(opts.Paths) == 0 {
 		return res, errors.New("nothing to back up: no paths configured")
@@ -122,7 +136,7 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	}
 	if !opts.DryRun {
 		defer func() {
-			run := LastRun{Time: time.Now(), SnapshotID: res.Snapshot.ID, Skipped: res.Snapshot.Stats.Skipped, Kept: res.Snapshot.Stats.Kept, Missing: res.Snapshot.Missing}
+			run := LastRun{Time: time.Now(), SnapshotID: res.Snapshot.ID, Unchanged: res.Unchanged, Skipped: res.Snapshot.Stats.Skipped, Kept: res.Snapshot.Stats.Kept, Missing: res.Snapshot.Missing}
 			if err != nil {
 				run.Error = err.Error()
 			}
@@ -334,11 +348,25 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	snap.Stats.NewBytes = b.newBytes
 	snap.Stats.UploadedBytes = b.uploaded
 	res.Snapshot = snap
+
+	tree.Sort()
+	digest, entries := listDigest(snap.Paths, &tree)
+	prev, unchanged := e.compare(ctx, snap, digest, entries, &res)
+	if unchanged {
+		// prev already holds all of this, so a new snapshot would only
+		// repeat it.
+		res.Unchanged = true
+		res.Snapshot.ID, res.Snapshot.Time = prev.ID, prev.Time
+	}
 	if opts.DryRun {
 		return res, nil
 	}
+	if unchanged {
+		// Files that were read again are still worth remembering.
+		// Uploaded chunks are already recorded by finish.
+		return res, e.Manifest.PutFiles(b.files)
+	}
 
-	tree.Sort()
 	// The file list is stored as chunks too, so the parts of it that
 	// didn't change since the last snapshot aren't uploaded again.
 	listed, err := e.Repo.SaveSnapshot(ctx, snap, &tree, e.Manifest.HasChunk)
@@ -354,7 +382,10 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	for _, s := range known {
 		all = append(all, s)
 	}
-	return res, e.Manifest.SetSnapshots(all)
+	if err := e.Manifest.SetSnapshots(all); err != nil {
+		return res, err
+	}
+	return res, e.Manifest.PutMeta(metaLastSaved, lastSaved{ID: snap.ID, Paths: snap.Paths, Digest: digest, Entries: entries})
 }
 
 // syncEvery is how long the local chunk list is trusted before a backup

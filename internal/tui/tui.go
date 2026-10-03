@@ -43,6 +43,9 @@ var (
 	gameWordmark = unixLines(gameWordmarkRaw)
 )
 
+// Wordmark is frost's wordmark, for the CLI to show too.
+func Wordmark() string { return strings.TrimRight(wordmark, "\n ") }
+
 // unixLines turns CRLF line endings into LF. A Windows checkout with
 // core.autocrlf embeds the assets with CRLF, and a \r left in a frame sends
 // the cursor back to column 0 mid-row: the rest of that row is drawn over

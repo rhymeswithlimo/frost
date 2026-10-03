@@ -9,8 +9,9 @@ import (
 
 // field is one settable config key.
 type field struct {
-	get func(*Config) string
-	set func(*Config, []string) error
+	get  func(*Config) string
+	set  func(*Config, []string) error
+	list bool // takes one value per item
 }
 
 func str(p func(*Config) *string) field {
@@ -28,8 +29,9 @@ func str(p func(*Config) *string) field {
 
 func list(p func(*Config) *[]string) field {
 	return field{
-		get: func(c *Config) string { return strings.Join(*p(c), "\n") },
-		set: func(c *Config, v []string) error { *p(c) = slices.Clone(v); return nil },
+		get:  func(c *Config) string { return strings.Join(*p(c), "\n") },
+		set:  func(c *Config, v []string) error { *p(c) = slices.Clone(v); return nil },
+		list: true,
 	}
 }
 
@@ -87,6 +89,9 @@ var secretKeys = []string{"storage.s3.secret_access_key", "storage.permafrost.to
 
 // IsSecret reports whether key holds a credential.
 func IsSecret(key string) bool { return slices.Contains(secretKeys, key) }
+
+// IsList reports whether key holds a list.
+func IsList(key string) bool { return fields[key].list }
 
 // Keys lists every settable key, sorted.
 func Keys() []string {

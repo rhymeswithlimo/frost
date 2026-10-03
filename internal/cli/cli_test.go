@@ -142,13 +142,14 @@ func TestEndToEnd(t *testing.T) {
 	if !strings.Contains(out, "verified") || !strings.Contains(out, "ok") {
 		t.Fatalf("backup output:\n%s", out)
 	}
+	// Nothing changed, so nothing is uploaded or saved, and status says so.
 	out = must(t, "", "backup")
-	if !strings.Contains(out, "none, everything was already backed up") {
+	if !strings.Contains(out, "Already backed up") || strings.Contains(out, "uploaded after compression") {
 		t.Fatalf("second backup output:\n%s", out)
 	}
 
 	out = must(t, "", "status")
-	for _, want := range []string{"last backup", "health", "SNAPSHOT"} {
+	for _, want := range []string{"last backup", "nothing new since", "health", "snapshots"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status missing %q:\n%s", want, out)
 		}
@@ -294,8 +295,10 @@ func TestNewMachineImport(t *testing.T) {
 	if !strings.Contains(out, "already has frost backups") {
 		t.Fatalf("init on existing repo:\n%s", out)
 	}
+	// A new machine has nothing to compare with, so it saves a snapshot,
+	// but the data is already stored.
 	out = must(t, "", "backup")
-	if !strings.Contains(out, "none, everything was already backed up") {
+	if !strings.Contains(out, "Saved snapshot") || strings.Contains(out, "uploaded after compression") {
 		t.Fatalf("backup on new machine re-uploaded data:\n%s", out)
 	}
 }

@@ -54,7 +54,10 @@ walk dirs ─> skip excluded ─> unchanged since last run? ─yes─> reuse chu
                                                          v
                                    zstd ─> XChaCha20-Poly1305 ─> Put (4 in parallel)
                                                          │
-                          all done ─> save file list, then header ─> update manifest ─> verify sample
+                          all done ─> anything changed? ─no─> no snapshot (verify once a day)
+                                                         │ yes
+                                                         v
+                                   save file list, then header ─> update manifest ─> verify sample
 ```
 
 1. frost walks each configured folder and skips excluded names and paths. A folder that doesn't exist is skipped and recorded in the snapshot header as missing. Symlinks are recorded as links. Sockets, devices and pipes are ignored, and so are the `.frost-partial-<hash>` files a stopped restore leaves.
@@ -62,12 +65,28 @@ walk dirs ─> skip excluded ─> unchanged since last run? ─yes─> reuse chu
 3. Changed files go through FastCDC. Chunks average 1 MiB, with a 256 KiB minimum and an 8 MiB maximum. The maximum keeps every object within Permafrost's 16 MiB limit.
 4. Each chunk's ID is its HMAC. If the manifest already has that ID, nothing is uploaded, so identical data is stored once across files and across runs.
 5. New chunks are compressed with zstd when that makes them smaller, encrypted, and uploaded by four workers. Uploaded IDs go into the manifest in batches of 64, so an interrupted run doesn't upload them again.
-6. Once every upload succeeds, the file list is encoded as JSON and split into chunks like file data, and the pieces that aren't stored yet are uploaded. Then `trees/<id>` (the list of those pieces) is saved, and then the header (`snapshots/<id>`). A snapshot never appears before its data exists, and any upload failure ends the run without saving one.
-7. A random sample of chunks is downloaded and checked, and the newest file list is loaded (see [Verification](#verification)).
+6. Once every upload succeeds, frost compares the file list with the last snapshot this machine saved (see [Unchanged backups](#unchanged-backups)). If nothing changed, it saves no snapshot and stops here.
+7. Otherwise the file list is encoded as JSON and split into chunks like file data, and the pieces that aren't stored yet are uploaded. Then `trees/<id>` (the list of those pieces) is saved, and then the header (`snapshots/<id>`). A snapshot never appears before its data exists, and any upload failure ends the run without saving one.
+8. A random sample of chunks is downloaded and checked, and the newest file list is loaded (see [Verification](#verification)). After a run that saved no snapshot, this only happens when the last check is more than a day old or found a problem.
 
 A file whose size or mtime changes while it's read is read again after the walk. If it's still changing, the snapshot keeps the last clean copy from the manifest, or leaves the file out with a warning when there isn't one, because a torn copy of a database or disk image can be worse than none. Chunks read before the change are uploaded anyway and reused once the file settles. Size and mtime checks can't see a change that keeps both the same.
 
-A dry run does steps 1 to 4 and reports without uploading or saving a snapshot. It still refreshes the local chunk list when a sync is due.
+A dry run does steps 1 to 4 and the comparison in step 6, and reports without uploading or saving a snapshot. It still refreshes the local chunk list when a sync is due.
+
+### Unchanged backups
+
+After each snapshot it saves, frost keeps a record in the manifest: the snapshot's ID and paths, a SHA-256 digest of its file list, and 16 bytes per entry (a hash of the path and a hash of the entry). The next backup computes the same from its own file list.
+
+It saves no snapshot only when all of these hold. Anything else, including a lost manifest, saves one.
+
+- The record covers the same paths.
+- The digests match.
+- The recorded snapshot is the newest one the manifest knows of, so `latest` still means the newest backup.
+- Its header is still in storage.
+
+A folder's modification time is left out of the digest, because temporary and excluded files change it without changing anything that's backed up. Adding or removing a folder, or changing its permissions, still counts. A file's modification time counts even when its contents are the same.
+
+The per-entry hashes only count what was added, changed and removed, for `backup` to show. They never decide whether anything changed. The list of known snapshots is refreshed by verification, `status` and the browser, so on storage shared between machines it can be a day out of date, or longer with `verify.sample` set to `0`. A newer snapshot from another machine is then missed until the next refresh.
 
 ## Why content-defined chunking
 
@@ -100,7 +119,7 @@ Decompressed objects are limited to 256 MiB. S3 downloads allow that size plus e
 
 ## Manifest
 
-Each repository has a manifest, `manifest-<repo id>.db` in the cache directory. It's a bbolt file with four buckets: uploaded chunk IDs, the per-file cache, snapshot headers, and small bits of state such as the last backup and the last verification.
+Each repository has a manifest, `manifest-<repo id>.db` in the cache directory. It's a bbolt file with four buckets: uploaded chunk IDs, the per-file cache, snapshot headers, and state such as the last backup, the last verification and the record of the last saved snapshot (see [Unchanged backups](#unchanged-backups)).
 
 Backups trust the manifest's chunk list and don't list the repository, except when:
 
@@ -115,7 +134,7 @@ This is safe because frost never deletes chunks. A chunk can only disappear from
 
 If the manifest is lost, the chunk list is rebuilt from storage and the file cache refills, which costs one full read of your files.
 
-File-list chunks are deduplicated like file data. If one is deleted outside frost, the newest snapshot, and any older one that shares the piece, can't be opened at all. The check after each backup loads the newest file list in full to catch this. It's the one per-backup cost that grows with the size of what's backed up.
+File-list chunks are deduplicated like file data. If one is deleted outside frost, the newest snapshot, and any older one that shares the piece, can't be opened at all. The check after a backup loads the newest file list in full to catch this. It's the one per-check cost that grows with the size of what's backed up.
 
 `storage-<config>.json` in the cache directory, one per config folder, records where the repository last opened: the storage settings without credentials, and the repository ID. When the repository doesn't open, the error and `status` name that place and the setting that changed. `config set` opens a new location before saving it.
 
@@ -138,6 +157,8 @@ Restore doesn't need the manifest. The browser restores with only the repository
 ## Verification
 
 `engine.Verify` refreshes the snapshot headers and samples N chunk IDs from the manifest's chunk list. It downloads them 8 at a time, authenticates each one and checks its HMAC. It also loads the newest snapshot's file list and checks that every chunk it uses is in the chunk list.
+
+A backup runs it after saving a snapshot. A backup that saved nothing new runs it only when there's no earlier result, the last one found a problem, or it's more than a day old, and otherwise shows the last result.
 
 Verification only lists the repository when a sync is due, and always for `status --verify`. A chunk found missing makes the next backup sync and upload it again. Results are saved for `status` and the browser. A snapshot this machine knew about that has gone from storage counts as a failure once, and is then forgotten.
 
