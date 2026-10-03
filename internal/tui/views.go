@@ -197,18 +197,51 @@ func (m model) snapDetail(s snapshot.Snapshot, w int) string {
 		fill(w, 1),
 		pad(theme.Dim.Render("paths"), w),
 	}
-	for _, p := range s.Paths {
-		lines = append(lines, pad(theme.Text.Render(truncate("  "+shortPath(p, w-2), w)), w))
-	}
+	var notes []string
 	if n := s.Stats.Skipped; n > 0 {
-		lines = append(lines, fill(w, 1), pad(theme.Caution.Render(fmt.Sprintf("%d items couldn't be read", n)), w))
+		notes = append(notes, fill(w, 1), para(theme.Caution, fmt.Sprintf("%d items couldn't be read", n), w))
 	}
 	if n := s.Stats.Kept; n > 0 {
-		lines = append(lines, fill(w, 1), pad(theme.Caution.Render(truncate(fmt.Sprintf("%d busy files kept their previous copy", n), w)), w))
+		notes = append(notes, fill(w, 1), para(theme.Caution, fmt.Sprintf("%d busy files kept their previous copy", n), w))
 	}
 	if m.marked != "" && m.marked != s.ID {
-		lines = append(lines, fill(w, 1), pad(theme.Dim.Render("[d] compares with "+m.short.Of(m.marked)), w))
+		notes = append(notes, fill(w, 1), pad(theme.Dim.Render(truncate("[d] compares with "+m.short.Of(m.marked), w)), w))
 	}
+	notes = strings.Split(strings.Join(notes, "\n"), "\n")
+	if len(notes) == 1 && notes[0] == "" {
+		notes = nil
+	}
+	if len(lines)+len(notes)+min(len(s.Paths), 2) > m.bodyH() {
+		// Remove spacing first so warnings leave room for a path preview.
+		compact := func(rows []string) []string {
+			var out []string
+			for _, r := range rows {
+				if strings.TrimSpace(ansi.Strip(r)) != "" {
+					out = append(out, r)
+				}
+			}
+			return out
+		}
+		lines, notes = compact(lines), compact(notes)
+		if len(lines)+len(notes)+min(len(s.Paths), 2) > m.bodyH() {
+			lines = append(lines[:2], lines[3:]...) // the relative time repeats the taken row
+		}
+	}
+	reserve := min(len(s.Paths), 1)
+	notes = notes[:min(len(notes), max(m.bodyH()-reserve, 0))]
+	lines = lines[:min(len(lines), max(m.bodyH()-len(notes)-reserve, 0))]
+	room := max(m.bodyH()-len(lines)-len(notes), 0)
+	show := min(len(s.Paths), room)
+	if show < len(s.Paths) && show > 0 {
+		show-- // the omitted count occupies one preview row
+	}
+	for _, p := range s.Paths[:show] {
+		lines = append(lines, pad(theme.Text.Render(truncate("  "+shortPath(p, w-2), w)), w))
+	}
+	if more := len(s.Paths) - show; more > 0 && room > 0 {
+		lines = append(lines, pad(theme.Dim.Render(fmt.Sprintf("  +%d", more)), w))
+	}
+	lines = append(lines, notes...)
 	return strings.Join(lines, "\n")
 }
 
@@ -220,22 +253,8 @@ func (m model) viewFiles() string {
 	kids := m.tree.children[m.dir]
 	nameW, sizeW, timeW := fileColumns(inner)
 
-	// Summary line: where we are and what's selected.
-	selN, selB := m.selFiles, m.selBytes
-	status := theme.Dim.Render(fmt.Sprintf("%d items", len(kids)))
-	if selN > 0 {
-		status = theme.Bold.Render(fmt.Sprintf("%d files selected (%s)", selN, humanBytes(selB)))
-	}
-	head := pad(status, nameW+4)
-	if sizeW > 0 {
-		head += theme.Dim.Render(fmt.Sprintf("  %*s", sizeW, "size"))
-	}
-	if timeW > 0 {
-		head += theme.Dim.Render("  " + padPlain("modified", timeW))
-	}
-	lines := []string{pad(head, inner), pad(theme.Faded.Render(strings.Repeat("─", inner)), inner)}
-
-	listH := h - 2
+	lines := m.fileHeader()
+	listH := m.fileListH()
 	top := window(m.fileCur, len(kids), listH)
 
 	if len(kids) == 0 {
@@ -293,6 +312,34 @@ func (m model) viewFiles() string {
 	return theme.Box(true).Width(w - 2).Height(h).Render(strings.Join(lines, "\n"))
 }
 
+func (m model) fileHeader() []string {
+	inner := m.innerW() - 4
+	nameW, sizeW, timeW := fileColumns(inner)
+	status := theme.Dim.Render(fmt.Sprintf("%d items", len(m.tree.children[m.dir])))
+	if m.selFiles > 0 {
+		status = theme.Bold.Render(fmt.Sprintf("%d files selected (%s)", m.selFiles, humanBytes(m.selBytes)))
+	}
+	var lines []string
+	if lipgloss.Width(status) > nameW+4 {
+		lines = strings.Split(ansi.Wrap(status, inner, ""), "\n")
+		status = ""
+	}
+	if status != "" || sizeW > 0 || timeW > 0 {
+		head := pad(status, nameW+4)
+		if sizeW > 0 {
+			head += theme.Dim.Render(fmt.Sprintf("  %*s", sizeW, "size"))
+		}
+		if timeW > 0 {
+			head += theme.Dim.Render("  " + padPlain("modified", timeW))
+		}
+		lines = append(lines, pad(head, inner))
+	}
+	lines = append(lines, pad(theme.Faded.Render(strings.Repeat("─", inner)), inner))
+	return lines[:min(len(lines), max(m.bodyH()-1, 1))]
+}
+
+func (m model) fileListH() int { return max(m.bodyH()-len(m.fileHeader()), 1) }
+
 // Give names space before adding metadata columns. All widths are cells.
 func fileColumns(inner int) (name, size, modified int) {
 	if inner >= 28 {
@@ -323,22 +370,12 @@ var removed = theme.Error.UnsetBold()
 func (m model) viewDiff() string {
 	w, h := m.innerW(), m.bodyH()
 	inner := w - 4
-	// Counts in their colour, all one weight, and dimmed when there are none.
-	count := func(st lipgloss.Style, n int, s string) string {
-		if n == 0 {
-			st = theme.Dim
-		}
-		return st.Render(fmt.Sprintf(s, n))
-	}
-	head := count(theme.Good, m.diffAdd, "+%d added") + theme.Base.Render("   ") +
-		count(removed, m.diffDel, "-%d removed") + theme.Base.Render("   ") +
-		count(theme.Caution, m.diffMod, "~%d changed")
-	lines := []string{pad(head, inner), pad(theme.Faded.Render(strings.Repeat("─", inner)), inner)}
+	lines := m.diffHeader()
 
 	if len(m.changes) == 0 {
 		lines = append(lines, pad(theme.Dim.Render("No differences."), inner))
 	}
-	listH := h - 2
+	listH := m.diffListH()
 	end := min(m.diffTop+listH, len(m.changes))
 	for _, c := range m.changes[min(m.diffTop, end):end] {
 		var sym string
@@ -363,6 +400,34 @@ func (m model) viewDiff() string {
 	return theme.Box(true).Width(w - 2).Height(h).Render(strings.Join(lines, "\n"))
 }
 
+func (m model) diffHeader() []string {
+	inner := m.innerW() - 4
+	// Counts in their colour, all one weight, and dimmed when there are none.
+	count := func(st lipgloss.Style, n int, s string) string {
+		if n == 0 {
+			st = theme.Dim
+		}
+		return st.Render(fmt.Sprintf(s, n))
+	}
+	var lines []string
+	line := ""
+	for _, part := range []string{count(theme.Good, m.diffAdd, "+%d added"), count(removed, m.diffDel, "-%d removed"), count(theme.Caution, m.diffMod, "~%d changed")} {
+		if line != "" && lipgloss.Width(line)+3+lipgloss.Width(part) > inner {
+			lines = append(lines, strings.Split(ansi.Wrap(line, inner, ""), "\n")...)
+			line = ""
+		}
+		if line != "" {
+			line += theme.Base.Render("   ")
+		}
+		line += part
+	}
+	lines = append(lines, strings.Split(ansi.Wrap(line, inner, ""), "\n")...)
+	lines = append(lines, pad(theme.Faded.Render(strings.Repeat("─", inner)), inner))
+	return lines[:min(len(lines), max(m.bodyH()-1, 1))]
+}
+
+func (m model) diffListH() int { return max(m.bodyH()-len(m.diffHeader()), 1) }
+
 // ---- help and settings ----
 
 func (m model) viewHelp() string {
@@ -380,12 +445,12 @@ func (m model) helpContent(w int) string {
 		for _, r := range rows {
 			// Keys in a column one wider than the longest, [pgup pgdn].
 			k := "[" + r[0] + "]"
-			for i, line := range wrapWords(r[1], max(colW-12, 1)) {
+			for i, line := range strings.Split(para(theme.Text, r[1], max(colW-12, 1)), "\n") {
 				prefix := fill(12, 1)
 				if i == 0 {
 					prefix = theme.Bold.Render(k) + fill(max(12-lipgloss.Width(k), 1), 1)
 				}
-				out = append(out, pad(prefix+theme.Text.Render(line), colW))
+				out = append(out, pad(prefix+line, colW))
 			}
 		}
 		return stack(out...)
@@ -402,6 +467,9 @@ func (m model) helpContent(w int) string {
 		body = stack(everywhere, fill(1, 1), moving, fill(1, 1), snapshots, fill(1, 1), files)
 	}
 	footer := theme.Dim.Render("Documentation  ") + theme.Bold.Render("getfro.st/docs")
+	if lipgloss.Width(footer) > w {
+		footer = stack(para(theme.Dim, "Documentation", w), para(theme.Bold, "getfro.st/docs", w))
+	}
 	body = stack(body, fill(1, 1), footer)
 	return body
 }
@@ -415,17 +483,31 @@ func (m model) settingsContent(w int) string {
 	const labelW = 19
 	c := m.cfg
 	var lines []string
-	row := func(k, v string) {
-		if v == "" {
-			v = "none"
+	rowValue := func(k, v string) {
+		if w < labelW+12 {
+			if k != "" {
+				lines = append(lines, para(theme.Dim, k, w))
+			}
+			lines = append(lines, v)
+			return
 		}
-		for i, l := range strings.Split(para(theme.Text, v, max(w-labelW, 1)), "\n") {
+		for i, l := range strings.Split(v, "\n") {
 			label := ""
 			if i == 0 {
 				label = k
 			}
 			lines = append(lines, theme.Dim.Render(fmt.Sprintf("%-*s", labelW, label))+l)
 		}
+	}
+	valueW := w
+	if w >= labelW+12 {
+		valueW -= labelW
+	}
+	row := func(k, v string) {
+		if v == "" {
+			v = "none"
+		}
+		rowValue(k, para(theme.Text, v, valueW))
 	}
 	sched := "off"
 	if c.Schedule.Enabled {
@@ -441,7 +523,7 @@ func (m model) settingsContent(w int) string {
 		if i == 0 {
 			label = "backing up"
 		}
-		lines = append(lines, theme.Dim.Render(fmt.Sprintf("%-*s", labelW, label))+theme.Text.Render(shortPath(p, w-labelW)))
+		rowValue(label, theme.Text.Render(shortPath(p, valueW)))
 	}
 	row("skipping", strings.Join(c.Exclude, ", "))
 	lines = append(lines, blank(w))
@@ -452,10 +534,8 @@ func (m model) settingsContent(w int) string {
 	row("spot check", fmt.Sprintf("%d chunks after each backup", c.Verify.Sample))
 	lines = append(lines, blank(w))
 	row("storage", m.repo.Backend.String())
-	lines = append(lines,
-		theme.Dim.Render(fmt.Sprintf("%-*s", labelW, "key fingerprint"))+m.keyLabel(),
-		blank(w),
-	)
+	rowValue("key fingerprint", m.keyLabel())
+	lines = append(lines, blank(w))
 	lines = append(lines, settingsFooter(printable(m.st.Version), w)...)
 	for i, l := range lines {
 		lines[i] = pad(l, w)
@@ -495,6 +575,13 @@ func settingsFooter(version string, w int) []string {
 	if version != "" {
 		colophon = theme.Dim.Render("frost " + version)
 	}
+	if lipgloss.Width(second)+2+lipgloss.Width(colophon) > w {
+		lines := strings.Split(ansi.Wrap(first+theme.Text.Render(" ")+second, w, ""), "\n")
+		if colophon != "" {
+			lines = append(lines, strings.Split(para(theme.Dim, "frost "+version, w), "\n")...)
+		}
+		return lines
+	}
 	right := func(left string) string {
 		gap := w - lipgloss.Width(left) - lipgloss.Width(colophon)
 		if colophon == "" || gap < 2 {
@@ -509,7 +596,7 @@ func settingsFooter(version string, w int) []string {
 	if lipgloss.Width(first)+2+lipgloss.Width(colophon) <= w {
 		return []string{right(first), second}
 	}
-	return []string{first, right(second)}
+	return append(strings.Split(ansi.Wrap(first, w, ""), "\n"), right(second))
 }
 
 // ---- helpers ----

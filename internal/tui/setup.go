@@ -132,14 +132,15 @@ type setupModel struct {
 	cfg      config.Config
 	existing bool
 
-	w, h int
-	step setupStep
-	back []setupStep // for esc
-	spin spinner.Model
-	busy string // non-empty while waiting on storage
-	quit bool   // asking whether to quit
-	err  string // shown on the current screen until the next key press
-	note string // the same, for news that isn't a problem
+	w, h        int
+	step        setupStep
+	back        []setupStep // for esc
+	spin        spinner.Model
+	busy        string // non-empty while waiting on storage
+	quit        bool   // asking whether to quit
+	err         string // shown until the next ordinary key press
+	note        string // the same, for news that isn't a problem
+	feedbackTop int    // first visible row of an oversized diagnostic
 
 	// storage
 	provCur   int  // cursor in the provider list
@@ -249,13 +250,14 @@ func (m setupModel) goTo(s setupStep) setupModel {
 	if s != m.step {
 		m.back = append(m.back, m.step)
 	}
-	m.step, m.err = s, ""
+	m.step, m.err, m.feedbackTop = s, "", 0
 	return m
 }
 
 func (m setupModel) goBack() setupModel {
 	if n := len(m.back); n > 0 {
 		m.step, m.back, m.err = m.back[n-1], m.back[:n-1], ""
+		m.feedbackTop = 0
 		m.showWords = false
 	}
 	return m
@@ -329,6 +331,8 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = max(msg.Width, 0), max(msg.Height, 0)
+		_, maxTop := m.feedbackWindow()
+		m.feedbackTop = min(max(m.feedbackTop, 0), maxTop)
 		return m, nil
 
 	case spinner.TickMsg:
@@ -340,7 +344,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case connectMsg:
-		m.busy = ""
+		m.busy, m.feedbackTop = "", 0
 		if msg.err != nil {
 			// Straight from a saved config: show the questions so it can be fixed.
 			if m.step != stDetails {
@@ -378,7 +382,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.advance()
 
 	case unlockMsg:
-		m.busy = ""
+		m.busy, m.feedbackTop = "", 0
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			return m, nil
@@ -394,6 +398,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		m.feedbackTop = 0
 		if msg.err == nil && msg.wait == nil {
 			msg.err = errors.New("checkout didn't start")
 		}
@@ -413,6 +418,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id != m.co.id || !m.co.waiting {
 			return m, nil
 		}
+		m.feedbackTop = 0
 		m.co.waiting = false
 		if msg.token == "" {
 			m.co.failed = "checkout didn't return an access key"
@@ -433,7 +439,7 @@ func (m setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.connect(st)
 
 	case finishMsg:
-		m.busy = ""
+		m.busy, m.feedbackTop = "", 0
 		if msg.err != nil {
 			m.err = msg.err.Error()
 			return m, nil
@@ -470,6 +476,15 @@ func (m setupModel) typing() bool {
 
 func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := k.String()
+	if k.Type == tea.KeyPgUp || k.Type == tea.KeyPgDown {
+		rows, maxTop := m.feedbackWindow()
+		delta := max(rows-1, 1)
+		if k.Type == tea.KeyPgUp {
+			delta = -delta
+		}
+		m.feedbackTop = min(max(m.feedbackTop+delta, 0), maxTop)
+		return m, nil
+	}
 	if m.quit {
 		switch s {
 		case "y":
@@ -479,7 +494,7 @@ func (m setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	m.err, m.note = "", "" // a message lasts until the next key press
+	m.err, m.note, m.feedbackTop = "", "", 0 // a message lasts until the next ordinary key press
 	if !m.typing() && s == "q" && m.step != stDone {
 		if m.step == stWelcome { // nothing's been asked yet
 			return m, tea.Quit

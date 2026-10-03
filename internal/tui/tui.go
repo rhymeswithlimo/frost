@@ -167,6 +167,7 @@ type model struct {
 	spin       spinner.Model
 	loading    string // non-empty while waiting on the network
 	err        error
+	errorTop   int
 	flash      string // one-line message in the footer
 
 	snaps         []snapshot.Snapshot // newest first
@@ -291,6 +292,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = max(msg.Width, 0), max(msg.Height, 0)
 		m.diffTop = min(m.diffTop, m.diffMaxTop())
 		m.overlayTop = min(m.overlayTop, m.overlayMaxTop())
+		if m.err != nil {
+			m.errorTop = min(m.errorTop, m.errorMaxTop())
+		}
 		if m.screen == scrRestore {
 			m.rs.top = min(m.rs.top, m.restoreMaxTop())
 		}
@@ -310,6 +314,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapsMsg:
 		m.loading = ""
 		m.snaps, m.err = msg.snaps, msg.err
+		m.errorTop = 0
 		m.indexSnapshots()
 		// Replace the cache, rather than mutating a map a command may read.
 		m.st.Known = make(map[string]snapshot.Snapshot, len(m.snaps))
@@ -326,6 +331,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = ""
 		if msg.err != nil {
 			m.err = msg.err
+			m.errorTop = 0
 			return m, nil
 		}
 		m.snap, m.tree = msg.snap, msg.tree
@@ -342,6 +348,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = ""
 		if msg.err != nil {
 			m.err = msg.err
+			m.errorTop = 0
 			return m, nil
 		}
 		m.diffFrom, m.diffTo, m.changes, m.diffTop = msg.from, msg.to, msg.changes, 0
@@ -384,6 +391,33 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == scrRestore && m.rs.phase == phaseTyping && m.overlay == "" && m.err == nil {
 		return m.restoreTypingKey(k)
 	}
+	if m.err != nil {
+		if key == "q" {
+			return m, tea.Quit
+		}
+		if m.errorMaxTop() > 0 {
+			rows, _ := m.dialogRows(lipgloss.Height(m.errorContent()))
+			switch key {
+			case "up", "k":
+				m.errorTop = max(m.errorTop-1, 0)
+			case "down", "j":
+				m.errorTop = min(m.errorTop+1, m.errorMaxTop())
+			case "pgup":
+				m.errorTop = max(m.errorTop-rows, 0)
+			case "pgdown", " ":
+				m.errorTop = min(m.errorTop+rows, m.errorMaxTop())
+			case "g", "home":
+				m.errorTop = 0
+			case "G", "end":
+				m.errorTop = m.errorMaxTop()
+			default:
+				m.err, m.errorTop = nil, 0
+			}
+			return m, nil
+		}
+		m.err, m.errorTop = nil, 0
+		return m, nil
+	}
 	if m.game != nil {
 		cmd, done := m.game.key(key)
 		if done {
@@ -413,13 +447,6 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "G", "end":
 			m.overlayTop = m.overlayMaxTop()
 		}
-		return m, nil
-	}
-	if m.err != nil {
-		if key == "q" {
-			return m, tea.Quit
-		}
-		m.err = nil // any key dismisses the error
 		return m, nil
 	}
 	if m.loading != "" {
@@ -472,9 +499,9 @@ func (m model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			m.diffTop = min(m.diffTop+1, m.diffMaxTop())
 		case "pgup":
-			m.diffTop = max(m.diffTop-m.bodyH(), 0)
+			m.diffTop = max(m.diffTop-m.diffListH(), 0)
 		case "pgdown", " ":
-			m.diffTop = min(m.diffTop+m.bodyH(), m.diffMaxTop())
+			m.diffTop = min(m.diffTop+m.diffListH(), m.diffMaxTop())
 		}
 	}
 	return m, nil
@@ -549,9 +576,9 @@ func (m model) filesKey(key string) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		m.fileCur = min(m.fileCur+1, n-1)
 	case "pgup":
-		m.fileCur = max(m.fileCur-m.bodyH(), 0)
+		m.fileCur = max(m.fileCur-m.fileListH(), 0)
 	case "pgdown":
-		m.fileCur = min(m.fileCur+m.bodyH(), n-1)
+		m.fileCur = min(m.fileCur+m.fileListH(), n-1)
 	case "home", "g":
 		m.fileCur = 0
 	case "end", "G":
@@ -679,8 +706,8 @@ func (m model) areaH() int { return max(m.h-2*theme.PadY-5, 5) }
 func (m model) bodyH() int { return m.areaH() - 2 }
 
 // diffMaxTop is the furthest the diff list scrolls: the last change on the
-// last row. Two rows of the panel are taken by the summary and its rule.
-func (m model) diffMaxTop() int { return max(len(m.changes)-(m.bodyH()-2), 0) }
+// last row, below the summary and its rule.
+func (m model) diffMaxTop() int { return max(len(m.changes)-m.diffListH(), 0) }
 
 func (m model) View() string {
 	if m.w <= 0 || m.h <= 0 {
@@ -769,6 +796,11 @@ func (m model) footer() string {
 	}
 	var hints []string
 	switch {
+	case m.err != nil:
+		hints = []string{theme.Hint("any key", "dismiss"), theme.Hint("q", "quit")}
+		if m.errorMaxTop() > 0 {
+			hints = []string{theme.Hint("↑↓", "scroll"), theme.Hint("esc", "dismiss"), theme.Hint("q", "quit")}
+		}
 	case m.game != nil:
 		hints = []string{theme.Hint("← →", "move"), theme.Hint("space", "shoot"), theme.Hint("p", "pause")}
 		if m.game.snd.Available() {
@@ -779,8 +811,6 @@ func (m model) footer() string {
 			hints = append(hints, theme.Hint("m", label))
 		}
 		hints = append(hints, theme.Hint("esc", "back"))
-	case m.err != nil:
-		hints = []string{theme.Hint("any key", "dismiss"), theme.Hint("q", "quit")}
 	case m.overlay != "":
 		hints = []string{theme.Hint("esc", "close"), theme.Hint("v", m.keyHint())}
 		if m.overlayMaxTop() > 0 {
@@ -853,8 +883,16 @@ func (m model) keyHint() string {
 
 func (m model) viewError() string {
 	w := m.dialogW(64)
-	body := stack(pad(theme.Error.Render("Something went wrong"), w), blank(w), para(theme.Text, m.err.Error(), w))
-	return m.dialog(body, w, 0, theme.Box(true).BorderForeground(theme.Bad))
+	return m.dialog(m.errorContent(), w, m.errorTop, theme.Box(true).BorderForeground(theme.Bad))
+}
+
+func (m model) errorContent() string {
+	w := m.dialogW(64)
+	return stack(para(theme.Error, "Something went wrong", w), blank(w), para(theme.Text, m.err.Error(), w))
+}
+
+func (m model) errorMaxTop() int {
+	return m.dialogMaxTop(lipgloss.Height(m.errorContent()))
 }
 
 // ---- dialogs ----
@@ -1008,6 +1046,9 @@ func joinFit(hints []string, w int) string {
 }
 
 func shortPath(p string, w int) string {
+	if w <= 0 {
+		return ""
+	}
 	if p == rootKey {
 		return "/"
 	}
@@ -1020,7 +1061,7 @@ func shortPath(p string, w int) string {
 			}
 		}
 	}
-	return truncateLeft(p, max(w, 12))
+	return truncateLeft(p, w)
 }
 
 // samePath compares paths the way the OS does: case-insensitively on Windows.

@@ -136,6 +136,8 @@ The new run carries on in the same folder. Files already there are checked and s
 
 Shows the version, the storage and key fingerprint, the last backup and whether it worked, when the next one is due, the latest verification result, how updates are set up, and the 10 most recent snapshots.
 
+When there are more than 10, a line below the list shows how many older snapshots aren't shown, like `+90` for 100 snapshots.
+
 | Flag | Does |
 |---|---|
 | `--verify` | Run a fresh verification first. It checks `verify.sample` random chunks (20 if that's `0`) and compares the local chunk list with everything in storage |
@@ -155,7 +157,7 @@ Opens the snapshot browser.
 | Restore | `[1]` `[2]` `[3]` pick where files go, `[enter]` restore or choose a folder, `[y]` confirm overwriting, `[c]` change the folder, `[esc]` cancel |
 | Everywhere | `[h]` help, `[s]` settings, `[v]` show or hide the key fingerprint (hidden by default), `[esc]` back, `[q]` quit |
 
-Arrow keys or `j`/`k` move, `pgup`/`pgdn` page, and `g`/`G` jump to the top and bottom. Help and settings scroll the same way when they don't fit. Long restore confirmations and results scroll with `[pgup pgdn]`, which never starts a restore or dismisses its result.
+Arrow keys or `j`/`k` move, `pgup`/`pgdn` page, and `g`/`G` jump to the top and bottom. Help, settings and long errors scroll the same way when they don't fit. `[esc]` dismisses an error. Long restore confirmations and results scroll with `[pgup pgdn]`, which never starts a restore or dismisses its result.
 
 "New folder elsewhere" opens your system's folder picker (Finder, Explorer, or zenity, qarma or matedialog on Linux), then shows where everything will land so you can restore, change the folder or cancel. Over SSH, or on Linux without a picker, you type the folder instead. Press `[t]` while the picker is open to type it anyway.
 

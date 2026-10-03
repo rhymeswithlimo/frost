@@ -220,8 +220,9 @@ func printSnapshots(b *block, snaps []snapshot.Snapshot, short snapshot.ShortIDs
 			humanCount(s.Stats.Files), humanBytes(s.Stats.Bytes), humanBytes(s.Stats.NewBytes)))
 	}
 	if len(shown) < len(snaps) {
+		b.line(dim(fmt.Sprintf("+%d", len(snaps)-len(shown))))
 		b.gap()
-		b.close(fmt.Sprintf("%d older, see them with %s", len(snaps)-len(shown), bold("frost status --all")))
+		b.close("See all snapshots with " + bold("frost status --all"))
 		return
 	}
 	b.close("")

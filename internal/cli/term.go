@@ -52,8 +52,16 @@ func liveOutput() bool { return ansiOK && isTerminal(os.Stdout) }
 // terminal's width, because a line that wraps can't be erased by \r and
 // leaves a trail of old progress lines behind.
 func statusLine(out io.Writer, s string) {
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 1 {
-		s = ansi.Truncate(s, w-1, "")
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		w = 0
+	}
+	statusLineAtWidth(out, s, w)
+}
+
+func statusLineAtWidth(out io.Writer, s string, width int) {
+	if width > 0 {
+		s = ansi.Truncate(s, width-1, "")
 	}
 	fmt.Fprint(out, "\r\033[K"+s)
 }

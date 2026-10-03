@@ -92,6 +92,14 @@ func (m setupModel) setupHeader(w int) string {
 }
 
 func (m setupModel) setupHints() []string {
+	hints := m.setupActionHints()
+	if _, maxTop := m.feedbackWindow(); maxTop > 0 {
+		hints = append([]string{theme.Hint("pgup pgdn", "details")}, hints...)
+	}
+	return hints
+}
+
+func (m setupModel) setupActionHints() []string {
 	h := theme.Hint
 	if m.busy != "" {
 		return []string{h("ctrl+c", "quit")}
@@ -206,14 +214,16 @@ func fitHints(hints []string, w int) string {
 // page is the one layout every screen after the welcome uses: a question,
 // a line of context, the thing to answer with, and a line of help.
 type page struct {
-	over     string // faded, above the question: where you are inside a step
-	question string
-	good     bool   // the question is a success message
-	sub      string // context under the question
-	body     []string
-	help     string   // dim, under the body
-	foot     string   // faded, at the bottom
-	extra    []string // styled lines at the bottom
+	over          string // faded, above the question: where you are inside a step
+	question      string
+	good          bool   // the question is a success message
+	sub           string // context under the question
+	body          []string
+	help          string   // dim, under the body
+	foot          string   // faded, at the bottom
+	extra         []string // styled lines at the bottom
+	feedback      string   // styled diagnostic, in addition to errors and notes
+	feedbackFirst bool     // diagnostic comes before the answer
 }
 
 // render lays out a page in a column centred in the card. The question sits
@@ -229,29 +239,32 @@ func (m setupModel) render(p page, w, h int) string {
 		q = theme.Good.Bold(true)
 	}
 	lines = append(lines, para(q, p.question, cw))
-	if p.sub != "" {
-		lines = append(lines, para(theme.Dim, p.sub, cw))
-	}
 	// Fit the question, answer and feedback first. Explanatory text and
 	// breathing room use the space left over, never the answer's rows.
 	answer := stack(p.body...)
-	feedback := []string{}
-	if m.err != "" {
-		feedback = append(feedback, para(theme.Error, sentence(m.err), cw))
-	}
-	if m.note != "" {
-		feedback = append(feedback, para(theme.Text, sentence(m.note), cw))
-	}
-	used := lipgloss.Height(stack(lines...)) + lipgloss.Height(answer)
-	for _, f := range feedback {
-		used += lipgloss.Height(f)
+	used := lipgloss.Height(stack(lines...)) + setupHeight(answer)
+	feedback, rows := m.pageFeedback(p, cw, h)
+	feedback = sliceSetupLines(feedback, rows, m.feedbackTop)
+	used += setupHeight(feedback)
+	if p.sub != "" {
+		if sub := limitSetupLines(para(theme.Dim, p.sub, cw), cw, max(h-used, 0)); sub != "" {
+			lines = append(lines, sub)
+			used += lipgloss.Height(sub)
+		}
 	}
 	if used < h {
 		lines = append(lines, blank(cw))
 		used++
 	}
-	lines = append(lines, answer)
-	lines = append(lines, feedback...)
+	if p.feedbackFirst && feedback != "" {
+		lines = append(lines, feedback)
+	}
+	if answer != "" {
+		lines = append(lines, answer)
+	}
+	if !p.feedbackFirst && feedback != "" {
+		lines = append(lines, feedback)
+	}
 	for _, extra := range []string{p.help, p.foot} {
 		if extra == "" {
 			continue
@@ -394,7 +407,21 @@ func (m setupModel) page(w, h int) page {
 			body:     rows,
 		}
 		if m.newRepo && m.elsewhere != "" {
-			pg.extra = []string{para(theme.Caution, "This starts a separate set of backups. Your current ones in "+m.elsewhere+" stay there, but frost will only show the new ones, and the first backup uploads everything again.", cw)}
+			warning := para(theme.Caution, "This starts a separate set of backups. Your current ones in "+m.elsewhere+" stay there, but frost will only show the new ones, and the first backup uploads everything again.", cw)
+			used := setupHeight(para(theme.Bold, pg.question, cw)) + setupHeight(para(theme.Dim, pg.sub, cw)) + setupHeight(stack(pg.body...))
+			for _, s := range []string{m.err, m.note} {
+				if s != "" {
+					used += setupHeight(para(theme.Text, sentence(s), cw))
+				}
+			}
+			if used < h {
+				used++ // gap before the answer
+			}
+			if used+1+setupHeight(warning) <= h {
+				pg.extra = []string{warning}
+			} else {
+				pg.feedback = warning
+			}
 		}
 		return pg
 	}
@@ -405,7 +432,14 @@ func (m setupModel) page(w, h int) page {
 func (m setupModel) fitList(w, h int, build func(cw, n int) page) page {
 	cw := min(w, columnW)
 	for n := listMax; n > 1; n-- {
-		if pg := build(cw, n); lipgloss.Height(m.render(pg, w, h)) <= h {
+		pg := build(cw, n)
+		used := setupHeight(para(theme.Bold, pg.question, cw)) + setupHeight(stack(pg.body...))
+		for _, s := range []string{pg.over, pg.sub, sentence(m.err), sentence(m.note)} {
+			if s != "" {
+				used += lipgloss.Height(para(theme.Text, s, cw))
+			}
+		}
+		if used <= h {
 			return pg
 		}
 	}
@@ -420,7 +454,7 @@ func (m setupModel) foldersPage(cw, n int) page {
 			note, missing = "  not found", true
 		}
 		if on {
-			return theme.Selected.Render(padPlain(truncate(" "+p+note, cw), cw))
+			return theme.Selected.Render(padPlain(" "+truncate(p, cw-1-lipgloss.Width(note))+note, cw))
 		}
 		return pad(theme.Text.Render(" "+truncate(p, cw-14))+theme.Caution.Render(note), cw)
 	})
@@ -473,8 +507,11 @@ const listMax = 6
 
 // listRows is a list with one row selected (or none, at -1), in at most n
 // lines. When it's longer it scrolls to keep the selection in view, or the
-// end when there's none, with a line saying how many are hidden each way.
+// end when there's none. Hidden counts show when there's room.
 func listRows(items []string, sel, n, w int, row func(i int, on bool) string) []string {
+	if n <= 0 || len(items) == 0 {
+		return nil
+	}
 	from, to := 0, len(items)
 	if len(items) > n {
 		show := max(n-2, 1) // room for the "more" lines
@@ -486,13 +523,16 @@ func listRows(items []string, sel, n, w int, row func(i int, on bool) string) []
 		to = from + show
 	}
 	var out []string
-	if from > 0 {
+	more := len(items) - to
+	if n == 2 && from > 0 && more > 0 {
+		out = append(out, pad(theme.Dim.Render(fmt.Sprintf(" ↑ %d more, ↓ %d more", from, more)), w))
+	} else if n > 1 && from > 0 {
 		out = append(out, pad(theme.Dim.Render(fmt.Sprintf(" ↑ %d more", from)), w))
 	}
 	for i := from; i < to; i++ {
 		out = append(out, row(i, i == sel))
 	}
-	if more := len(items) - to; more > 0 {
+	if more > 0 && len(out) < n {
 		out = append(out, pad(theme.Dim.Render(fmt.Sprintf(" ↓ %d more", more)), w))
 	}
 	return out
@@ -501,6 +541,74 @@ func listRows(items []string, sel, n, w int, row func(i int, on bool) string) []
 // para wraps s to w cells in style st, on the background.
 func para(st lipgloss.Style, s string, w int) string {
 	return solid(st.Width(w).Render(printable(s)))
+}
+
+func setupHeight(s string) int {
+	if s == "" {
+		return 0
+	}
+	return lipgloss.Height(s)
+}
+
+func (m setupModel) pageFeedback(p page, cw, h int) (string, int) {
+	var blocks []string
+	if p.feedbackFirst && p.feedback != "" {
+		blocks = append(blocks, p.feedback)
+	}
+	if m.err != "" {
+		blocks = append(blocks, para(theme.Error, sentence(m.err), cw))
+	}
+	if m.note != "" {
+		blocks = append(blocks, para(theme.Text, sentence(m.note), cw))
+	}
+	if !p.feedbackFirst && p.feedback != "" {
+		blocks = append(blocks, p.feedback)
+	}
+	if len(blocks) == 0 {
+		return "", 0
+	}
+	used := setupHeight(para(theme.Bold, p.question, cw)) + setupHeight(stack(p.body...))
+	if p.over != "" {
+		used += setupHeight(theme.Dim.Render(p.over))
+	}
+	return stack(blocks...), max(h-used, 0)
+}
+
+// feedbackWindow reports the diagnostic's visible rows and last scroll position.
+func (m setupModel) feedbackWindow() (int, int) {
+	if m.w < minW || m.h < minH || m.busy != "" || m.quit || m.step == stWelcome || m.step == stDone {
+		return 0, 0
+	}
+	w := min(cardW, m.w-2*theme.PadX)
+	h := min(cardH, m.h-2*theme.PadY) - 5
+	text, rows := m.pageFeedback(m.page(w, h), min(w, columnW), h)
+	if rows <= 0 {
+		return 0, 0
+	}
+	return rows, max(setupHeight(text)-rows, 0)
+}
+
+func sliceSetupLines(s string, h, top int) string {
+	if h <= 0 || s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	top = min(max(top, 0), max(len(lines)-h, 0))
+	return strings.Join(lines[top:min(top+h, len(lines))], "\n")
+}
+
+// limitSetupLines leaves an ellipsis when text needs more rows than fit.
+func limitSetupLines(s string, w, h int) string {
+	if h <= 0 || s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= h {
+		return s
+	}
+	lines = lines[:h]
+	lines[h-1] = pad(ansi.Truncate(lines[h-1], max(w-3, 0), "")+theme.Dim.Render("..."), w)
+	return strings.Join(lines, "\n")
 }
 
 func blank(w int) string { return fill(w, 1) }
@@ -672,9 +780,11 @@ func (m setupModel) viewDone(w, h int) string {
 		when = "Automatic backups are off, so run a backup whenever you like."
 	}
 	whenStyle := theme.Text
+	retry := ""
 	for _, r := range m.savedRows {
 		if r[0] == "schedule" && strings.HasPrefix(r[1], "not installed") {
-			when = "Automatic backups couldn't be set up (" + strings.TrimPrefix(r[1], "not installed: ") + "). Run frost init again to retry."
+			retry = "Run frost init again to retry."
+			when = "Automatic backups couldn't be set up (" + strings.TrimPrefix(r[1], "not installed: ") + "). " + retry
 			whenStyle = theme.Caution
 		}
 	}
@@ -687,10 +797,18 @@ func (m setupModel) viewDone(w, h int) string {
 	for _, c := range cmds {
 		list = append(list, theme.Bold.Render(padPlain(c[0], 16))+theme.Dim.Render(c[1]))
 	}
+	tw, messageH := min(w, columnW), max(h-9, 1)
+	message := para(whenStyle.Align(lipgloss.Center), when, tw)
+	if retry != "" && lipgloss.Height(message) > messageH {
+		action := para(whenStyle.Align(lipgloss.Center), retry, tw)
+		message = stack(limitSetupLines(para(whenStyle.Align(lipgloss.Center), strings.TrimSuffix(when, " "+retry), tw), tw, max(messageH-lipgloss.Height(action), 0)), action)
+	} else {
+		message = limitSetupLines(message, tw, messageH)
+	}
 	block := stack(
 		row(theme.Good.Bold(true).Render("All set up!")),
 		blank(w),
-		row(para(whenStyle.Align(lipgloss.Center), when, min(w, columnW))),
+		row(message),
 		fill(w, 2),
 		row(theme.Dim.Render("Exit, then run one of these to get started:")),
 		blank(w),
@@ -712,9 +830,11 @@ func (m setupModel) checkoutPage(cw int) page {
 			msg = "checkout stopped"
 		}
 		return page{
-			over:     over,
-			question: "Checkout didn't finish.",
-			body:     []string{para(theme.Caution, sentence(msg), cw), blank(cw), pad(keys, cw)},
+			over:          over,
+			question:      "Checkout didn't finish.",
+			body:          []string{blank(cw), pad(keys, cw)},
+			feedback:      para(theme.Caution, sentence(msg), cw),
+			feedbackFirst: true,
 		}
 	}
 	spin := theme.Bold.Render(m.spin.View())
