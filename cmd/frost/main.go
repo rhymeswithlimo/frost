@@ -4,6 +4,7 @@ package main
 import (
 	"os"
 
+	_ "github.com/rhymeswithlimo/frost/cmd/frost/winres" // frost.exe's version resource, once generated
 	"github.com/rhymeswithlimo/frost/internal/cli"
 )
 

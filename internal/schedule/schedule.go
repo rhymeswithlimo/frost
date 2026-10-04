@@ -5,6 +5,7 @@ package schedule
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode/utf16"
 )
 
 // Job describes the scheduled backup.
@@ -78,11 +80,13 @@ func Remove() error {
 		exec.Command("launchctl", "bootout", "gui/"+strconv.Itoa(os.Getuid()), p).Run()
 		return removeIfExists(p)
 	case "systemd":
-		exec.Command("systemctl", "--user", "disable", "--now", systemdUnit+".timer").Run()
 		dir := systemdDir()
-		err := errors.Join(removeIfExists(filepath.Join(dir, systemdUnit+".timer")),
-			removeIfExists(filepath.Join(dir, systemdUnit+".service")))
+		timer := filepath.Join(dir, systemdUnit+".timer")
+		old, _ := os.ReadFile(timer)
+		exec.Command("systemctl", "--user", "disable", "--now", systemdUnit+".timer").Run()
+		err := errors.Join(removeIfExists(timer), removeIfExists(filepath.Join(dir, systemdUnit+".service")))
 		exec.Command("systemctl", "--user", "daemon-reload").Run()
+		releaseLinger(old)
 		return err
 	case "cron":
 		cur, err := readCrontab()
@@ -238,19 +242,74 @@ func installSystemd(j Job) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	timer := filepath.Join(dir, systemdUnit+".timer")
+	old, _ := os.ReadFile(timer)
+	ours, enabled := claimLinger(old)
 	svc, tmr := SystemdUnits(j)
-	if err := os.WriteFile(filepath.Join(dir, systemdUnit+".service"), []byte(svc), 0o644); err != nil {
-		return err
+	if ours {
+		tmr += lingerMarker + "\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, systemdUnit+".timer"), []byte(tmr), 0o644); err != nil {
-		return err
-	}
-	for _, args := range [][]string{{"daemon-reload"}, {"enable", "--now", systemdUnit + ".timer"}} {
-		if out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput(); err != nil {
-			return fmt.Errorf("systemctl %s: %s", args[0], strings.TrimSpace(string(out)))
+	err := func() error {
+		if err := os.WriteFile(filepath.Join(dir, systemdUnit+".service"), []byte(svc), 0o644); err != nil {
+			return err
 		}
+		if err := os.WriteFile(timer, []byte(tmr), 0o644); err != nil {
+			return err
+		}
+		for _, args := range [][]string{{"daemon-reload"}, {"enable", "--now", systemdUnit + ".timer"}} {
+			if out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput(); err != nil {
+				return fmt.Errorf("systemctl %s: %s", args[0], strings.TrimSpace(string(out)))
+			}
+		}
+		return nil
+	}()
+	if err != nil && enabled {
+		setLinger(false)
 	}
-	return nil
+	return err
+}
+
+// lingerMarker in the timer file means frost turned on lingering for the user.
+const lingerMarker = "# frost turned on lingering (loginctl enable-linger) so this timer runs while you're logged out, and turns it off when it removes the timer."
+
+// lingering and setLinger are variables so tests never touch logind.
+var (
+	lingering = func() bool {
+		out, err := exec.Command("loginctl", "show-user", strconv.Itoa(os.Getuid()), "--property=Linger", "--value").Output()
+		return err == nil && strings.TrimSpace(string(out)) == "yes"
+	}
+	// The user is named because without one loginctl means the caller's
+	// login session, and a process outside one (over SSH, say) has none.
+	setLinger = func(on bool) error {
+		action := "disable-linger"
+		if on {
+			action = "enable-linger"
+		}
+		return exec.Command("loginctl", "--no-ask-password", action, strconv.Itoa(os.Getuid())).Run()
+	}
+)
+
+// claimLinger turns on lingering, so a user's timer also runs while they're
+// logged out. ours says frost turned it on, now or when it wrote old, the
+// timer being replaced, and enabled says it was just now. Where turning it on
+// needs a password, it stays off, and the timer runs while the user is
+// logged in.
+func claimLinger(old []byte) (ours, enabled bool) {
+	if bytes.Contains(old, []byte(lingerMarker)) {
+		return true, false
+	}
+	if lingering() || setLinger(true) != nil {
+		return false, false
+	}
+	return true, true
+}
+
+// releaseLinger turns lingering off again if old, the timer being removed,
+// says frost turned it on. Lingering the user had already stays on.
+func releaseLinger(old []byte) {
+	if bytes.Contains(old, []byte(lingerMarker)) {
+		setLinger(false)
+	}
 }
 
 // ---- cron ----
@@ -331,28 +390,97 @@ func writeCrontab(content string) error {
 
 // ---- Task Scheduler ----
 
-// TaskArgs returns the schtasks arguments that create the job.
-func TaskArgs(j Job) []string {
-	run := windowsQuote(j.Binary) + " backup --scheduled"
+// The settings are the ones schtasks /SC gives a task, written out. The
+// author and description say what made the task and how to remove it.
+var taskTmpl = template.Must(template.New("task").Funcs(template.FuncMap{"xml": xmlEscape}).Parse(`<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Author>frost</Author>
+    <Description>Runs frost backup {{.Every}}. frost created this task. To remove it, run frost config set schedule.enabled false.</Description>
+    <URI>\{{.Name}}</URI>
+  </RegistrationInfo>
+  <Triggers>
+{{- if .Hours}}
+    <TimeTrigger>
+      <StartBoundary>{{.Start}}</StartBoundary>
+      <Repetition>
+        <Interval>PT{{.Hours}}H</Interval>
+      </Repetition>
+    </TimeTrigger>
+{{- else}}
+    <CalendarTrigger>
+      <StartBoundary>{{.Start}}</StartBoundary>
+{{- if .Weekly}}
+      <ScheduleByWeek>
+        <WeeksInterval>1</WeeksInterval>
+        <DaysOfWeek>
+          <Sunday/>
+        </DaysOfWeek>
+      </ScheduleByWeek>
+{{- else}}
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+{{- end}}
+    </CalendarTrigger>
+{{- end}}
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <StartWhenAvailable>false</StartWhenAvailable>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{{xml .Command}}</Command>
+      <Arguments>{{xml .Arguments}}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`))
+
+// TaskXML renders the Task Scheduler task for j. Daily and weekly runs are at
+// 03:17 (weekly on Sundays), and shorter intervals count from now.
+func TaskXML(j Job, now time.Time) string {
+	command, args := TaskCommand(j)
+	data := struct {
+		Name, Every, Start, Command, Arguments string
+		Hours                                  int
+		Weekly                                 bool
+	}{Name: taskName, Every: humanEvery(j.Every), Command: command, Arguments: args,
+		Start: now.Format("2006-01-02") + "T03:17:00"}
+	switch h := int(j.Every.Hours()); {
+	case h >= 7*24:
+		data.Weekly = true
+	case h < 24:
+		data.Hours = max(h, 1)
+		data.Start = now.Truncate(time.Minute).Format("2006-01-02T15:04:05")
+	}
+	var b bytes.Buffer
+	taskTmpl.Execute(&b, data)
+	return b.String()
+}
+
+// TaskCommand returns the program and arguments the task runs.
+func TaskCommand(j Job) (command, args string) {
+	args = "backup --scheduled"
 	if j.ConfigDir != "" {
-		run += " --config-dir " + windowsQuote(j.ConfigDir)
+		args += " --config-dir " + windowsQuote(j.ConfigDir)
 	}
 	if j.CacheDir != "" {
-		run += " --cache-dir " + windowsQuote(j.CacheDir)
+		args += " --cache-dir " + windowsQuote(j.CacheDir)
 	}
 	if j.LogFile != "" {
-		run += " --log-file " + windowsQuote(j.LogFile)
+		args += " --log-file " + windowsQuote(j.LogFile)
 	}
-	args := []string{"/Create", "/F", "/TN", taskName, "/TR", run}
-	h := int(j.Every.Hours())
-	switch {
-	case h >= 7*24:
-		return append(args, "/SC", "WEEKLY", "/ST", "03:17")
-	case h >= 24:
-		return append(args, "/SC", "DAILY", "/ST", "03:17")
-	default:
-		return append(args, "/SC", "HOURLY", "/MO", strconv.Itoa(max(h, 1)))
-	}
+	return windowsQuote(j.Binary), args
 }
 
 // Windows doubles backslashes before quotes and before the closing quote.
@@ -378,11 +506,35 @@ func windowsQuote(s string) string {
 	return b.String()
 }
 
+// installTask hands schtasks the task as a file in frost's cache folder, and
+// deletes the file afterwards.
 func installTask(j Job) error {
-	if out, err := exec.Command("schtasks", TaskArgs(j)...).CombinedOutput(); err != nil {
+	f, err := os.CreateTemp(j.CacheDir, "task-*.xml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.Write(utf16File(TaskXML(j, time.Now())))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if out, err := exec.Command("schtasks", "/Create", "/F", "/TN", taskName, "/XML", f.Name()).CombinedOutput(); err != nil {
 		return fmt.Errorf("schtasks: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// utf16File encodes s as UTF-16LE with a byte order mark, which is what
+// schtasks /XML reads.
+func utf16File(s string) []byte {
+	b := []byte{0xff, 0xfe}
+	for _, u := range utf16.Encode([]rune(s)) {
+		b = binary.LittleEndian.AppendUint16(b, u)
+	}
+	return b
 }
 
 // ---- helpers ----

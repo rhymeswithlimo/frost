@@ -220,6 +220,21 @@ func TestConfigSetShowsTheChange(t *testing.T) {
 	}
 }
 
+func TestConfigSetReinstallsMissingJob(t *testing.T) {
+	f := setup(t)
+	must(t, f.initAnswers(f.phrase[2], f.phrase[17]), "init")
+	scheduleInstalled = func() bool { return false }
+	out := must(t, "", "config", "set", "schedule.enabled", "true")
+	if !strings.Contains(out, "Scheduled job reinstalled.") || len(f.sched) != 2 || f.sched[1].Schedule.Every != "6h" {
+		t.Fatalf("missing job not reinstalled (%d syncs):\n%s", len(f.sched), out)
+	}
+	must(t, "", "config", "set", "schedule.enabled", "false")
+	out = must(t, "", "config", "set", "schedule.enabled", "false")
+	if !strings.Contains(out, "already set") || len(f.sched) != 3 {
+		t.Fatalf("schedule off, nothing to reinstall (%d syncs):\n%s", len(f.sched), out)
+	}
+}
+
 func TestEditorChoice(t *testing.T) {
 	bin := t.TempDir()
 	name := "fakeedit"

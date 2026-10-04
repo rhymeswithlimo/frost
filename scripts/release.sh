@@ -4,12 +4,17 @@
 #   scripts/release.sh --release      v0.1.0    publish a release
 #   scripts/release.sh --pre-release  latest    publish a pre-release
 #   scripts/release.sh --dry-run      latest    check and build, publish nothing
-#   scripts/release.sh --setup-key              create the signing key (once)
+#   scripts/release.sh --setup-key              create the signing keys (once)
 #
 # The version (or "latest", the newest one) comes from docs/CHANGELOG.md, and
 # that version's section becomes the release notes. Everything is checked
-# first, then you confirm, then it builds into releases/<version>/, writes
-# checksums.txt, signs it as checksums.txt.sig and publishes with gh.
+# first, then you confirm, then it builds into releases/<version>/ with the
+# version in frost.exe's version resource and the macOS builds signed, writes
+# checksums.txt and signs it as checksums.txt.sig. On Windows it then tests
+# frost.exe against Microsoft Defender, logs the result to
+# releases/defender-check-<version>.txt, and publishes with gh only if
+# Defender didn't flag it. Elsewhere it asks before building, since Defender
+# can't be tested there.
 #
 # File names must stay in sync with install/install.sh.
 set -euo pipefail
@@ -24,9 +29,27 @@ INSTALLER="install/install.sh"
 GOKEY="internal/update/key.go" # frost update checks releases against this copy
 SIGNER="frost-release" # identity used in allowed_signers, must match install.sh
 LDFLAG_VERSION="github.com/rhymeswithlimo/frost/internal/cli.Version"
+WINRES_DIR="cmd/frost/winres" # frost.exe's version resource and manifest
+# macOS ties Full Disk Access to the certificate a binary is signed with, so
+# every macOS release is signed with the one in MACCERT. A new certificate
+# would make every Mac ask again.
+MACKEY="${FROST_MACOS_SIGNING_KEY:-$HOME/.ssh/frost-macos-signing.pem}" # its private key and certificate
+MACCERT="scripts/macos-signing.crt"
+MACID="io.github.rhymeswithlimo.frost" # the code signing identifier, same as the launchd label
+RCODESIGN="${RCODESIGN:-rcodesign}"
+DEFENDER_CHECK="scripts/defender-check.ps1" # tests frost.exe against Microsoft Defender
+DEFENDER_SECONDS=120                         # how long it watches; Defender has acted within 20
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+DTEST="$ROOT/releases/.defender-check" # where frost.exe is tested, gitignored with releases/
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) HOST_OS=Windows ;;
+  Darwin) HOST_OS=macOS ;;
+  *) HOST_OS="$(uname -s)" ;;
+esac
+# The goversioninfo that builds the resource, from the go:generate line.
+WINRES="$(sed -n 's|^//go:generate go run \([^ ]*/goversioninfo@[^ ]*\) .*|\1|p' "$WINRES_DIR/winres.go" 2>/dev/null | head -n 1 || true)"
 
 # ---- look ----
 
@@ -66,7 +89,7 @@ Modes:
   --release       build and publish a release
   --pre-release   build and publish a pre-release
   --dry-run       run the checks and build locally, publish nothing
-  --setup-key     create the release signing key (one time, no version)
+  --setup-key     create the release signing keys (one time, no version)
 
 Version:
   v0.1.0          a version listed in $CHANGELOG
@@ -130,14 +153,50 @@ setup_key() {
   cat "$tmp" >"$GOKEY"
   rm -f "$tmp"
 
+  section "macOS signing certificate"
+  field "Private" "$MACKEY"
+  field "Public" "$MACCERT"
+  say ""
+  if [ -f "$MACKEY" ]; then
+    say "  A certificate already exists at $MACKEY. Using it."
+  else
+    command -v openssl >/dev/null 2>&1 || die "openssl is missing, and it's needed to create the certificate"
+    say "  Creating a self-signed certificate that lasts 20 years."
+    make_mac_cert || die "creating the certificate failed"
+  fi
+  tr -d '\r' <"$MACKEY" | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' >"$MACCERT"
+  [ -s "$MACCERT" ] || die "$MACKEY holds no certificate"
+
   section "Done"
   field "Fingerprint" "$(ssh-keygen -l -f "$KEY.pub" | awk '{ print $2 }')"
+  field "macOS cert" "$(openssl x509 -in "$MACCERT" -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//')"
   say ""
   say "  Next:"
-  say "  1. Commit $PUBFILE, $INSTALLER and $GOKEY."
-  say "  2. Back up $KEY somewhere safe. Without it you can't sign releases"
-  say "     that existing installs will trust."
+  say "  1. Commit $PUBFILE, $INSTALLER, $GOKEY and $MACCERT."
+  say "  2. Back up $KEY and $MACKEY somewhere safe. Without $KEY you"
+  say "     can't sign releases that existing installs will trust, and a new"
+  say "     macOS certificate makes every Mac ask for Full Disk Access again."
   exit 0
+}
+
+# make_mac_cert writes a new self-signed code signing certificate, and its
+# private key, to MACKEY. It's named plainly after frost rather than in the
+# style of Apple's own certificates.
+make_mac_cert() {
+  local cfg
+  cfg="$(mktemp)"
+  printf '%s\n' '[req]' 'distinguished_name = dn' 'prompt = no' 'x509_extensions = ext' \
+    '[dn]' "CN = $NAME" '[ext]' 'keyUsage = critical, digitalSignature' \
+    'extendedKeyUsage = critical, codeSigning' 'basicConstraints = critical, CA:false' \
+    'subjectKeyIdentifier = hash' >"$cfg"
+  mkdir -p "$(dirname "$MACKEY")"
+  (umask 077 && openssl req -x509 -newkey rsa:3072 -nodes -days 7300 -config "$cfg" \
+    -keyout "$MACKEY" -out "$cfg.crt" 2>"$cfg.log" && cat "$cfg.crt" >>"$MACKEY") || {
+    tail -n 1 "$cfg.log" >&2
+    rm -f "$cfg" "$cfg.crt" "$cfg.log" "$MACKEY"
+    return 1
+  }
+  rm -f "$cfg" "$cfg.crt" "$cfg.log"
 }
 
 [ "$MODE" = "--setup-key" ] && setup_key
@@ -171,6 +230,34 @@ artifact() { # artifact <os/arch>: the file name for a target
   local os="${1%/*}" arch="${1#*/}" ext="tar.gz"
   [ "$os" = windows ] && ext="zip"
   printf '%s_%s_%s_%s.%s' "$NAME" "$NUM" "$os" "$arch" "$ext"
+}
+
+# has_utf16 <file> <text>: does the file hold text as UTF-16LE?
+has_utf16() {
+  local want hex
+  want="$(printf '%s' "$2" | od -An -tx1 -v | tr -d ' \n' | sed 's/../&00/g')"
+  hex="$(od -An -tx1 -v "$1" | tr -d ' \n')"
+  [[ "$hex" == *"$want"* ]]
+}
+
+# make_winres <dir>: writes frost.exe's version resource for this version to
+# dir, as the .syso files the linker picks up from $WINRES_DIR.
+make_winres() {
+  local major minor patch f
+  IFS=. read -r major minor patch <<<"${NUM%%-*}"
+  local v=(-ver-major "$major" -ver-minor "$minor" -ver-patch "$patch" -ver-build 0
+    -product-ver-major "$major" -product-ver-minor "$minor" -product-ver-patch "$patch" -product-ver-build 0
+    -file-version "$NUM" -product-version "$NUM")
+  mkdir -p "$1"
+  (cd "$WINRES_DIR" &&
+    go run "$WINRES" -64 -arm=false "${v[@]}" -o "$1/rsrc_windows_amd64.syso" &&
+    go run "$WINRES" -64 -arm "${v[@]}" -o "$1/rsrc_windows_arm64.syso") || return 1
+  for f in "$1/rsrc_windows_amd64.syso" "$1/rsrc_windows_arm64.syso"; do
+    has_utf16 "$f" "$NUM" || {
+      echo "$f doesn't hold version $NUM"
+      return 1
+    }
+  done
 }
 
 # ---- details ----
@@ -221,7 +308,7 @@ sha256() {
 
 c_tools() {
   local missing=""
-  for t in go git tar zip ssh-keygen awk; do has "$t" || missing="$missing $t"; done
+  for t in go git tar zip ssh-keygen awk od; do has "$t" || missing="$missing $t"; done
   has sha256sum || has shasum || missing="$missing sha256sum"
   [ -z "$missing" ] || {
     echo "missing:$missing"
@@ -263,6 +350,20 @@ c_files() {
     }
   done
   echo "LICENSE and README.md go in every archive"
+}
+
+# c_winres builds the version resource once to a scratch folder, so a missing
+# tool or a broken versioninfo.json shows up before you confirm.
+c_winres() {
+  [ -n "$WINRES" ] || {
+    echo "no goversioninfo go:generate line in $WINRES_DIR/winres.go"
+    return 1
+  }
+  make_winres "$LOGDIR/winres" >"$LOGDIR/winres.log" 2>&1 || {
+    echo "can't build it: $(tail -n 1 "$LOGDIR/winres.log")"
+    return 1
+  }
+  echo "frost.exe will say $NUM (${WINRES##*/})"
 }
 
 c_github() {
@@ -387,11 +488,61 @@ c_key() {
   ssh-keygen -l -f "$KEY.pub" | awk '{ print $2 }'
 }
 
+c_macsign() {
+  has "$RCODESIGN" || {
+    echo "rcodesign isn't installed, run: cargo install apple-codesign"
+    soft
+    return
+  }
+  [ -f "$MACKEY" ] || {
+    echo "no macOS signing certificate at $MACKEY, run: scripts/release.sh --setup-key"
+    soft
+    return
+  }
+  [ -f "$MACCERT" ] || {
+    echo "$MACCERT is missing, run: scripts/release.sh --setup-key"
+    return 1
+  }
+  if [ "$(tr -d '\r' <"$MACKEY" | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/')" != "$(tr -d '\r' <"$MACCERT")" ]; then
+    echo "$MACKEY isn't the certificate in $MACCERT, and a new one would make every Mac ask for Full Disk Access again"
+    return 1
+  fi
+  echo "macOS builds will be signed as $MACID"
+}
+
+# defender_ps <args>: runs the Defender check with Windows PowerShell.
+defender_ps() {
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w "$ROOT/$DEFENDER_CHECK")" "$@"
+}
+
+c_defender() {
+  if [ "$HOST_OS" != Windows ]; then
+    echo "frost.exe can't be tested against Windows Defender on $HOST_OS"
+    return 2
+  fi
+  if ! has powershell.exe || ! has cygpath; then
+    echo "powershell.exe or cygpath is missing, so frost.exe can't be tested against Windows Defender"
+    return 2
+  fi
+  if defender_ps -Probe; then return 0; fi
+  return 2
+}
+
 LOGDIR="$(mktemp -d)"
-trap 'rm -rf "$LOGDIR"' EXIT
+WINRES_MADE=false
+# The build's .syso files carry this release's version, so they don't
+# outlive it. A local go generate's copies are replaced by them and go too.
+cleanup() {
+  if $WINRES_MADE; then rm -f "$ROOT/$WINRES_DIR"/rsrc_windows_*.syso; fi
+  rm -rf "$LOGDIR" "$DTEST"
+}
+trap cleanup EXIT
 FAILS=0
 WARNS=0
 SIGN=true
+MACSIGN=true
+DEFENDER=true
 
 check() { # check <label> <function>
   local label="$1" fn="$2" log="$LOGDIR/$2" rc=0 i=0 frames="|/-\\"
@@ -416,16 +567,21 @@ check() { # check <label> <function>
       ;;
   esac
   if [ "$fn" = c_key ] && [ "$rc" -ne 0 ]; then SIGN=false; fi
+  if [ "$fn" = c_macsign ] && [ "$rc" -ne 0 ]; then MACSIGN=false; fi
+  if [ "$fn" = c_defender ] && [ "$rc" -ne 0 ]; then DEFENDER=false; fi
 }
 
 section "Checks"
 check "Tools" c_tools
 check "Changelog" c_changelog
 check "Files" c_files
+check "Version resource" c_winres
 check "GitHub" c_github
 check "Tag" c_tag
 check "Git" c_git
 check "Signing key" c_key
+check "macOS signing" c_macsign
+check "Defender test" c_defender
 check "Tests" c_tests
 
 if [ "$FAILS" -gt 0 ]; then
@@ -456,6 +612,12 @@ confirm() { # confirm <question> <yes label>
   done
 }
 
+if ! $DEFENDER && ! confirm "frost.exe can't be tested against Windows Defender here. Continue?" "continue"; then
+  say ""
+  say "Cancelled. Nothing was built or published."
+  exit 0
+fi
+
 if $DRY; then
   q="Build $NAME $VERSION locally? Nothing will be published."
   yes="build"
@@ -472,8 +634,14 @@ fi
 # ---- build ----
 
 section "Build"
-rm -rf "$OUT"
+rm -rf "$OUT" "$DTEST"
 mkdir -p "$OUT/.stage"
+
+printf '  %s…%s %s' "$C" "$X" "frost.exe version resource"
+WINRES_MADE=true
+make_winres "$ROOT/$WINRES_DIR" >"$LOGDIR/winres.log" 2>&1 ||
+  die "building frost.exe's version resource failed: $(tail -n 1 "$LOGDIR/winres.log")"
+printf '\r\033[K  %s✓%s %-36s %s%s%s\n' "$G" "$X" "frost.exe version resource" "$D" "$NUM" "$X"
 
 for t in $TARGETS; do
   os="${t%/*}" arch="${t#*/}" goarch="${t#*/}" goarm=""
@@ -487,6 +655,16 @@ for t in $TARGETS; do
   CGO_ENABLED=0 GOOS="$os" GOARCH="$goarch" GOARM="$goarm" go build -trimpath \
     -ldflags "-s -w -X $LDFLAG_VERSION=$VERSION" -o "$stage/$bin" ./cmd/frost ||
     die "build failed for $t"
+  if [ "$os" = darwin ] && $MACSIGN; then
+    "$RCODESIGN" sign --pem-file "$MACKEY" --binary-identifier "$MACID" --timestamp-url none \
+      "$stage/$bin" >"$LOGDIR/macsign.log" 2>&1 ||
+      die "signing failed for $t: $(tail -n 1 "$LOGDIR/macsign.log")"
+    info="$("$RCODESIGN" print-signature-info "$stage/$bin" 2>/dev/null || true)"
+    [[ "$info" == *"identifier: $MACID"* ]] || die "the signature on $t doesn't name $MACID"
+  fi
+  if [ "$t" = windows/amd64 ] && $DEFENDER; then
+    mkdir -p "$DTEST" && cp "$stage/$bin" "$DTEST/$bin" # the same bytes as the zip
+  fi
   cp LICENSE README.md "$stage/"
   if [ "$os" = windows ]; then
     (cd "$stage" && zip -qX "$OUT/$file" ./*)
@@ -496,6 +674,8 @@ for t in $TARGETS; do
   printf '\r\033[K  %s✓%s %-36s %s%s%s\n' "$G" "$X" "$file" "$D" "$(du -h "$OUT/$file" | awk '{ print $1 }')" "$X"
 done
 rm -rf "$OUT/.stage"
+rm -f "$ROOT/$WINRES_DIR"/rsrc_windows_*.syso
+WINRES_MADE=false
 
 (cd "$OUT" && sha256 "$NAME"_* >checksums.txt)
 printf '  %s✓%s %s\n' "$G" "$X" "checksums.txt"
@@ -515,6 +695,33 @@ else
 fi
 
 printf '%s\n' "$NOTES" >"$OUT/release-notes.md"
+
+# Defender once flagged frost.exe when it turned on its scheduled backup, so
+# the x64 build does that here first. Only a pass gets published.
+if $DEFENDER; then
+  DLOG="releases/defender-check-$VERSION.txt"
+  printf '  %s…%s %s' "$C" "$X" "Windows Defender check (about 2 minutes)"
+  rm -f "$ROOT/$DLOG"
+  rc=0
+  defender_ps -Exe "$(cygpath -w "$DTEST/$NAME.exe")" -Log "$(cygpath -w "$ROOT/$DLOG")" \
+    -Seconds "$DEFENDER_SECONDS" -Version "$VERSION" >"$LOGDIR/defender.log" 2>&1 || rc=$?
+  rm -rf "$DTEST"
+  if [ ! -s "$ROOT/$DLOG" ]; then # PowerShell didn't get far enough to write it
+    rc=2
+    { echo "frost Windows Defender check: COULDN'T TEST"; echo "$DEFENDER_CHECK wrote no log. Its output:"; cat "$LOGDIR/defender.log"; } >"$ROOT/$DLOG"
+  fi
+  case "$rc" in
+    0) printf '\r\033[K  %s✓%s %-36s %s%s%s\n' "$G" "$X" "Windows Defender check" "$D" "not flagged, log in $DLOG" "$X" ;;
+    1)
+      printf '\r\033[K  %s✗%s %-36s %s\n' "$R" "$X" "Windows Defender check" "flagged, log in $DLOG"
+      $DRY || die "Windows Defender flagged frost.exe, so nothing was published. The details are in $DLOG"
+      ;;
+    *)
+      printf '\r\033[K  %s✗%s %-36s %s\n' "$R" "$X" "Windows Defender check" "couldn't run, log in $DLOG"
+      $DRY || die "The Windows Defender check couldn't run, so nothing was published. The details are in $DLOG"
+      ;;
+  esac
+fi
 
 if $DRY; then
   section "Done"

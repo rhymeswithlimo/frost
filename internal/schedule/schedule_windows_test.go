@@ -16,7 +16,8 @@ func TestTaskCommandUsesWindowsArgumentRules(t *testing.T) {
 		LogFile:   `C:\cache & 100% !\frost.log`,
 		Every:     time.Hour,
 	}
-	args, err := windows.DecomposeCommandLine(TaskArgs(j)[5])
+	command, rest := TaskCommand(j)
+	args, err := windows.DecomposeCommandLine(command + " " + rest)
 	if err != nil {
 		t.Fatal(err)
 	}

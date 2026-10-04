@@ -171,10 +171,10 @@ Sampling can find corruption, but it doesn't prove that every snapshot can be re
 | OS | Job |
 |---|---|
 | macOS | A launchd agent with `StartInterval` and low-priority I/O |
-| Linux | A systemd user timer with `OnCalendar`, `Persistent=true` and up to 5 minutes of random delay, or a crontab line when systemd isn't running |
-| Windows | A Task Scheduler task, created with `schtasks` |
+| Linux | A systemd user timer with `OnCalendar`, `Persistent=true`, up to 5 minutes of random delay and lingering turned on, or a crontab line when systemd isn't running. A comment in the timer records whether frost turned lingering on, so removing the timer only turns off what frost turned on |
+| Windows | A Task Scheduler task, registered with `schtasks /XML` from a definition that names frost as its author and says how to remove it |
 
-The job files and arguments are built by pure functions (`LaunchdPlist`, `SystemdUnits`, `CronLine`, `TaskArgs`) and tested as strings. launchd and cron redirect output. On Windows, `cli` opens the log itself and records backup errors before its deferred update check. `TaskArgs` passes the log path through `--log-file`; older tasks use the default cache path. [CLI.md](CLI.md#files) lists log locations and trimming.
+The job files and arguments are built by pure functions (`LaunchdPlist`, `SystemdUnits`, `CronLine`, `TaskXML`) and tested as strings. The task definition has the same settings `schtasks /SC` would give it. schtasks reads it as a UTF-16 file in the cache folder, which is deleted afterwards. launchd and cron redirect output. On Windows, `cli` opens the log itself and records backup errors before its deferred update check. `TaskCommand` passes the log path through `--log-file`; older tasks use the default cache path. [CLI.md](CLI.md#files) lists log locations and trimming.
 
 ## Updates
 

@@ -275,9 +275,13 @@ On macOS and Linux, frost respects `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. With 
 | Linux without systemd | cron | A line in your crontab tagged `# frost-backup` |
 | Windows | Task Scheduler | A task named `frost backup` |
 
-The job runs `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for, and run daily and weekly backups at 03:17.
+The job runs `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for, and run daily backups at 03:17 and weekly ones on Sundays at 03:17.
+
+With systemd, frost turns on lingering for your user (`loginctl enable-linger`), so the timer runs while you're logged out too. It turns lingering off again when it removes the timer, unless it was already on before frost.
 
 Jobs keep the config and cache directories used when they're installed, including environment overrides. Run `frost init` again after changing those directories, or to update an older job that didn't keep them.
+
+If the job goes missing, `frost status` says so, and `frost config set schedule.enabled true` puts it back.
 
 ## Exit codes
 

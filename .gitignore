@@ -25,6 +25,9 @@ dist/
 # Release builds from scripts/release.sh
 releases/
 
+# frost.exe's version resource, from go generate or scripts/release.sh
+/cmd/frost/winres/*.syso
+
 # Test and dev leftovers
 *.out
 coverage.*

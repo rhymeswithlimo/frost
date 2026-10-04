@@ -92,6 +92,15 @@ func newConfigCmd() *cobra.Command {
 				b.gap()
 				changes := configChanges(was, cfg)
 				if len(changes) == 0 {
+					// The job can go missing outside frost, and frost
+					// status says to run this to put it back.
+					if strings.HasPrefix(args[1], "schedule.") && cfg.Schedule.Enabled && !scheduleInstalled() {
+						if err := syncSchedule(cfg); err != nil {
+							return fmt.Errorf("the scheduled job is missing, and reinstalling it failed: %w", err)
+						}
+						b.close(good("Scheduled job reinstalled.") + dim(" "+args[1]+" was already set to that, but the job was missing."))
+						return nil
+					}
 					b.close(args[1] + " is already set to that, so nothing changed.")
 					return nil
 				}

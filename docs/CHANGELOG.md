@@ -54,7 +54,11 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **frost explains when it can't find your backups.** The error and `frost status` say where they were last and how to get back to them, and a scheduled backup that failed because of it shows in `frost status`. Snapshots that disappear from storage are reported too.
 
-- **Backups run on a schedule without a daemon.** `frost init` installs a launchd, systemd, cron or Task Scheduler job depending on your OS. Changing the schedule with `frost config set` updates the job.
+- **Backups run on a schedule without a daemon.** `frost init` installs a launchd, systemd, cron or Task Scheduler job depending on your OS, and on Linux it runs while you're logged out too. Changing the schedule with `frost config set` updates the job.
+
+- **A missing scheduled job is easy to put back.** If the job disappears, `frost status` says so and `frost config set schedule.enabled true` reinstalls it.
+
+- **frost says what it is on Windows.** `frost.exe` carries a name, version and manifest, and its Task Scheduler task names frost as the author and says how to remove it.
 
 - **frost updates itself.** `frost update` installs the latest release, and scheduled backups do it on their own at most once a day. Each release is checked against a signing key built into frost before anything is replaced, and setting `update.auto` to `false` only tells you about new ones.
 
