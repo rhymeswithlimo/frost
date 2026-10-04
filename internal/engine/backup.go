@@ -80,6 +80,8 @@ type BackupOptions struct {
 	Paths   []string
 	Exclude []string
 	DryRun  bool
+	// Host names the computer in the snapshot. Empty means this computer's name.
+	Host string
 	// Progress, if set, is called from the scanning goroutine as work happens.
 	Progress func(Progress)
 }
@@ -149,7 +151,10 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 		}
 	}
 
-	host, _ := os.Hostname()
+	host := opts.Host
+	if host == "" {
+		host, _ = os.Hostname()
+	}
 	snap := snapshot.Snapshot{ID: snapshot.NewID(), Time: time.Now().UTC(), Host: host}
 	ex := newExcluder(opts.Exclude)
 

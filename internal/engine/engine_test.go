@@ -197,6 +197,19 @@ func TestDryRunUploadsNothing(t *testing.T) {
 	}
 }
 
+func TestSnapshotHost(t *testing.T) {
+	e := newEnv(t)
+	e.write("a.txt", []byte("one"))
+	if got := e.backup(BackupOptions{Host: "laptop"}).Snapshot.Host; got != "laptop" {
+		t.Fatalf("host = %q, want the one in the options", got)
+	}
+	e.write("b.txt", []byte("two"))
+	want, _ := os.Hostname()
+	if got := e.backup(BackupOptions{}).Snapshot.Host; got != want {
+		t.Fatalf("host = %q, want this computer's name %q", got, want)
+	}
+}
+
 func TestExclude(t *testing.T) {
 	e := newEnv(t)
 	e.write("keep.txt", []byte("x"))

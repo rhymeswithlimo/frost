@@ -2,6 +2,14 @@
 .env
 .claude
 
+# Signing keys
+*.pem
+*.key
+*.p12
+*.pfx
+frost-release*
+frost-macos-signing*
+
 # Tooling
 .vscode/
 .idea/
@@ -14,6 +22,7 @@ Thumbs.db
 CLAUDE.md
 AGENTS.md
 STYLE.md
+PLAN.md
 mockup/
 
 # Build output (`go build ./cmd/frost` drops the binary in the repo root)

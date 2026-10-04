@@ -47,6 +47,9 @@ func TestBuildHistory(t *testing.T) {
 		if !s.Time.Before(before) {
 			t.Fatalf("snapshot %s wasn't backdated", s.ID)
 		}
+		if s.Host != demoHost {
+			t.Fatalf("snapshot %s names the computer %q, want the demo's %q", s.ID, s.Host, demoHost)
+		}
 		if i > 0 && !s.Time.After(snaps[i-1].Time) {
 			t.Fatal("history isn't chronological")
 		}

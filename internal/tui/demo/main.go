@@ -34,6 +34,9 @@ import (
 	"github.com/rhymeswithlimo/frost/internal/tui"
 )
 
+// demoHost is the computer name the demo's snapshots show, instead of the real one.
+const demoHost = "John Doe"
+
 func main() {
 	latency := flag.Duration("latency", 0, "delay every storage call by this much")
 	empty := flag.Bool("empty", false, "start with no snapshots")
@@ -209,7 +212,7 @@ func buildHistory(ctx context.Context, e *engine.Engine, src string) error {
 	}
 	for _, change := range changes {
 		change()
-		if _, err := e.Backup(ctx, engine.BackupOptions{Paths: paths}); err != nil {
+		if _, err := e.Backup(ctx, engine.BackupOptions{Paths: paths, Host: demoHost}); err != nil {
 			return err
 		}
 	}
@@ -265,7 +268,7 @@ func breakThings(ctx context.Context, e *engine.Engine, mem *storagetest.Mem) {
 		b[len(b)/2] ^= 0xff
 	}
 	e.Verify(ctx, e.Manifest.ChunkCount(), true)
-	e.Backup(ctx, engine.BackupOptions{Paths: []string{"/does/not/exist"}})
+	e.Backup(ctx, engine.BackupOptions{Paths: []string{"/does/not/exist"}, Host: demoHost})
 }
 
 // slow adds a fixed delay to every storage call.
