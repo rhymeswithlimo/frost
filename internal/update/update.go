@@ -9,6 +9,7 @@ package update
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,7 +20,6 @@ import (
 	"net/url"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -72,10 +72,8 @@ func Newer(a, b string) bool {
 		return false
 	}
 	for i := 1; i <= 3; i++ {
-		p, _ := strconv.ParseUint(x[i], 10, 64)
-		q, _ := strconv.ParseUint(y[i], 10, 64)
-		if p != q {
-			return p > q
+		if order := compareNumber(x[i], y[i]); order != 0 {
+			return order > 0
 		}
 	}
 	return comparePre(strings.TrimPrefix(x[4], "-"), strings.TrimPrefix(y[4], "-")) > 0
@@ -94,29 +92,30 @@ func comparePre(a, b string) int {
 	}
 	as, bs := strings.Split(a, "."), strings.Split(b, ".")
 	for i := 0; i < len(as) && i < len(bs); i++ {
-		n, errN := strconv.ParseUint(as[i], 10, 64)
-		m, errM := strconv.ParseUint(bs[i], 10, 64)
+		numericA := strings.Trim(as[i], "0123456789") == "" && as[i] != ""
+		numericB := strings.Trim(bs[i], "0123456789") == "" && bs[i] != ""
 		switch {
-		case errN == nil && errM == nil:
-			if n != m {
-				return cmpInt(n > m)
+		case numericA && numericB:
+			if order := compareNumber(as[i], bs[i]); order != 0 {
+				return order
 			}
-		case errN == nil: // numbers sort before words
+		case numericA: // numbers sort before words
 			return -1
-		case errM == nil:
+		case numericB:
 			return 1
 		case as[i] != bs[i]:
-			return cmpInt(as[i] > bs[i])
+			return strings.Compare(as[i], bs[i])
 		}
 	}
-	return cmpInt(len(as) > len(bs))
+	return cmp.Compare(len(as), len(bs))
 }
 
-func cmpInt(gt bool) int {
-	if gt {
-		return 1
+func compareNumber(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if order := cmp.Compare(len(a), len(b)); order != 0 {
+		return order
 	}
-	return -1
+	return strings.Compare(a, b)
 }
 
 // Platform is the os and arch in release file names, e.g. linux, armv7.
@@ -289,23 +288,33 @@ func do(ctx context.Context, u string, c *http.Client) (*http.Response, error) {
 
 // get downloads u, refusing anything over limit bytes.
 func get(ctx context.Context, u string, limit int64) ([]byte, error) {
+	var b bytes.Buffer
+	if err := download(ctx, u, limit, &b); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// download streams a bounded response to dst. Callers discard partial writes
+// if it fails.
+func download(ctx context.Context, u string, limit int64, dst io.Writer) error {
 	resp, err := do(ctx, u, client)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New(resp.Status)
+		return errors.New(resp.Status)
 	}
 	if resp.ContentLength > limit {
-		return nil, fmt.Errorf("too big (%d bytes)", resp.ContentLength)
+		return fmt.Errorf("too big (%d bytes)", resp.ContentLength)
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	n, err := io.Copy(dst, io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if int64(len(b)) > limit {
-		return nil, errors.New("too big")
+	if n > limit {
+		return errors.New("too big")
 	}
-	return b, nil
+	return nil
 }

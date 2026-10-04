@@ -32,12 +32,7 @@ func newBackupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup",
 		Short: "Back up now",
-		Long: `Backs up the directories in your config. Only data that changed since the
-last run is uploaded. Use flags to override the config for this run only.`,
-		Example: `  frost backup
-  frost backup --dry-run
-  frost backup --path ~/Pictures --exclude "*.raw"`,
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) (runErr error) {
 			out := cmd.OutOrStdout()
 			if logFile != "" && !scheduled {

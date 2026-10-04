@@ -96,3 +96,22 @@ func BenchmarkTreeIndex(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkArcadeCanvas(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		c := newCanvas(112, 26)
+		c.put(40, 20, "A", stShip)
+		c.put(39, 1, "[abc.pdf]", stIce3)
+		c.render()
+	}
+}
+
+func BenchmarkFileView(b *testing.B) {
+	m := model{w: 120, h: 36, tree: benchmarkTree(1000), dir: "/data", sel: map[string]bool{}}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		m.viewFiles()
+	}
+}

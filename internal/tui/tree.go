@@ -12,7 +12,7 @@ import (
 type tree struct {
 	files    map[string]*snapshot.File
 	children map[string][]string  // parent path -> child paths, folders first
-	totals   map[string]fileTotal // regular files and bytes under each path
+	totals   map[string]fileTotal // regular files and bytes under folders
 	roots    []string             // the backed-up directories
 }
 
@@ -28,7 +28,7 @@ func newTree(s snapshot.Snapshot, t *snapshot.Tree) *tree {
 	x := &tree{
 		files:    make(map[string]*snapshot.File, len(t.Files)),
 		children: map[string][]string{},
-		totals:   make(map[string]fileTotal, len(t.Files)),
+		totals:   map[string]fileTotal{},
 	}
 	for i := range t.Files {
 		f := &t.Files[i]
@@ -48,8 +48,11 @@ func newTree(s snapshot.Snapshot, t *snapshot.Tree) *tree {
 		}
 		x.children[parent] = append(x.children[parent], p)
 		if f.Type == snapshot.TypeFile {
+			if isRoot[p] {
+				continue
+			}
 			// Add the size to every ancestor up to the root.
-			for q := p; ; q = path.Dir(q) {
+			for q := path.Dir(p); ; q = path.Dir(q) {
 				total := x.totals[q]
 				total.bytes += f.Size
 				total.files++
@@ -105,7 +108,12 @@ func (x *tree) selectionTotals(sel map[string]bool) (files int, bytes int64) {
 		if parent != p && covered(parent, sel) {
 			continue
 		}
-		total := x.totals[p]
+		total, indexed := x.totals[p]
+		if !indexed {
+			if f := x.files[p]; f != nil && f.Type == snapshot.TypeFile {
+				total = fileTotal{files: 1, bytes: f.Size}
+			}
+		}
 		files += total.files
 		bytes += total.bytes
 	}

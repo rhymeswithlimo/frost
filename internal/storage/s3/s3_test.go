@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/johannesboyne/gofakes3"
@@ -71,27 +72,6 @@ func TestPutNewErrors(t *testing.T) {
 	}
 }
 
-// TestConformanceReal runs against a real endpoint when FROST_TEST_S3_ENDPOINT
-// is set, e.g. a local MinIO. The bucket must exist and be empty.
-func TestConformanceReal(t *testing.T) {
-	ep := os.Getenv("FROST_TEST_S3_ENDPOINT")
-	if ep == "" {
-		t.Skip("FROST_TEST_S3_ENDPOINT not set")
-	}
-	b, err := New(Config{
-		Endpoint:        ep,
-		Bucket:          os.Getenv("FROST_TEST_S3_BUCKET"),
-		Region:          os.Getenv("FROST_TEST_S3_REGION"),
-		AccessKeyID:     os.Getenv("FROST_TEST_S3_ACCESS_KEY_ID"),
-		SecretAccessKey: os.Getenv("FROST_TEST_S3_SECRET_ACCESS_KEY"),
-		Prefix:          "frost-conformance",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	storagetest.Conformance(t, b)
-}
-
 // The same bucket name at another provider is somewhere else.
 func TestLocationIncludesEndpoint(t *testing.T) {
 	a, _ := New(Config{Endpoint: "s3.us-west-004.backblazeb2.com", Bucket: "b", Prefix: "frost"})
@@ -102,5 +82,46 @@ func TestLocationIncludesEndpoint(t *testing.T) {
 	}
 	if a.Location() == b.Location() || a.Location() == c.Location() {
 		t.Fatalf("locations collide: %s, %s, %s", a.Location(), b.Location(), c.Location())
+	}
+}
+
+func TestGetUsesOneRequestAndBoundsDownloads(t *testing.T) {
+	for _, c := range []struct {
+		name               string
+		chunked, oversized bool
+	}{{"known", false, false}, {"chunked", true, false}, {"oversized", false, true}} {
+		t.Run(c.name, func(t *testing.T) {
+			var requests atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Method != http.MethodGet {
+					t.Errorf("unexpected %s request", r.Method)
+				}
+				w.Header().Set("Last-Modified", "Mon, 02 Jan 2006 15:04:05 GMT")
+				switch {
+				case c.oversized:
+					w.Header().Set("Content-Length", strconv.Itoa((8<<20)+65))
+					w.WriteHeader(http.StatusOK)
+				case c.chunked:
+					w.(http.Flusher).Flush()
+					w.Write([]byte("hello"))
+				default:
+					w.Header().Set("Content-Length", "5")
+					w.Write([]byte("hello"))
+				}
+			}))
+			defer srv.Close()
+			b, err := New(Config{Endpoint: srv.URL, Region: "us-east-1", Bucket: "frost", AccessKeyID: "x", SecretAccessKey: "y"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := b.Get(context.Background(), "chunks/aa/test")
+			if (err != nil) != c.oversized || !c.oversized && string(got) != "hello" {
+				t.Fatalf("get = %q, %v", got, err)
+			}
+			if requests.Load() != 1 {
+				t.Fatalf("get made %d requests", requests.Load())
+			}
+		})
 	}
 }

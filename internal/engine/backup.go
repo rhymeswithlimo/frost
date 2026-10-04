@@ -321,7 +321,7 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 		// Still changing. A torn copy could be worse than useless (think of
 		// a database), so the last clean copy stays, if there is one. Its
 		// manifest entry is left alone, so the next run reads it again.
-		if prev, ok := e.Manifest.File(f.Path); ok && (prev.Size == 0 || len(prev.Chunks) > 0) && b.allKnown(prev.Chunks) {
+		if prev, ok := e.Manifest.File(f.Path); ok && (prev.Size == 0 || len(prev.Chunks) > 0) && e.Manifest.HasChunks(prev.Chunks) {
 			f.Size, f.ModTime, f.Chunks = prev.Size, prev.ModTime, prev.Chunks
 			snap.Stats.Kept++
 			if len(snap.Kept) < maxListed {
@@ -376,13 +376,7 @@ func (e *Engine) Backup(ctx context.Context, opts BackupOptions) (res BackupResu
 	if err := e.Manifest.PutFiles(b.files); err != nil {
 		return res, err
 	}
-	known := e.Manifest.Snapshots()
-	known[snap.ID] = snap
-	all := make([]snapshot.Snapshot, 0, len(known))
-	for _, s := range known {
-		all = append(all, s)
-	}
-	if err := e.Manifest.SetSnapshots(all); err != nil {
+	if err := e.Manifest.PutSnapshot(snap); err != nil {
 		return res, err
 	}
 	return res, e.Manifest.PutMeta(metaLastSaved, lastSaved{ID: snap.ID, Paths: snap.Paths, Digest: digest, Entries: entries})
@@ -412,7 +406,7 @@ type chunkSync struct {
 // Storage that isn't where the list was checked always gets a sync.
 func (e *Engine) syncDue() bool {
 	var s chunkSync
-	if !e.Manifest.GetMeta(metaChunkSync, &s) || s.Needed || e.Manifest.ChunkCount() == 0 {
+	if !e.Manifest.GetMeta(metaChunkSync, &s) || s.Needed || !e.Manifest.AnyChunks() {
 		return true
 	}
 	if s.Where != storage.Location(e.Repo.Backend) {
@@ -448,6 +442,7 @@ type run struct {
 	e      *Engine
 	dryRun bool
 	table  *chunker.Table
+	ch     *chunker.Chunker
 
 	uploads chan upload
 	wg      sync.WaitGroup
@@ -466,6 +461,9 @@ type upload struct {
 }
 
 func (b *run) startUploaders(ctx context.Context, fail context.CancelCauseFunc) {
+	if b.dryRun {
+		return
+	}
 	n := b.e.Uploaders
 	if n <= 0 {
 		n = 4
@@ -506,11 +504,11 @@ func (b *run) startUploaders(ctx context.Context, fail context.CancelCauseFunc) 
 
 // finish waits for uploads and records them in the manifest.
 func (b *run) finish() error {
-	close(b.uploads)
-	b.wg.Wait()
 	if b.dryRun {
 		return nil
 	}
+	close(b.uploads)
+	b.wg.Wait()
 	return b.e.Manifest.AddChunks(b.done)
 }
 
@@ -519,9 +517,8 @@ func (b *run) finish() error {
 func (b *run) file(ctx context.Context, p string, f *snapshot.File) (PlannedFile, error) {
 	planned := PlannedFile{Path: f.Path, Size: f.Size}
 
-	if prev, ok := b.e.Manifest.File(f.Path); ok && prev.Size == f.Size && (f.Size == 0 || len(prev.Chunks) > 0) && prev.ModTime.Equal(f.ModTime) && b.allKnown(prev.Chunks) {
+	if prev, ok := b.e.Manifest.File(f.Path); ok && prev.Size == f.Size && (f.Size == 0 || len(prev.Chunks) > 0) && prev.ModTime.Equal(f.ModTime) && b.e.Manifest.HasChunks(prev.Chunks) {
 		f.Chunks = prev.Chunks
-		b.remember(f)
 		return planned, nil
 	}
 
@@ -542,7 +539,12 @@ func (b *run) file(ctx context.Context, p string, f *snapshot.File) (PlannedFile
 	f.Size, f.ModTime, f.Mode = before.Size(), before.ModTime().UTC(), uint32(before.Mode().Perm())
 	planned.Size = f.Size
 
-	c := chunker.New(fh, b.table)
+	if b.ch == nil {
+		b.ch = chunker.New(fh, b.table)
+	} else {
+		b.ch.Reset(fh)
+	}
+	c := b.ch
 	var read int64
 	for {
 		if err := ctx.Err(); err != nil {
@@ -604,15 +606,7 @@ func (b *run) file(ctx context.Context, p string, f *snapshot.File) (PlannedFile
 }
 
 func (b *run) remember(f *snapshot.File) {
-	b.files[f.Path] = manifest.FileEntry{Size: f.Size, ModTime: f.ModTime, Chunks: f.Chunks}
-}
-
-func (b *run) allKnown(chunks []string) bool {
-	for _, c := range chunks {
-		id, err := crypto.ParseID(c)
-		if err != nil || !b.e.Manifest.HasChunk(id) {
-			return false
-		}
+	if !b.dryRun {
+		b.files[f.Path] = manifest.FileEntry{Size: f.Size, ModTime: f.ModTime, Chunks: f.Chunks}
 	}
-	return true
 }

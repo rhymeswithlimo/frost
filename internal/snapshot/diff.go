@@ -25,6 +25,43 @@ type Change struct {
 // Diff lists what changed going from tree a to tree b, sorted by path.
 // A file whose only difference is its modification time isn't a change.
 func Diff(a, b *Tree) []Change {
+	if !ordered(a.Files) || !ordered(b.Files) {
+		return diffUnsorted(a, b)
+	}
+	var out []Change
+	i, j := 0, 0
+	for i < len(a.Files) || j < len(b.Files) {
+		switch {
+		case i == len(a.Files) || j < len(b.Files) && b.Files[j].Path < a.Files[i].Path:
+			nf := &b.Files[j]
+			out = append(out, Change{Path: nf.Path, Kind: Added, New: nf})
+			j++
+		case j == len(b.Files) || a.Files[i].Path < b.Files[j].Path:
+			of := &a.Files[i]
+			out = append(out, Change{Path: of.Path, Kind: Removed, Old: of})
+			i++
+		default:
+			of, nf := &a.Files[i], &b.Files[j]
+			if !sameContent(of, nf) {
+				out = append(out, Change{Path: nf.Path, Kind: Modified, Old: of, New: nf})
+			}
+			i++
+			j++
+		}
+	}
+	return out
+}
+
+func ordered(files []File) bool {
+	for i := 1; i < len(files); i++ {
+		if files[i-1].Path >= files[i].Path {
+			return false
+		}
+	}
+	return true
+}
+
+func diffUnsorted(a, b *Tree) []Change {
 	old := make(map[string]*File, len(a.Files))
 	for i := range a.Files {
 		old[a.Files[i].Path] = &a.Files[i]

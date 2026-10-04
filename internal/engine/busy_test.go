@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rhymeswithlimo/frost/internal/storage"
 )
 
 // keepBusy makes every read of the files named in busy look like it was
@@ -114,5 +117,51 @@ func TestBackupSkipsRestorePartials(t *testing.T) {
 	}
 	if n := e.backup(BackupOptions{}).Snapshot.Stats.Files; n != 2 {
 		t.Fatalf("backed up %d files, want 2", n)
+	}
+}
+
+type changingBackend struct {
+	storage.Backend
+	once   sync.Once
+	change func()
+}
+
+func (b *changingBackend) Put(ctx context.Context, key string, data []byte) error {
+	b.once.Do(b.change)
+	return b.Backend.Put(ctx, key, data)
+}
+
+// A file that changes once while it's read is read again after the walk.
+
+func TestBackupRetriesFileChangedDuringRead(t *testing.T) {
+	e := newEnv(t)
+	e.write("active", random(32<<20, 9))
+	p := filepath.Join(e.src, "active")
+	var changeErr error
+	e.eng.Uploaders = 1
+	e.eng.Repo.Backend = &changingBackend{Backend: e.mem, change: func() {
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			changeErr = err
+			return
+		}
+		_, changeErr = f.Write([]byte("changed during backup"))
+		f.Close()
+	}}
+	res := e.backup(BackupOptions{})
+	if changeErr != nil {
+		t.Fatal(changeErr)
+	}
+	if res.Snapshot.Stats.Skipped != 0 || res.Snapshot.Stats.Kept != 0 || res.Snapshot.Stats.Files != 1 {
+		t.Fatalf("file that changed once wasn't read again: %+v", res.Snapshot)
+	}
+	e.eng.Repo.Backend = e.mem
+	target := t.TempDir()
+	if _, err := e.eng.Restore(context.Background(), res.Snapshot.ID, RestoreOptions{Target: target}); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(p)
+	if got, _ := os.ReadFile(filepath.Join(e.restoredRoot(target), "active")); !bytes.Equal(got, want) {
+		t.Fatal("snapshot doesn't hold the file as it ended up")
 	}
 }

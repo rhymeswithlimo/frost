@@ -98,8 +98,11 @@ func (b *Backend) PutNew(ctx context.Context, key string, data []byte) error {
 }
 
 func (b *Backend) Get(ctx context.Context, key string) ([]byte, error) {
-	obj, err := b.client.GetObject(ctx, b.bucket, b.prefix+key, minio.GetObjectOptions{})
+	obj, info, _, err := (minio.Core{Client: b.client}).GetObject(ctx, b.bucket, b.prefix+key, minio.GetObjectOptions{})
 	if err != nil {
+		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+			return nil, storage.ErrNotFound
+		}
 		return nil, fmt.Errorf("s3 get %s: %w", key, err)
 	}
 	defer obj.Close()
@@ -107,11 +110,8 @@ func (b *Backend) Get(ctx context.Context, key string) ([]byte, error) {
 	if strings.HasPrefix(key, "chunks/") {
 		limit = (8 << 20) + 64
 	}
-	data, err := storage.ReadBounded(obj, limit)
+	data, err := storage.ReadBoundedSize(obj, info.Size, limit)
 	if err != nil {
-		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
-			return nil, storage.ErrNotFound
-		}
 		return nil, fmt.Errorf("s3 get %s: %w", key, err)
 	}
 	return data, nil

@@ -26,17 +26,8 @@ func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Set up frost: what to back up, where, and how often",
-		Long: `Walks you through setup and writes config.toml: where backups go, which
-folders, how often, and your recovery phrase. Run it again any time to review
-or change your settings.
-
-In a terminal it opens a full-screen setup. With piped input it asks plain
-questions, one per line.
-
-On new storage it generates your encryption key and shows the recovery phrase
-once. On storage that already has backups it asks for the phrase instead.`,
-		Args: cobra.NoArgs,
-		RunE: runInit,
+		Args:  cobra.NoArgs,
+		RunE:  runInit,
 	}
 }
 

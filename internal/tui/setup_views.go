@@ -275,9 +275,12 @@ func (m setupModel) render(p page, w, h int) string {
 			used += 1 + lipgloss.Height(block)
 		}
 	}
-	if len(p.extra) > 0 && used+1+lipgloss.Height(stack(p.extra...)) <= h {
-		lines = append(lines, blank(cw), stack(p.extra...))
-		used += 1 + lipgloss.Height(stack(p.extra...))
+	if len(p.extra) > 0 {
+		extra := stack(p.extra...)
+		if rows := lipgloss.Height(extra); used+1+rows <= h {
+			lines = append(lines, blank(cw), extra)
+			used += 1 + rows
+		}
 	}
 	if h >= 16 && used < h {
 		lines = append([]string{fill(cw, min(2, h-used))}, lines...)

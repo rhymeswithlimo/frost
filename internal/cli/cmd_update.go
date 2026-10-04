@@ -34,15 +34,7 @@ func newUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Update frost to the latest release",
-		Long: `Downloads the latest frost release, checks it was signed with the frost
-release key, and replaces this binary with it. Your config, key and backups
-aren't touched.
-
-Scheduled backups do this on their own, at most once a day, unless
-update.auto is false.`,
-		Example: `  frost update
-  frost update --check`,
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 			if !update.Valid(Version) {

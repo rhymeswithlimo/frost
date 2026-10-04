@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,8 +14,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rhymeswithlimo/frost/internal/config"
+	"github.com/rhymeswithlimo/frost/internal/crypto"
+	"github.com/rhymeswithlimo/frost/internal/repo"
 	"github.com/rhymeswithlimo/frost/internal/snapshot"
 	"github.com/rhymeswithlimo/frost/internal/storage"
+	"github.com/rhymeswithlimo/frost/internal/storage/storagetest"
 )
 
 func TestSetupEmptyKey(t *testing.T) {
@@ -389,5 +393,106 @@ func TestArcadeTicksBelongToTheirGame(t *testing.T) {
 	b.gen = old.gen
 	if cmd := b.tick(old); cmd != nil || b.ticks != 0 {
 		t.Fatal("a previous game's pending tick advanced the current game")
+	}
+}
+
+type diffBlockingBackend struct {
+	storage.Backend
+	started chan string
+	release <-chan struct{}
+	fail    string
+	err     error
+}
+
+func (b *diffBlockingBackend) Get(ctx context.Context, key string) ([]byte, error) {
+	if strings.HasPrefix(key, "trees/") {
+		b.started <- key
+		select {
+		case <-b.release:
+			if key == b.fail {
+				return nil, b.err
+			}
+			if b.fail != "" {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return b.Backend.Get(ctx, key)
+}
+
+func TestDiffLoadsTreesTogether(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			k, err := crypto.NewKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			mem := storagetest.NewMem()
+			r, err := repo.Init(ctx, mem, k)
+			if err != nil {
+				t.Fatal(err)
+			}
+			from := snapshot.Snapshot{ID: snapshot.NewID(), Time: time.Now().Add(-time.Hour)}
+			to := snapshot.Snapshot{ID: snapshot.NewID(), Time: from.Time.Add(time.Hour)}
+			for i, s := range []snapshot.Snapshot{from, to} {
+				tree := &snapshot.Tree{Files: []snapshot.File{{Path: "/data/file", Type: snapshot.TypeFile, Size: int64(i + 1)}}}
+				if _, err := r.SaveSnapshot(ctx, s, tree, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			release := make(chan struct{})
+			bad := errors.New("tree unavailable")
+			backend := &diffBlockingBackend{Backend: mem, started: make(chan string, 2), release: release, err: bad}
+			if fail {
+				backend.fail = "trees/" + from.ID
+			}
+			r.Backend = backend
+			done := make(chan diffMsg, 1)
+			go func() { done <- (model{ctx: ctx, repo: r}).loadDiff(to, from)().(diffMsg) }()
+			for range 2 {
+				select {
+				case <-backend.started:
+				case <-ctx.Done():
+					t.Fatal("diff tree reads did not overlap")
+				}
+			}
+			close(release)
+			select {
+			case msg := <-done:
+				if fail {
+					if !errors.Is(msg.err, bad) {
+						t.Fatalf("diff error = %v, want backend error", msg.err)
+					}
+				} else if msg.err != nil || msg.from.ID != from.ID || msg.to.ID != to.ID || len(msg.changes) != 1 || msg.changes[0].Kind != snapshot.Modified {
+					t.Fatalf("diff lost ordering or changes: %v", msg.err)
+				}
+			case <-ctx.Done():
+				t.Fatal("diff did not finish")
+			}
+		})
+	}
+}
+
+func TestTreeTotalsOnlyIndexFolders(t *testing.T) {
+	tr := benchmarkTree(1000)
+	if len(tr.totals) != 1 {
+		t.Fatalf("cached %d totals for one folder", len(tr.totals))
+	}
+	if files, bytes := tr.selectionTotals(map[string]bool{"/data/file-000123": true}); files != 1 || bytes != 100 {
+		t.Fatalf("single file totals = %d, %d", files, bytes)
+	}
+	for _, root := range []string{"/data/a", "C:/data/a"} {
+		tr := newTree(snapshot.Snapshot{Paths: []string{root}}, &snapshot.Tree{Files: []snapshot.File{{Path: root, Type: snapshot.TypeFile, Size: 7}}})
+		if len(tr.totals) != 0 {
+			t.Fatal("cached a single file root's total")
+		}
+		if files, bytes := tr.selectionTotals(map[string]bool{root: true}); files != 1 || bytes != 7 {
+			t.Fatal("single file root lost its total")
+		}
 	}
 }

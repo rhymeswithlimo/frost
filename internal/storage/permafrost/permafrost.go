@@ -210,7 +210,7 @@ func (b *Backend) do(ctx context.Context, method, u string, body []byte, headers
 			}
 			lastErr = fmt.Errorf("permafrost: %w", err)
 		} else {
-			data, readErr := storage.ReadBounded(resp.Body, 16<<20)
+			data, readErr := storage.ReadBoundedSize(resp.Body, resp.ContentLength, 16<<20)
 			resp.Body.Close()
 			switch {
 			case readErr != nil:

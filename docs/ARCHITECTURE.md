@@ -178,7 +178,7 @@ The job files and arguments are built by pure functions (`LaunchdPlist`, `System
 
 ## Updates
 
-`internal/update` finds the newest release by following GitHub's `/releases/latest` redirect, which has no API rate limit. It checks the signed `checksums.txt` against the pinned release key in `key.go`, then downloads and checks the archive for this platform. The same key is in `install/release-signing.pub` and `install/install.sh`, and a test keeps all three the same. The new binary is staged next to the old one, run once with `--version`, and renamed into place. A lock file next to the binary stops two updates running at once.
+`internal/update` finds the newest release by following GitHub's `/releases/latest` redirect, which has no API rate limit. It checks the signed `checksums.txt` against the pinned release key in `key.go`, then streams the archive for this platform to a private temporary file while hashing it. Only after the checksum matches is the binary extracted to a staging file next to the old one, synced, run once with `--version`, and renamed into place. The archive and binary aren't held in memory. The same key is in `install/release-signing.pub` and `install/install.sh`, and a test keeps all three the same. A lock file next to the binary stops two updates running at once.
 
 `cli` calls it from `frost update`, and after `frost backup --scheduled` at most every 20 hours. The result goes in `update.json` in the cache directory, which `status` and the browser read without going online.
 

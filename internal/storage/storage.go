@@ -25,6 +25,48 @@ const MaxObjectSize = (256 << 20) + 64
 
 // ReadBounded rejects oversized responses instead of exhausting memory.
 func ReadBounded(r io.Reader, limit int64) ([]byte, error) {
+	return ReadBoundedSize(r, -1, limit)
+}
+
+// ReadBoundedSize uses a known response size to avoid growing the download
+// buffer. A negative size reads until EOF, and both paths enforce limit.
+func ReadBoundedSize(r io.Reader, size, limit int64) ([]byte, error) {
+	if limit < 0 || size > limit {
+		return nil, errors.New("storage response exceeds size limit")
+	}
+	if size >= 0 {
+		data := make([]byte, size)
+		var extra [1]byte
+		read, empty := 0, 0
+		for {
+			buf := extra[:]
+			if read < len(data) {
+				buf = data[read:]
+			}
+			n, err := r.Read(buf)
+			if read == len(data) && n != 0 {
+				return nil, errors.New("storage response length doesn't match")
+			}
+			read += n
+			if err == io.EOF && read == len(data) {
+				return data, nil
+			}
+			if err != nil {
+				if err == io.EOF && read != 0 {
+					err = io.ErrUnexpectedEOF
+				}
+				return nil, err
+			}
+			if n != 0 {
+				empty = 0
+			} else {
+				empty++
+				if empty >= 100 {
+					return nil, io.ErrNoProgress
+				}
+			}
+		}
+	}
 	data, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
 		return nil, err

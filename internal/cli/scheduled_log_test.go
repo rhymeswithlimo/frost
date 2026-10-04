@@ -159,3 +159,18 @@ func TestScheduledLogRefusesSymlink(t *testing.T) {
 		t.Fatalf("symlink target changed: %q, %v", data, err)
 	}
 }
+
+func TestLogTrimRefusesSymlink(t *testing.T) {
+	setup(t)
+	outside := filepath.Join(t.TempDir(), "data")
+	if err := os.WriteFile(outside, make([]byte, (1<<20)+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, logPath()); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	trimLog()
+	if info, err := os.Stat(outside); err != nil || info.Size() != (1<<20)+1 {
+		t.Fatal("symlink target truncated")
+	}
+}

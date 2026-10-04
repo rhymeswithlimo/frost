@@ -17,10 +17,8 @@ func newBrowseCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "browse",
 		Short: "Open the snapshot browser",
-		Long: `Opens a full-screen browser for your snapshots: pick one by date, walk its
-files as they were then, compare two snapshots, and choose what to restore.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return runBrowser(cmd.Context(), cmd.OutOrStdout()) },
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return runBrowser(cmd.Context(), cmd.OutOrStdout()) },
 	}
 }
 

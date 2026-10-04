@@ -25,13 +25,7 @@ func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show recent snapshots, schedule and backup health",
-		Long: `Shows your recent snapshots, when the last and next backups run, and the
-result of the latest verification (a random sample of uploaded data
-downloaded and checked against its hashes).
-
---verify runs a fresh verification first. You can put
-"frost status --verify" in your own scheduler to check on a separate cadence.`,
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 			a, err := openApp(cmd.Context())

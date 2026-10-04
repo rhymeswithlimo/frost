@@ -120,8 +120,13 @@ func Open(ctx context.Context, b storage.Backend, k *crypto.Key) (*Repo, error) 
 
 // ChunkKey is the object key for a chunk.
 func ChunkKey(id crypto.ID) string {
-	h := id.String()
-	return "chunks/" + h[:2] + "/" + h
+	const prefix = "chunks/"
+	var key [len(prefix) + 3 + 64]byte
+	copy(key[:], prefix)
+	hex.Encode(key[len(prefix)+3:], id[:])
+	copy(key[len(prefix):], key[len(prefix)+3:len(prefix)+5])
+	key[len(prefix)+2] = '/'
+	return string(key[:])
 }
 
 // PutChunk encrypts and uploads a chunk and returns the number of bytes sent.
@@ -199,7 +204,11 @@ func (r *Repo) SaveSnapshot(ctx context.Context, s snapshot.Snapshot, t *snapsho
 		return nil, err
 	}
 	idx := treeIndex{Size: int64(len(data))}
-	var todo [][]byte
+	type upload struct {
+		id   crypto.ID
+		data []byte
+	}
+	var todo []upload
 	queued := make(map[crypto.ID]bool)
 	for _, piece := range chunker.Split(data, chunker.NewTable(r.Key.ChunkerSeed())) {
 		id := r.Key.ChunkID(piece)
@@ -208,9 +217,11 @@ func (r *Repo) SaveSnapshot(ctx context.Context, s snapshot.Snapshot, t *snapsho
 			continue
 		}
 		queued[id] = true
-		todo = append(todo, piece)
+		todo = append(todo, upload{id: id, data: piece})
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	uploaded := make(map[crypto.ID]int)
 	var (
 		wg       sync.WaitGroup
@@ -218,26 +229,38 @@ func (r *Repo) SaveSnapshot(ctx context.Context, s snapshot.Snapshot, t *snapsho
 		firstErr error
 		sem      = make(chan struct{}, 4)
 	)
-	for _, piece := range todo {
+uploads:
+	for _, job := range todo {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break uploads
+		}
+		if ctx.Err() != nil {
+			<-sem
+			break uploads
+		}
 		wg.Go(func() {
-			sem <- struct{}{}
 			defer func() { <-sem }()
-			id := r.Key.ChunkID(piece)
-			_, err := r.PutChunk(ctx, id, piece)
+			_, err := r.PutChunk(ctx, job.id, job.data)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
 				if firstErr == nil {
 					firstErr = err
+					cancel()
 				}
 				return
 			}
-			uploaded[id] = len(piece)
+			uploaded[job.id] = len(job.data)
 		})
 	}
 	wg.Wait()
 	if firstErr != nil {
 		return uploaded, fmt.Errorf("saving file list: %w", firstErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return uploaded, fmt.Errorf("saving file list: %w", err)
 	}
 	if err := r.putJSON(ctx, "trees/"+s.ID, idx); err != nil {
 		return uploaded, fmt.Errorf("saving file list: %w", err)

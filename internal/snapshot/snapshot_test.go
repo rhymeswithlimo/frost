@@ -1,7 +1,9 @@
 package snapshot
 
 import (
+	"fmt"
 	"maps"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -178,5 +180,118 @@ func TestSafeRelBackslash(t *testing.T) {
 	}
 	if got, err := SafeRel("C:/Users/me/notes..txt"); err != nil || got != "C/Users/me/notes..txt" {
 		t.Errorf("SafeRel rejected or changed a normal path: %q, %v", got, err)
+	}
+}
+
+func TestSafeRelPreservesUnixColon(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if got, err := SafeRel("/:file"); err != nil || got != ":file" {
+		t.Fatalf("%q, %v", got, err)
+	}
+}
+
+func TestSafeRelWindowsAliases(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows path semantics")
+	}
+	for _, p := range []string{"/NUL", "/COM1", "/x/file:stream", "/x/trailing.", "/x/trailing ", "/x/\x00"} {
+		if _, err := SafeRel(p); err == nil {
+			t.Errorf("accepted %q", p)
+		}
+	}
+}
+
+func TestRelativeTimeOverflow(t *testing.T) {
+	for _, p := range []string{"999999999999999999999 years ago", "999999999999999999 hours ago", "100000 weeks ago"} {
+		if _, err := ParseTime(p, time.Now()); err == nil {
+			t.Errorf("accepted %q", p)
+		}
+	}
+}
+
+func TestResolveUnsortedAndExactPrecedence(t *testing.T) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	snaps := []Snapshot{
+		{ID: "apple", Time: now.Add(-48 * time.Hour)},
+		{ID: "apple-long", Time: now.Add(-time.Hour)},
+		{ID: "older", Time: now.Add(-72 * time.Hour)},
+		{ID: "apple", Time: now.Add(-24 * time.Hour)},
+	}
+	before := slices.Clone(snaps)
+	for _, c := range []struct {
+		selector string
+		index    int
+	}{{"latest", 1}, {"apple", 3}, {"2 days ago", 0}} {
+		got, err := Resolve(snaps, c.selector, now)
+		if err != nil || !reflect.DeepEqual(got, snaps[c.index]) {
+			t.Fatalf("Resolve(%q): %v, %v", c.selector, got, err)
+		}
+	}
+	if !reflect.DeepEqual(snaps, before) {
+		t.Fatal("Resolve reordered the input")
+	}
+	if _, err := Resolve(snaps, "app", now); err == nil {
+		t.Fatal("ambiguous prefix accepted")
+	}
+	if _, err := Resolve(snaps, "10 days ago", now); err == nil || !strings.Contains(err.Error(), "oldest is "+snaps[2].Time.Local().Format("2006-01-02 15:04")) {
+		t.Fatalf("oldest snapshot missing from error: %v", err)
+	}
+}
+
+func TestDiffSortedAndFallback(t *testing.T) {
+	a := &Tree{Files: []File{{Path: "/a"}, {Path: "/c", Size: 1}, {Path: "/d"}}}
+	b := &Tree{Files: []File{{Path: "/b"}, {Path: "/c", Size: 2}, {Path: "/e"}}}
+	for _, c := range []struct {
+		a, b *Tree
+	}{
+		{a, b}, {a, &Tree{}}, {&Tree{}, b}, {&Tree{}, &Tree{}},
+		{&Tree{Files: []File{{Path: "/c"}, {Path: "/a"}}}, b},
+		{a, &Tree{Files: []File{{Path: "/c"}, {Path: "/c"}}}},
+	} {
+		if got, want := Diff(c.a, c.b), diffUnsorted(c.a, c.b); !reflect.DeepEqual(got, want) {
+			t.Fatalf("diff changed: %+v, want %+v", got, want)
+		}
+	}
+	got := Diff(a, b)
+	if got[2].Old != &a.Files[1] || got[2].New != &b.Files[1] {
+		t.Fatal("diff stopped pointing to the source entries")
+	}
+}
+
+func BenchmarkResolve(b *testing.B) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	snaps := make([]Snapshot, 10000)
+	for i := range snaps {
+		snaps[i] = Snapshot{ID: fmt.Sprintf("id-%08d", i), Time: now.Add(-time.Duration((i*1337)%10000) * time.Minute)}
+	}
+	for _, selector := range []string{"latest", "id-00000042", "3 days ago"} {
+		b.Run(selector, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := Resolve(snaps, selector, now); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkDiff(b *testing.B) {
+	a, c := &Tree{Files: make([]File, 100000)}, &Tree{Files: make([]File, 100000)}
+	for i := range a.Files {
+		f := File{Path: fmt.Sprintf("/data/file-%08d", i), Type: TypeFile, Size: 1024}
+		a.Files[i], c.Files[i] = f, f
+	}
+	for i := 0; i < len(c.Files); i += 100 {
+		c.Files[i].Size++
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		if len(Diff(a, c)) != 1000 {
+			b.Fatal("incorrect diff")
+		}
 	}
 }

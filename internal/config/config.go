@@ -268,6 +268,27 @@ func Render(c Config) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+// WritePrivate replaces a local secret through a unique, private temporary
+// file. Failed writes leave the previous file intact.
+func WritePrivate(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".frost-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
 var fileTmpl = template.Must(template.New("config").Funcs(template.FuncMap{
 	"q": func(v any) string {
 		if l, ok := v.([]string); ok && len(l) == 0 {

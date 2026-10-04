@@ -12,14 +12,8 @@ import (
 
 func newKeyCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "key <show | verify | import>",
-		Short: "Show, check or import your recovery phrase",
-		Long: `Your key is a 24 word recovery phrase. It's stored on this machine only,
-in a file only you can read, and it never leaves it.
-
-  show    print the recovery phrase (asks first)
-  verify  type a phrase to check it matches this machine's key and your backups
-  import  use an existing phrase on this machine, e.g. after a reinstall`,
+		Use:       "key <show | verify | import>",
+		Short:     "Show, check or import your recovery phrase",
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"show", "verify", "import"},
 		RunE: func(cmd *cobra.Command, args []string) error {

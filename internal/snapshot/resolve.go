@@ -3,7 +3,6 @@ package snapshot
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,42 +20,62 @@ func Resolve(snaps []Snapshot, sel string, now time.Time) (Snapshot, error) {
 	if len(snaps) == 0 {
 		return Snapshot{}, fmt.Errorf("no snapshots yet, run `frost backup` first")
 	}
-	sorted := slices.Clone(snaps)
-	slices.SortFunc(sorted, func(a, b Snapshot) int { return b.Time.Compare(a.Time) }) // newest first
-
 	sel = strings.TrimSpace(strings.ToLower(sel))
 	if sel == "" || sel == "latest" {
-		return sorted[0], nil
+		newest := snaps[0]
+		for _, s := range snaps[1:] {
+			if s.Time.After(newest.Time) {
+				newest = s
+			}
+		}
+		return newest, nil
 	}
 
 	// IDs first, so an ID can never be mistaken for a time.
-	var matches []Snapshot
-	for _, s := range sorted {
+	var exact, match Snapshot
+	matches, foundExact := 0, false
+	for _, s := range snaps {
 		if s.ID == sel {
-			return s, nil
+			if !foundExact || s.Time.After(exact.Time) {
+				exact = s
+			}
+			foundExact = true
 		}
 		if strings.HasPrefix(s.ID, sel) {
-			matches = append(matches, s)
+			match = s
+			matches++
 		}
 	}
-	if len(matches) == 1 {
-		return matches[0], nil
+	if foundExact {
+		return exact, nil
 	}
-	if len(matches) > 1 {
-		return Snapshot{}, fmt.Errorf("%q matches %d snapshots, use more of the ID", sel, len(matches))
+	if matches == 1 {
+		return match, nil
+	}
+	if matches > 1 {
+		return Snapshot{}, fmt.Errorf("%q matches %d snapshots, use more of the ID", sel, matches)
 	}
 
 	at, err := ParseTime(sel, now)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	for _, s := range sorted {
-		if !s.Time.After(at) {
-			return s, nil
+	var selected Snapshot
+	found := false
+	oldest := snaps[0].Time
+	for _, s := range snaps {
+		if s.Time.Before(oldest) {
+			oldest = s.Time
+		}
+		if !s.Time.After(at) && (!found || s.Time.After(selected.Time)) {
+			selected, found = s, true
 		}
 	}
+	if found {
+		return selected, nil
+	}
 	return Snapshot{}, fmt.Errorf("no snapshot at or before %s (oldest is %s)",
-		at.Format("2006-01-02 15:04"), sorted[len(sorted)-1].Time.Local().Format("2006-01-02 15:04"))
+		at.Format("2006-01-02 15:04"), oldest.Local().Format("2006-01-02 15:04"))
 }
 
 var relRE = regexp.MustCompile(`^(\d+)\s*([a-z]+?)s?(\s+ago)?$`)

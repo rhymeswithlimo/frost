@@ -3,7 +3,6 @@ package update
 import (
 	"archive/tar"
 	"archive/zip"
-	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -109,20 +108,26 @@ func Install(ctx context.Context, rel Release, exe string) error {
 	defer unlock()
 	Cleanup(exe)
 
-	archive, err := get(ctx, BaseURL+"/download/"+rel.Version+"/"+rel.Archive, maxArchive)
+	archive, err := os.CreateTemp(filepath.Dir(exe), ".frost-update-archive-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(archive.Name())
+	defer archive.Close()
+	hash := sha256.New()
+	err = download(ctx, BaseURL+"/download/"+rel.Version+"/"+rel.Archive, maxArchive, io.MultiWriter(archive, hash))
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", rel.Archive, err)
 	}
-	got := sha256.Sum256(archive)
-	if subtle.ConstantTimeCompare(got[:], rel.sum) != 1 {
+	if subtle.ConstantTimeCompare(hash.Sum(nil), rel.sum) != 1 {
 		return fmt.Errorf("%s doesn't match its signed checksum, not installing it", rel.Archive)
 	}
-	bin, err := extract(rel.Archive, archive)
+	info, err := archive.Stat()
 	if err != nil {
-		return fmt.Errorf("%s: %w", rel.Archive, err)
+		return err
 	}
 
-	staged, err := stage(exe, bin)
+	staged, err := stage(exe, rel.Archive, archive, info.Size())
 	if err != nil {
 		return err
 	}
@@ -130,71 +135,75 @@ func Install(ctx context.Context, rel Release, exe string) error {
 	if err := probe(ctx, staged, rel.Version); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return replace(staged, exe)
 }
 
 // extract pulls the frost binary out of a release archive. Nothing else in
 // the archive is looked at, and no path from it is used.
-func extract(name string, archive []byte) ([]byte, error) {
+func extract(name string, archive io.ReaderAt, size int64, dst io.Writer) error {
 	want := "frost"
 	if strings.HasSuffix(name, ".zip") {
 		want = "frost.exe"
-		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+		zr, err := zip.NewReader(archive, size)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		for _, f := range zr.File {
 			if cleanName(f.Name) != want || !f.Mode().IsRegular() {
 				continue
 			}
 			if f.UncompressedSize64 > maxBinary {
-				return nil, errors.New("binary too big")
+				return errors.New("binary too big")
 			}
 			rc, err := f.Open()
 			if err != nil {
-				return nil, err
+				return err
 			}
 			defer rc.Close()
-			return readAll(rc)
+			return copyBinary(dst, rc)
 		}
-		return nil, errors.New(want + " not found in the archive")
+		return errors.New(want + " not found in the archive")
 	}
-	gz, err := gzip.NewReader(bytes.NewReader(archive))
+	gz, err := gzip.NewReader(io.NewSectionReader(archive, 0, size))
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer gz.Close()
 	tr := tar.NewReader(gz)
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return nil, errors.New(want + " not found in the archive")
+			return errors.New(want + " not found in the archive")
 		}
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if cleanName(h.Name) == want && h.Typeflag == tar.TypeReg {
 			if h.Size > maxBinary {
-				return nil, errors.New("binary too big")
+				return errors.New("binary too big")
 			}
-			return readAll(tr)
+			return copyBinary(dst, tr)
 		}
 	}
 }
 
 func cleanName(n string) string { return strings.TrimPrefix(path.Clean("/"+n), "/") }
 
-func readAll(r io.Reader) ([]byte, error) {
-	b, err := io.ReadAll(io.LimitReader(r, maxBinary+1))
+func copyBinary(dst io.Writer, r io.Reader) error {
+	n, err := io.Copy(dst, io.LimitReader(r, maxBinary+1))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if len(b) > maxBinary {
-		return nil, errors.New("binary too big")
+	if n > maxBinary {
+		return errors.New("binary too big")
 	}
-	if len(b) == 0 {
-		return nil, errors.New("binary is empty")
+	if n == 0 {
+		return errors.New("binary is empty")
 	}
-	return b, nil
+	return nil
 }
 
 // stagePattern names staged binaries: hidden, next to the real one so the
@@ -206,8 +215,8 @@ func stagePattern() string {
 	return ".frost-update-*"
 }
 
-// stage writes bin next to exe with exe's permissions, synced to disk.
-func stage(exe string, bin []byte) (string, error) {
+// stage extracts the binary next to exe with exe's permissions, synced to disk.
+func stage(exe, name string, archive io.ReaderAt, size int64) (string, error) {
 	mode := fs.FileMode(0o755)
 	if fi, err := os.Stat(exe); err == nil {
 		mode = fi.Mode().Perm() | 0o100
@@ -216,8 +225,11 @@ func stage(exe string, bin []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	name := f.Name()
-	_, err = f.Write(bin)
+	staged := f.Name()
+	err = extract(name, archive, size, f)
+	if err != nil {
+		err = fmt.Errorf("%s: %w", name, err)
+	}
 	if err == nil {
 		err = f.Sync()
 	}
@@ -225,14 +237,14 @@ func stage(exe string, bin []byte) (string, error) {
 		err = cerr
 	}
 	if err == nil {
-		err = os.Chmod(name, mode)
+		err = os.Chmod(staged, mode)
 	}
 	if err != nil {
-		os.Remove(name)
+		os.Remove(staged)
 		return "", fmt.Errorf("writing the new binary: %w", err)
 	}
-	keepOwner(exe, name)
-	return name, nil
+	keepOwner(exe, staged)
+	return staged, nil
 }
 
 // Cleanup removes what earlier updates left next to exe: old binaries

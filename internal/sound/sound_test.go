@@ -3,7 +3,11 @@ package sound
 import (
 	"encoding/binary"
 	"math"
+	"sync"
+	"sync/atomic"
 	"testing"
+
+	"github.com/ebitengine/oto/v3"
 )
 
 // wav builds a PCM WAV file in memory.
@@ -77,5 +81,55 @@ func TestDisabledAndNilAreSilent(t *testing.T) {
 	none.Play("x")
 	if none.Available() {
 		t.Fatal("nil player reports available")
+	}
+}
+
+func TestDecodeChunkBounds(t *testing.T) {
+	oversized := wav(1, sampleRate, 8, []byte{128})
+	binary.LittleEndian.PutUint32(oversized[52:56], math.MaxUint32)
+	for name, data := range map[string][]byte{
+		"oversized chunk": oversized,
+		"short data":      wav(1, sampleRate, 8, []byte{128, 129})[:57],
+		"partial frame":   wav(2, sampleRate, 16, []byte{0, 0, 0}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeWAV(data); err == nil {
+				t.Fatal("accepted a damaged WAV")
+			}
+		})
+	}
+}
+
+func TestProcessingReservationsAreBounded(t *testing.T) {
+	p := &Player{ready: true, active: map[string][]*oto.Player{}, pending: map[string]int{}}
+	var accepted atomic.Int32
+	var group sync.WaitGroup
+	for range 100 {
+		group.Go(func() {
+			if p.reserve("burst") {
+				accepted.Add(1)
+			}
+		})
+	}
+	group.Wait()
+	if got := accepted.Load(); got != maxPerClip {
+		t.Fatalf("reserved %d processors, want %d", got, maxPerClip)
+	}
+	if !p.reserve("other") {
+		t.Fatal("one clip blocked a different clip")
+	}
+	p.ready = false
+	if p.reserve("unavailable") {
+		t.Fatal("reserved processing without an audio device")
+	}
+}
+
+func BenchmarkDecodeWAV(b *testing.B) {
+	data := wav(1, sampleRate, 8, make([]byte, 20000))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := decodeWAV(data); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

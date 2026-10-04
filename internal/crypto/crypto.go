@@ -14,7 +14,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -53,20 +55,19 @@ func ParseID(s string) (ID, error) {
 	if len(s) != 64 {
 		return id, errors.New("invalid chunk id length")
 	}
-	b, err := hex.DecodeString(s)
-	if err != nil || len(b) != len(id) {
-		return id, fmt.Errorf("invalid chunk id %q", s)
+	if _, err := hex.Decode(id[:], []byte(s)); err != nil {
+		return ID{}, fmt.Errorf("invalid chunk id %q", s)
 	}
-	copy(id[:], b)
 	return id, nil
 }
 
-// Key is an unlocked master key and its derived subkeys.
+// Key is an unlocked master key and its derived subkeys. It must not be copied.
 type Key struct {
 	master [KeySize]byte
 	enc    [32]byte // AEAD key for all blobs
 	mac    [32]byte // HMAC key for chunk IDs
 	gear   uint64   // seed for the chunker's gear table
+	ids    sync.Pool
 }
 
 // NewKey generates a fresh random master key.
@@ -96,6 +97,7 @@ func fromMaster(m [KeySize]byte) *Key {
 	k := &Key{master: m}
 	derive(m[:], "frost v1 encryption", k.enc[:])
 	derive(m[:], "frost v1 chunk id", k.mac[:])
+	k.ids.New = func() any { return hmac.New(sha256.New, k.mac[:]) }
 	var g [8]byte
 	derive(m[:], "frost v1 chunker", g[:])
 	k.gear = binary.LittleEndian.Uint64(g[:])
@@ -137,16 +139,22 @@ func (k *Key) ChunkerSeed() uint64 { return k.gear }
 // ChunkID returns the keyed ID of a plaintext chunk. Because it's an HMAC and
 // not a bare hash, the storage provider can't check whether you have a known file.
 func (k *Key) ChunkID(data []byte) ID {
-	h := hmac.New(sha256.New, k.mac[:])
+	h, _ := k.ids.Get().(hash.Hash)
+	if h == nil {
+		h = hmac.New(sha256.New, k.mac[:])
+	}
+	h.Reset()
 	h.Write(data)
 	var id ID
-	copy(id[:], h.Sum(nil))
+	h.Sum(id[:0])
+	k.ids.Put(h)
 	return id
 }
 
 var (
-	zenc, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
-	zdec, _ = zstd.NewReader(nil, zstd.WithDecoderMaxMemory(MaxPlaintextSize))
+	sealBuffers = sync.Pool{New: func() any { return new([]byte) }}
+	zenc, _     = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	zdec, _     = zstd.NewReader(nil, zstd.WithDecoderMaxMemory(MaxPlaintextSize))
 )
 
 // Seal compresses (when it helps) and encrypts plaintext with
@@ -161,22 +169,37 @@ func (k *Key) Seal(plaintext []byte, ad string) []byte {
 	if len(plaintext) > MaxPlaintextSize {
 		panic("crypto: plaintext exceeds MaxPlaintextSize")
 	}
-	body := make([]byte, 0, len(plaintext)+1)
-	comp := zenc.EncodeAll(plaintext, nil)
+	scratch := sealBuffers.Get().(*[]byte)
+	if cap(*scratch) < zenc.MaxEncodedSize(len(plaintext)) {
+		*scratch = make([]byte, 0, zenc.MaxEncodedSize(len(plaintext)))
+	}
+	comp := zenc.EncodeAll(plaintext, (*scratch)[:0])
+	defer func() {
+		// Keep scratch for chunks, without retaining oversized metadata.
+		if cap(comp) <= zenc.MaxEncodedSize(8<<20) {
+			*scratch = comp[:0]
+		} else {
+			*scratch = nil
+		}
+		sealBuffers.Put(scratch)
+	}()
+	payload, flag := plaintext, flagRaw
 	if len(comp) < len(plaintext) {
-		body = append(append(body, flagZstd), comp...)
-	} else {
-		body = append(append(body, flagRaw), plaintext...)
+		payload, flag = comp, flagZstd
 	}
 
 	aead, _ := chacha20poly1305.NewX(k.enc[:])
-	out := make([]byte, 1+aead.NonceSize(), 1+aead.NonceSize()+len(body)+aead.Overhead())
+	header := 1 + aead.NonceSize()
+	out := make([]byte, header+1+len(payload), header+1+len(payload)+aead.Overhead())
 	out[0] = blobVersion
-	nonce := out[1 : 1+aead.NonceSize()]
+	nonce := out[1:header]
 	if _, err := rand.Read(nonce); err != nil {
 		panic(err)
 	}
-	return aead.Seal(out, nonce, body, []byte(ad))
+	body := out[header:]
+	body[0] = flag
+	copy(body[1:], payload)
+	return aead.Seal(out[:header], nonce, body, []byte(ad))
 }
 
 // Open reverses Seal. Any tampering, a wrong key or a mismatched name returns

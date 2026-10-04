@@ -84,6 +84,37 @@ func (m *Manifest) HasChunk(id crypto.ID) bool {
 	return ok
 }
 
+// HasChunks checks all of a file's chunk IDs in one read transaction.
+func (m *Manifest) HasChunks(chunks []string) bool {
+	if len(chunks) == 0 {
+		return true
+	}
+	ok := true
+	err := m.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bChunks)
+		for _, c := range chunks {
+			id, err := crypto.ParseID(c)
+			if err != nil || b.Get(id[:]) == nil {
+				ok = false
+				break
+			}
+		}
+		return nil
+	})
+	return err == nil && ok
+}
+
+// AnyChunks reports whether the cache holds at least one chunk.
+func (m *Manifest) AnyChunks() bool {
+	var ok bool
+	m.db.View(func(tx *bolt.Tx) error {
+		k, _ := tx.Bucket(bChunks).Cursor().First()
+		ok = k != nil
+		return nil
+	})
+	return ok
+}
+
 // AddChunks records chunks as uploaded.
 func (m *Manifest) AddChunks(chunks map[crypto.ID]int) error {
 	if len(chunks) == 0 {
@@ -134,6 +165,9 @@ func (m *Manifest) ChunkCount() int {
 
 // SampleChunks picks up to n known chunk IDs uniformly at random.
 func (m *Manifest) SampleChunks(n int) []crypto.ID {
+	if n <= 0 {
+		return nil
+	}
 	var out []crypto.ID
 	seen := 0
 	m.db.View(func(tx *bolt.Tx) error {
@@ -167,6 +201,9 @@ func (m *Manifest) File(path string) (FileEntry, bool) {
 
 // PutFiles stores file entries.
 func (m *Manifest) PutFiles(entries map[string]FileEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
 	return m.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bFiles)
 		for p, e := range entries {
@@ -179,6 +216,17 @@ func (m *Manifest) PutFiles(entries map[string]FileEntry) error {
 			}
 		}
 		return nil
+	})
+}
+
+// PutSnapshot adds or updates one cached snapshot header.
+func (m *Manifest) PutSnapshot(s snapshot.Snapshot) error {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return m.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bSnaps).Put([]byte(s.ID), raw)
 	})
 }
 

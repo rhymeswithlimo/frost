@@ -27,10 +27,11 @@ type fetch struct {
 // so a long run of identical chunks (zeros in a disk image) costs one
 // request. fn must not modify or keep data. Fetch stops at the first error.
 func (r *Repo) Fetch(ctx context.Context, ids []crypto.ID, workers int, fn func(i int, data []byte) error) error {
-	if workers <= 0 {
-		workers = 1
+	if len(ids) == 0 {
+		return nil
 	}
-	window := 2 * workers
+	workers = min(max(workers, 1), len(ids))
+	window := min(2*workers, len(ids))
 	ctx, cancel := context.WithCancel(ctx)
 	jobs := make(chan *fetch, window)
 	var wg sync.WaitGroup
@@ -53,9 +54,12 @@ func (r *Repo) Fetch(ctx context.Context, ids []crypto.ID, workers int, fn func(
 	}
 
 	live := make(map[crypto.ID]*fetch)
-	queue := make([]*fetch, 0, window)
+	queue := make([]*fetch, window)
 	next := 0
 	for i := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		for ; next < len(ids) && next < i+window; next++ {
 			f := live[ids[next]]
 			if f == nil {
@@ -64,14 +68,16 @@ func (r *Repo) Fetch(ctx context.Context, ids []crypto.ID, workers int, fn func(
 				jobs <- f // never blocks: at most window fetches are live
 			}
 			f.refs++
-			queue = append(queue, f)
+			queue[next%window] = f
 		}
-		f := queue[0]
-		queue = queue[1:]
+		f := queue[i%window]
 		select {
 		case <-f.done:
 		case <-ctx.Done():
 			return ctx.Err()
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		if f.err != nil {
 			return f.err
@@ -79,9 +85,13 @@ func (r *Repo) Fetch(ctx context.Context, ids []crypto.ID, workers int, fn func(
 		if err := fn(i, f.data); err != nil {
 			return err
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if f.refs--; f.refs == 0 {
 			delete(live, f.id)
 		}
+		queue[i%window] = nil
 	}
 	return nil
 }

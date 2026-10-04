@@ -3,6 +3,7 @@ package chunker
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"io"
 	"math/rand"
 	"testing"
@@ -145,5 +146,32 @@ func TestResetReusesBuffer(t *testing.T) {
 	}
 	if !bytes.Equal(joined, b) {
 		t.Fatal("chunker didn't start over after Reset")
+	}
+}
+
+type emptyReader struct {
+	r     io.Reader
+	empty int
+}
+
+func (r *emptyReader) Read(p []byte) (int, error) {
+	if r.empty > 0 || r.r == nil {
+		r.empty--
+		return 0, nil
+	}
+	return r.r.Read(p)
+}
+
+func TestStalledReader(t *testing.T) {
+	c := New(&emptyReader{}, NewTable(1))
+	if _, err := c.Next(); !errors.Is(err, io.ErrNoProgress) {
+		t.Fatalf("stalled reader: %v", err)
+	}
+	c.Reset(&emptyReader{r: bytes.NewReader([]byte("short reads")), empty: 99})
+	if data, err := c.Next(); err != nil || string(data) != "short reads" {
+		t.Fatalf("short reader after reset: %q, %v", data, err)
+	}
+	if _, err := c.Next(); err != io.EOF {
+		t.Fatalf("short reader didn't finish: %v", err)
 	}
 }

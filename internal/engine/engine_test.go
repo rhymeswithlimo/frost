@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ import (
 )
 
 type env struct {
-	t     *testing.T
+	t     testing.TB
 	src   string
 	mem   *storagetest.Mem
 	key   *crypto.Key
@@ -28,7 +29,7 @@ type env struct {
 	mpath string
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t testing.TB) *env {
 	t.Helper()
 	ctx := context.Background()
 	key, _ := crypto.NewKey()
@@ -75,6 +76,31 @@ func random(n int, seed int64) []byte {
 	b := make([]byte, n)
 	rand.New(rand.NewSource(seed)).Read(b)
 	return b
+}
+
+func BenchmarkBackupSmallFiles(b *testing.B) {
+	for _, cached := range []bool{false, true} {
+		name := "uncached_dry_run"
+		if cached {
+			name = "unchanged"
+		}
+		b.Run(name, func(b *testing.B) {
+			e := newEnv(b)
+			for i := range 64 {
+				e.write(fmt.Sprint(i), []byte(fmt.Sprintf("file %d\n", i)))
+			}
+			if cached {
+				e.backup(BackupOptions{})
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				res := e.backup(BackupOptions{DryRun: !cached})
+				if res.Snapshot.Stats.Files != 64 || cached && !res.Unchanged {
+					b.Fatal(res.Snapshot.Stats)
+				}
+			}
+		})
+	}
 }
 
 func TestRoundTrip(t *testing.T) {

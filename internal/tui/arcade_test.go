@@ -181,6 +181,30 @@ func TestArcadeRendersToSize(t *testing.T) {
 	}
 }
 
+func TestCanvasClipsAndPreservesStyles(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	c := newCanvas(5, 3)
+	c.put(-1, 0, "abc", stIce2)
+	c.put(4, 0, "xy", stShip)
+	c.center(1, "éa", stFile)
+	c.put(0, -1, "hidden", stRot)
+	c.put(0, 3, "hidden", stRot)
+	want := strings.Join([]string{
+		arcadeStyles[stIce2].Render("bc") + arcadeStyles[stBlank].Render("  ") + arcadeStyles[stShip].Render("x"),
+		arcadeStyles[stBlank].Render(" ") + arcadeStyles[stFile].Render("éa") + arcadeStyles[stBlank].Render("  "),
+		arcadeStyles[stBlank].Render("     "),
+	}, "\n")
+	if got := c.render(); got != want {
+		t.Fatal("canvas changed the clipped characters or their styles")
+	}
+	for _, size := range [][2]int{{0, 0}, {0, 3}, {5, 0}} {
+		c := newCanvas(size[0], size[1])
+		if got := c.render(); got != strings.Repeat("\n", max(size[1]-1, 0)) {
+			t.Fatalf("empty canvas %v rendered extra cells", size)
+		}
+	}
+}
+
 func TestSpreadWidensWithLevel(t *testing.T) {
 	a := newTestArcade(t)
 	a.resize(64, 24)

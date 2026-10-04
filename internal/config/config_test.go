@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 )
@@ -102,5 +103,56 @@ func TestS3FolderDefault(t *testing.T) {
 	}
 	if got, err := LoadFile(); err != nil || got.Storage.S3.Prefix != "frost" {
 		t.Fatalf("missing folder came back as %q, %v", got.Storage.S3.Prefix, err)
+	}
+}
+
+func TestWritePrivateReplacesWithoutFollowingDestination(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config")
+	if err := WritePrivate(p, []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePrivate(p, []byte("second")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(p); string(got) != "second" {
+		t.Fatal("replacement failed")
+	}
+	oldTmp := p + ".tmp"
+	if err := os.WriteFile(oldTmp, []byte("untouched"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePrivate(p, []byte("third")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(oldTmp); string(got) != "untouched" {
+		t.Fatal("reused predictable temporary file")
+	}
+}
+
+func TestIntervalNormalizesDuration(t *testing.T) {
+	if _, err := Interval(" 2H "); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWritePrivateReplacesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("untouched"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "config")
+	if err := os.Symlink(outside, dst); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := WritePrivate(dst, []byte("replacement")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "untouched" {
+		t.Fatalf("symlink target changed: %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(dst); err != nil || string(got) != "replacement" {
+		t.Fatalf("replacement = %q, %v", got, err)
 	}
 }

@@ -254,7 +254,7 @@ func (m model) viewFiles() string {
 	nameW, sizeW, timeW := fileColumns(inner)
 
 	lines := m.fileHeader()
-	listH := m.fileListH()
+	listH := max(h-len(lines), 1)
 	top := window(m.fileCur, len(kids), listH)
 
 	if len(kids) == 0 {
@@ -375,7 +375,7 @@ func (m model) viewDiff() string {
 	if len(m.changes) == 0 {
 		lines = append(lines, pad(theme.Dim.Render("No differences."), inner))
 	}
-	listH := m.diffListH()
+	listH := max(h-len(lines), 1)
 	end := min(m.diffTop+listH, len(m.changes))
 	for _, c := range m.changes[min(m.diffTop, end):end] {
 		var sym string

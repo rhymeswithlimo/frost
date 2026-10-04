@@ -483,3 +483,28 @@ func TestSaveTokenKeepsBackend(t *testing.T) {
 		t.Errorf("fresh config after saving a key: %+v", got)
 	}
 }
+
+func TestKeyVerifyMismatchWithoutConfig(t *testing.T) {
+	f := setup(t)
+	if err := saveKey(f.key); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := crypto.NewKey()
+	if _, err := run(t, other.Phrase()+"\n", "key", "verify"); err == nil {
+		t.Fatal("wrong key reported success")
+	}
+}
+
+func TestRerunCommandNamesTheSnapshot(t *testing.T) {
+	got := rerunCommand("maple-otter-3f1c", []string{"/home/me/My Documents"}, true, "", false)
+	want := "frost restore maple-otter-3f1c '" + filepath.FromSlash("/home/me/My Documents") + "' --beside"
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	if got := rerunCommand("x", nil, false, "/tmp/out", false); got != "frost restore x --to /tmp/out" {
+		t.Fatalf("--to: %s", got)
+	}
+	if got := rerunCommand("x", nil, false, "", true); got != "frost restore x --overwrite" {
+		t.Fatalf("--overwrite: %s", got)
+	}
+}

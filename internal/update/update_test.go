@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -85,6 +86,11 @@ func TestNewer(t *testing.T) {
 		{"0.2.0", "v0.1.0", false},
 		{"v0.2", "v0.1.0", false},
 		{"v01.2.0", "v0.1.0", false},
+		{"v18446744073709551617.0.0", "v18446744073709551616.0.0", true},
+		{"v0.18446744073709551616.0", "v0.18446744073709551617.0", false},
+		{"v0.1.0-18446744073709551616", "v0.1.0-9999999999999999999", true},
+		{"v0.1.0-18446744073709551616", "v0.1.0-alpha", false},
+		{"v0.1.0-01", "v0.1.0-1", false},
 	} {
 		if got := Newer(c.a, c.b); got != c.want {
 			t.Errorf("Newer(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
@@ -287,6 +293,92 @@ func TestSizeLimits(t *testing.T) {
 	}
 }
 
+func TestDownloadBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		body      string
+		stream    bool
+		wantError bool
+	}{
+		{"exact", "12345678", false, false},
+		{"known oversized", "123456789", false, true},
+		{"stream exact", "12345678", true, false},
+		{"stream oversized", "123456789", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.stream {
+					w.(http.Flusher).Flush()
+				}
+				io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+			var dst bytes.Buffer
+			err := download(context.Background(), srv.URL, 8, &dst)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("download = %v", err)
+			}
+			if err == nil && dst.String() != tc.body {
+				t.Fatalf("body = %q", dst.String())
+			}
+			if dst.Len() > 9 {
+				t.Fatalf("read beyond limit: %d", dst.Len())
+			}
+		})
+	}
+}
+
+func TestDownloadWriterError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "archive")
+	}))
+	defer srv.Close()
+	r, w := io.Pipe()
+	r.Close()
+	defer w.Close()
+	if err := download(context.Background(), srv.URL, 8, w); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("download = %v, want writer error", err)
+	}
+}
+
+func TestCanceledInstallKeepsOldBinary(t *testing.T) {
+	newRelease(t, "v0.2.0")
+	rel, err := Latest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := oldBinary(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := Install(ctx, rel, exe); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Install = %v, want cancellation", err)
+	}
+	assertOld(t, exe)
+	assertClean(t, exe)
+}
+
+func TestCancellationAfterProbeKeepsOldBinary(t *testing.T) {
+	newRelease(t, "v0.2.0")
+	rel, err := Latest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := oldBinary(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	saved := probe
+	probe = func(context.Context, string, string) error {
+		cancel()
+		return nil
+	}
+	t.Cleanup(func() { probe = saved })
+	if err := Install(ctx, rel, exe); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Install = %v, want cancellation", err)
+	}
+	assertOld(t, exe)
+	assertClean(t, exe)
+}
+
 func TestRetriesServerErrors(t *testing.T) {
 	r := newRelease(t, "v0.2.0")
 	backoff = time.Millisecond
@@ -323,9 +415,10 @@ func TestExtract(t *testing.T) {
 	tw.Write([]byte("bin"))
 	tw.Close()
 	gz.Close()
-	b, err := extract("frost_1.0.0_linux_amd64.tar.gz", tgz.Bytes())
-	if err != nil || string(b) != "bin" {
-		t.Fatalf("tar: %q, %v", b, err)
+	var out bytes.Buffer
+	err := extract("frost_1.0.0_linux_amd64.tar.gz", bytes.NewReader(tgz.Bytes()), int64(tgz.Len()), &out)
+	if err != nil || out.String() != "bin" {
+		t.Fatalf("tar: %q, %v", out.Bytes(), err)
 	}
 
 	var z bytes.Buffer
@@ -333,13 +426,62 @@ func TestExtract(t *testing.T) {
 	w, _ := zw.Create("frost.exe")
 	w.Write([]byte("exe"))
 	zw.Close()
-	b, err = extract("frost_1.0.0_windows_amd64.zip", z.Bytes())
-	if err != nil || string(b) != "exe" {
-		t.Fatalf("zip: %q, %v", b, err)
+	out.Reset()
+	err = extract("frost_1.0.0_windows_amd64.zip", bytes.NewReader(z.Bytes()), int64(z.Len()), &out)
+	if err != nil || out.String() != "exe" {
+		t.Fatalf("zip: %q, %v", out.Bytes(), err)
 	}
 
-	if _, err := extract("frost_1.0.0_linux_amd64.tar.gz", []byte("not gzip")); err == nil {
+	if err := extract("frost_1.0.0_linux_amd64.tar.gz", strings.NewReader("not gzip"), 8, &out); err == nil {
 		t.Fatal("garbage accepted")
+	}
+}
+
+func TestExtractRejectsInvalidBinary(t *testing.T) {
+	for _, size := range []int64{0, maxBinary + 1} {
+		var archive bytes.Buffer
+		gz := gzip.NewWriter(&archive)
+		tw := tar.NewWriter(gz)
+		if err := tw.WriteHeader(&tar.Header{Name: "frost", Typeflag: tar.TypeReg, Size: size}); err != nil {
+			t.Fatal(err)
+		}
+		tw.Close()
+		gz.Close()
+		if err := extract("frost.tar.gz", bytes.NewReader(archive.Bytes()), int64(archive.Len()), io.Discard); err == nil {
+			t.Fatalf("accepted binary with size %d", size)
+		}
+	}
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	zw.Create("frost.exe")
+	zw.Close()
+	if err := extract("frost.zip", bytes.NewReader(archive.Bytes()), int64(archive.Len()), io.Discard); err == nil {
+		t.Fatal("accepted empty zip binary")
+	}
+}
+
+func BenchmarkExtract(b *testing.B) {
+	bin := make([]byte, 8<<20)
+	if _, err := rand.Read(bin); err != nil {
+		b.Fatal(err)
+	}
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "frost", Typeflag: tar.TypeReg, Size: int64(len(bin))}); err != nil {
+		b.Fatal(err)
+	}
+	tw.Write(bin)
+	tw.Close()
+	gz.Close()
+	r := bytes.NewReader(archive.Bytes())
+	b.ReportAllocs()
+	b.SetBytes(int64(len(bin)))
+	b.ResetTimer()
+	for b.Loop() {
+		if err := extract("frost.tar.gz", r, int64(archive.Len()), io.Discard); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

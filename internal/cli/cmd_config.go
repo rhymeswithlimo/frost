@@ -20,23 +20,8 @@ import (
 func newConfigCmd() *cobra.Command {
 	var showSecrets bool
 	cmd := &cobra.Command{
-		Use:   "config [get <key> | set <key> <value...> | edit [editor]]",
-		Short: "Read or change settings without rerunning init",
-		Long: `With no arguments, prints every setting. Credentials are masked unless
-you pass --show-secrets.
-
-  get <key>             print one setting
-  set <key> <value...>  change one setting (lists take one value per item)
-  edit [editor]         open config.toml in $EDITOR, or the editor you name,
-                        and save your changes once you type yes
-
-Changing schedule.enabled or schedule.every updates the OS scheduled job.`,
-		Example: `  frost config
-  frost config get paths
-  frost config set schedule.every 6h
-  frost config set paths ~/Documents ~/Pictures
-  frost config set exclude node_modules "*.iso"
-  frost config edit`,
+		Use:       "config [get <key> | set <key> <value...> | edit [editor]]",
+		Short:     "Read or change settings without rerunning init",
 		Args:      cobra.ArbitraryArgs,
 		ValidArgs: []string{"get", "set", "edit"},
 		RunE: func(cmd *cobra.Command, args []string) error {

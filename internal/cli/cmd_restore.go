@@ -25,24 +25,6 @@ func newRestoreCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore [snapshot] [paths...]",
 		Short: "Get files back from a snapshot",
-		Long: `Restores files from a snapshot. Pick the snapshot by ID, by a unique start
-of its ID, by "latest", or by time: "3 days ago", "12h", "yesterday",
-"2026-09-20". A time picks the newest snapshot at or before it.
-
-Say where the files go with exactly one of:
-
-  --beside      a new frost-restore-<id> folder next to the originals
-  --to <dir>    a new frost-restore-<id> folder inside <dir>
-  --overwrite   back where they came from, replacing what's there
-
-In a new folder, what you restore keeps its name: restoring ~/Documents/taxes
-with --beside gives ~/Documents/frost-restore-<id>/taxes.
-
-With no arguments in a terminal, opens the snapshot browser.`,
-		Example: `  frost restore latest --beside
-  frost restore "3 days ago" ~/Documents/taxes --beside
-  frost restore maple-absurd-3f1c --to ~/Desktop
-  frost restore latest ~/notes.txt --overwrite`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				if !isTerminal(os.Stdin) {

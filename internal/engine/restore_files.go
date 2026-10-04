@@ -190,6 +190,9 @@ func (e *Engine) restoreFiles(ctx context.Context, id string, root *os.Root, fil
 	if check {
 		w.p.Checking = true
 		for _, r := range files {
+			if err := ctx.Err(); err != nil {
+				return w, err
+			}
 			if err := w.check(ctx, r); err != nil {
 				return w, err
 			}
@@ -300,6 +303,9 @@ func (w *restoreWriter) write(ctx context.Context, files []*restoring) error {
 	// and opens that one.
 	settle := func() error {
 		for k < len(files) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			r := files[k]
 			if !r.done && w.fh == nil {
 				if err := w.open(r); err != nil {
@@ -314,7 +320,7 @@ func (w *restoreWriter) write(ctx context.Context, files []*restoring) error {
 			}
 			k++
 		}
-		return nil
+		return ctx.Err()
 	}
 	if err := settle(); err != nil {
 		return err

@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -538,7 +539,7 @@ const (
 	stGood
 )
 
-var arcadeStyles = map[cellStyle]lipgloss.Style{
+var arcadeStyles = [...]lipgloss.Style{
 	stBlank:  theme.Base,
 	stShip:   theme.Bold,
 	stBullet: theme.Bold,
@@ -554,15 +555,14 @@ var arcadeStyles = map[cellStyle]lipgloss.Style{
 
 type canvas struct {
 	w, h  int
-	r     [][]rune
-	style [][]cellStyle
+	r     []rune
+	style []cellStyle
 }
 
 func newCanvas(w, h int) *canvas {
-	c := &canvas{w: w, h: h, r: make([][]rune, h), style: make([][]cellStyle, h)}
-	for y := range h {
-		c.r[y] = []rune(strings.Repeat(" ", w))
-		c.style[y] = make([]cellStyle, w)
+	c := &canvas{w: w, h: h, r: make([]rune, w*h), style: make([]cellStyle, w*h)}
+	for i := range c.r {
+		c.r[i] = ' '
 	}
 	return c
 }
@@ -571,31 +571,37 @@ func (c *canvas) put(x, y int, s string, st cellStyle) {
 	if y < 0 || y >= c.h {
 		return
 	}
-	for i, r := range []rune(s) {
-		if xx := x + i; xx >= 0 && xx < c.w {
-			c.r[y][xx], c.style[y][xx] = r, st
+	for _, r := range s {
+		if x >= 0 && x < c.w {
+			i := y*c.w + x
+			c.r[i], c.style[i] = r, st
 		}
+		x++
 	}
 }
 
 func (c *canvas) center(y int, s string, st cellStyle) {
-	c.put((c.w-len([]rune(s)))/2, y, s, st)
+	c.put((c.w-utf8.RuneCountInString(s))/2, y, s, st)
 }
 
 func (c *canvas) render() string {
-	lines := make([]string, c.h)
+	var b strings.Builder
+	b.Grow(len(c.r) + max(c.h-1, 0))
 	for y := range c.h {
-		var b strings.Builder
+		if y > 0 {
+			b.WriteByte('\n')
+		}
+		row := c.r[y*c.w : (y+1)*c.w]
+		styles := c.style[y*c.w : (y+1)*c.w]
 		start := 0
 		for x := 1; x <= c.w; x++ {
-			if x == c.w || c.style[y][x] != c.style[y][start] {
-				b.WriteString(arcadeStyles[c.style[y][start]].Render(string(c.r[y][start:x])))
+			if x == c.w || styles[x] != styles[start] {
+				b.WriteString(arcadeStyles[styles[start]].Render(string(row[start:x])))
 				start = x
 			}
 		}
-		lines[y] = b.String()
 	}
-	return strings.Join(lines, "\n")
+	return b.String()
 }
 
 func (a *arcade) hud() string {

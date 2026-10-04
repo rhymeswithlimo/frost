@@ -108,9 +108,18 @@ func (c *Chunker) fill() error {
 	copy(c.buf, c.buf[c.start:c.end])
 	c.end -= c.start
 	c.start = 0
+	empty := 0
 	for c.end < len(c.buf) && !c.eof {
 		n, err := c.r.Read(c.buf[c.end:])
 		c.end += n
+		if n == 0 && err == nil {
+			empty++
+			if empty >= 100 {
+				return io.ErrNoProgress
+			}
+		} else {
+			empty = 0
+		}
 		if err == io.EOF {
 			c.eof = true
 		} else if err != nil {

@@ -263,3 +263,18 @@ func TestGitNano(t *testing.T) {
 		t.Fatalf("gitNano() = %q with no Git installed", got)
 	}
 }
+
+func TestConfigGetMasksSecret(t *testing.T) {
+	setup(t)
+	cfg := config.Default()
+	cfg.Storage.Permafrost.Token = "do-not-print"
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(t, "", "config", "get", "storage.permafrost.token"); strings.Contains(got, cfg.Storage.Permafrost.Token) {
+		t.Fatal("secret leaked")
+	}
+	if got := must(t, "", "config", "get", "storage.permafrost.token", "--show-secrets"); !strings.Contains(got, cfg.Storage.Permafrost.Token) {
+		t.Fatal("explicit secret request ignored")
+	}
+}

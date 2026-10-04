@@ -39,7 +39,7 @@ func (e *Engine) Verify(ctx context.Context, n int, full bool) (VerifyResult, er
 			return VerifyResult{}, err
 		}
 	}
-	_, gone, err := e.RefreshSnapshots(ctx)
+	snaps, gone, err := e.RefreshSnapshots(ctx)
 	if err != nil {
 		return VerifyResult{}, err
 	}
@@ -52,19 +52,26 @@ func (e *Engine) Verify(ctx context.Context, n int, full bool) (VerifyResult, er
 	sample := e.Manifest.SampleChunks(n)
 	errs := make([]error, len(sample))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, e.downloaders())
-	for i, id := range sample {
+	jobs := make(chan int)
+	for range min(e.downloaders(), len(sample)) {
 		wg.Go(func() {
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				errs[i] = ctx.Err()
-				return
+			for i := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				_, errs[i] = e.Repo.GetChunk(ctx, sample[i])
 			}
-			defer func() { <-sem }()
-			_, errs[i] = e.Repo.GetChunk(ctx, id)
 		})
 	}
+queue:
+	for i := range sample {
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
+			break queue
+		}
+	}
+	close(jobs)
 	wg.Wait()
 	if ctx.Err() != nil {
 		return res, ctx.Err()
@@ -77,12 +84,11 @@ func (e *Engine) Verify(ctx context.Context, n int, full bool) (VerifyResult, er
 		}
 	}
 
-	snaps := e.Manifest.Snapshots()
 	var newest string
 	var newestTime time.Time
-	for id, s := range snaps {
+	for _, s := range snaps {
 		if s.Time.After(newestTime) {
-			newest, newestTime = id, s.Time
+			newest, newestTime = s.ID, s.Time
 		}
 	}
 	if newest != "" {
@@ -95,29 +101,52 @@ func (e *Engine) Verify(ctx context.Context, n int, full bool) (VerifyResult, er
 			res.Failures = append(res.Failures, fmt.Sprintf("snapshot %s file list: %v", newest, err))
 			missing = missing || errors.Is(err, storage.ErrNotFound)
 		} else {
-			unknown := make(map[string]bool)
-			for _, f := range tree.Files {
-				for _, c := range f.Chunks {
-					id, err := crypto.ParseID(c)
-					if err != nil || !e.Manifest.HasChunk(id) {
-						unknown[c] = true
-					}
-				}
+			unknown, err := e.missingChunks(ctx, tree)
+			if err != nil {
+				return res, err
 			}
-			if len(unknown) > 0 {
-				res.Failures = append(res.Failures, fmt.Sprintf("snapshot %s references %d missing or invalid chunks", newest, len(unknown)))
+			if unknown > 0 {
+				res.Failures = append(res.Failures, fmt.Sprintf("snapshot %s references %d missing or invalid chunks", newest, unknown))
 				missing = true
 			}
 		}
 	}
 	if missing {
+		if err := ctx.Err(); err != nil {
+			return res, err
+		}
 		if err := e.requestSync(); err != nil {
 			return res, err
 		}
 	}
 
 	slices.Sort(res.Failures)
+	if err := ctx.Err(); err != nil {
+		return res, err
+	}
 	return res, e.Manifest.PutMeta(metaVerify, res)
+}
+
+func (e *Engine) missingChunks(ctx context.Context, tree *snapshot.Tree) (int, error) {
+	unknown := make(map[string]bool)
+	for _, f := range tree.Files {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if e.Manifest.HasChunks(f.Chunks) {
+			continue
+		}
+		for _, c := range f.Chunks {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+			id, err := crypto.ParseID(c)
+			if err != nil || !e.Manifest.HasChunk(id) {
+				unknown[c] = true
+			}
+		}
+	}
+	return len(unknown), nil
 }
 
 // RefreshSnapshots fetches the snapshot headers from storage and caches

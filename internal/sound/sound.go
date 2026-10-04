@@ -96,17 +96,18 @@ func cut(s []float32, d time.Duration) []float32 {
 type Player struct {
 	clips map[string]clip // read-only after New
 
-	mu     sync.Mutex
-	ready  bool
-	err    error
-	active map[string][]*oto.Player
+	mu      sync.Mutex
+	ready   bool
+	err     error
+	active  map[string][]*oto.Player
+	pending map[string]int
 }
 
 // New decodes the given clips and starts opening the audio device in the
 // background, so the caller never waits on it. Setting FROST_NO_SOUND turns
 // sound off entirely.
 func New(clips map[string]Clip) *Player {
-	p := &Player{clips: map[string]clip{}, active: map[string][]*oto.Player{}}
+	p := &Player{clips: map[string]clip{}, active: map[string][]*oto.Player{}, pending: map[string]int{}}
 	if os.Getenv(disabledEnv) != "" {
 		p.err = errors.New("sound disabled by " + disabledEnv)
 		return p
@@ -168,7 +169,7 @@ func (p *Player) Play(name string) {
 		return
 	}
 	c, ok := p.clips[name]
-	if !ok || !p.Available() {
+	if !ok || !p.reserve(name) {
 		return
 	}
 	// Varying a clip takes a millisecond or two, so it happens off the
@@ -178,25 +179,39 @@ func (p *Player) Play(name string) {
 	}()
 }
 
-func (p *Player) start(name string, pcm []byte, volume float64) {
+// reserve bounds both queued processing and playing copies of a clip.
+func (p *Player) reserve(name string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if !p.ready {
+		return false
+	}
 
 	// Drop finished players, keep the rest alive until they're done.
-	live := p.active[name][:0]
-	for _, pl := range p.active[name] {
+	players := p.active[name]
+	live := players[:0]
+	for _, pl := range players {
 		if pl.IsPlaying() {
 			live = append(live, pl)
 		}
 	}
-	if len(live) >= maxPerClip {
-		p.active[name] = live
-		return
+	clear(players[len(live):])
+	p.active[name] = live
+	if len(live)+p.pending[name] >= maxPerClip {
+		return false
 	}
+	p.pending[name]++
+	return true
+}
+
+func (p *Player) start(name string, pcm []byte, volume float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pending[name]--
 	pl := ctx.NewPlayer(bytes.NewReader(pcm))
 	pl.SetVolume(clipVolume * volume)
 	pl.Play()
-	p.active[name] = append(live, pl)
+	p.active[name] = append(p.active[name], pl)
 }
 
 // decodeWAV reads a PCM WAV file (8-bit unsigned or 16-bit signed, any
@@ -211,10 +226,14 @@ func decodeWAV(b []byte) ([]float32, error) {
 		data           []byte
 		haveFmt        bool
 	)
-	for off := 12; off+8 <= len(b); {
+	for off := 12; len(b)-off >= 8; {
 		id := string(b[off : off+4])
-		size := int(binary.LittleEndian.Uint32(b[off+4 : off+8]))
-		body := b[off+8 : min(off+8+size, len(b))]
+		declared := binary.LittleEndian.Uint32(b[off+4 : off+8])
+		if uint64(declared) > uint64(len(b)-off-8) {
+			return nil, errors.New("truncated WAV chunk")
+		}
+		size := int(declared)
+		body := b[off+8 : off+8+size]
 		switch id {
 		case "fmt ":
 			if len(body) < 16 {
@@ -230,7 +249,10 @@ func decodeWAV(b []byte) ([]float32, error) {
 		case "data":
 			data = body
 		}
-		off += 8 + size + size%2 // chunks are word aligned
+		off += 8 + size
+		if size%2 != 0 && off < len(b) {
+			off++ // chunks are word aligned; final data may omit padding
+		}
 	}
 	if !haveFmt || data == nil {
 		return nil, errors.New("missing fmt or data chunk")
@@ -241,6 +263,9 @@ func decodeWAV(b []byte) ([]float32, error) {
 
 	// Mix down to mono floats.
 	frameSize := channels * bits / 8
+	if len(data)%frameSize != 0 {
+		return nil, errors.New("incomplete WAV frame")
+	}
 	frames := len(data) / frameSize
 	mono := make([]float32, frames)
 	for i := range frames {
@@ -256,6 +281,9 @@ func decodeWAV(b []byte) ([]float32, error) {
 		mono[i] = sum / float32(channels)
 	}
 
+	if rate == sampleRate {
+		return mono, nil
+	}
 	return resample(mono, float64(rate)/sampleRate), nil
 }
 

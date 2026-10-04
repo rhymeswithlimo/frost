@@ -272,15 +272,26 @@ func (m model) loadDiff(from, to snapshot.Snapshot) tea.Cmd {
 		from, to = to, from
 	}
 	return func() tea.Msg {
-		a, err := m.repo.LoadTree(m.ctx, from.ID)
-		if err != nil {
-			return diffMsg{err: err}
+		ctx, cancel := context.WithCancel(m.ctx)
+		defer cancel()
+		var trees [2]*snapshot.Tree
+		var loadErr error
+		var first sync.Once
+		var group sync.WaitGroup
+		for i, s := range []snapshot.Snapshot{from, to} {
+			group.Go(func() {
+				var err error
+				trees[i], err = m.repo.LoadTree(ctx, s.ID)
+				if err != nil {
+					first.Do(func() { loadErr = err; cancel() })
+				}
+			})
 		}
-		b, err := m.repo.LoadTree(m.ctx, to.ID)
-		if err != nil {
-			return diffMsg{err: err}
+		group.Wait()
+		if loadErr != nil {
+			return diffMsg{err: loadErr}
 		}
-		return diffMsg{from: from, to: to, changes: snapshot.Diff(a, b)}
+		return diffMsg{from: from, to: to, changes: snapshot.Diff(trees[0], trees[1])}
 	}
 }
 

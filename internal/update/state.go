@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/rhymeswithlimo/frost/internal/config"
 )
 
 // State is what the background check remembers between runs, so status
@@ -40,19 +42,5 @@ func (s State) Save(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".update-*.json")
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(append(b, '\n'))
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(f.Name(), path)
-	}
-	if err != nil {
-		os.Remove(f.Name())
-	}
-	return err
+	return config.WritePrivate(path, append(b, '\n'))
 }
