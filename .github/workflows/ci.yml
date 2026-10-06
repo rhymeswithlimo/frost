@@ -1,8 +1,12 @@
 name: CI
 
+# Runs on every push and pull request, and weekly so new npm advisories show up between changes.
 on:
   push:
   pull_request:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,44 +20,44 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          go-version-file: go.mod
-      - name: Build
-        run: go build ./...
-      - name: Vet
-        run: go vet ./...
-      - name: Test
-        if: runner.os != 'Windows'
-        run: go test -race ./...
-      - name: Test (Windows)
-        if: runner.os == 'Windows'
-        run: go test ./...
+          node-version: 26.10.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run audit:dependencies
+      - run: npm run format:check
+      - run: npm run check
+      - run: npm test
+      - run: npm audit
 
-  lint:
+  shell:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - name: shellcheck
+      - name: Parse shell scripts
+        run: |
+          bash -n install/install.sh
+          bash -n scripts/release.sh
+      - name: Check shell scripts
         run: shellcheck install/install.sh scripts/release.sh
 
-  cross-build:
+  packages:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          go-version-file: go.mod
-      - name: Cross-compile every release target
+          node-version: 26.10.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Build and audit every package target
         run: |
-          for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 linux/armv7 windows/amd64 windows/arm64; do
-            echo "$t"
-            arch="${t#*/}" arm=""
-            if [ "$arch" = armv7 ]; then arch=arm arm=7; fi
-            CGO_ENABLED=0 GOOS="${t%/*}" GOARCH="$arch" GOARM="$arm" go build -o /dev/null ./cmd/frost
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            node tools/package.mjs --version v0.0.0-ci --platform "$target"
           done
+      - name: Smoke-test the Linux package
+        run: node tools/smoke.mjs .work/packages/frost_0.0.0-ci_linux_amd64.tar.gz

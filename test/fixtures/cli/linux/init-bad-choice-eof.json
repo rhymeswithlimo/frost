@@ -1,0 +1,11 @@
+{
+  "name": "init-bad-choice-eof",
+  "args": [
+    "init"
+  ],
+  "input": "x\n",
+  "configured": false,
+  "code": 1,
+  "stdout": "\n┌  frost setup\n│\n│  Where should backups go?\n│    [1] Permafrost (one access key, nothing else to set up)\n│    [2] S3-compatible bucket (AWS, Backblaze B2, Cloudflare R2, Wasabi, MinIO, ...)\n│  > │    type a number from 1 to 2\n│  > ",
+  "stderr": "\nerror: no answer (input closed)\n\n"
+}

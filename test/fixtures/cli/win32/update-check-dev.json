@@ -1,0 +1,12 @@
+{
+  "name": "update-check-dev",
+  "args": [
+    "update",
+    "--check"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: this frost was built from source, so it can't update itself. Rebuild it, or install a release with the installer: https://github.com/rhymeswithlimo/frost#install\n\n"
+}

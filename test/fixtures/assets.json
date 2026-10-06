@@ -1,0 +1,9 @@
+{
+  "wordmarks/frost-wordmark.txt": "1d7fb9f8afded1cb658ff3a8adb082d3d73a3cc36013f19e306c6bcebd9613a4",
+  "wordmarks/icebreaker-wordmark.txt": "5e56deb0d2a4ea99289d28f72d8d3d7100db869060476cfba7c3a3b4a481ad75",
+  "sfx/laser-shoot.wav": "0beb8a4ca3345adc0d632cd6275fa510a33b3ca98f7213e83cd920c88fde0dd7",
+  "sfx/pickup-file.wav": "c330799da9fe99cadf65c29664eb5b6dc8022e25bb9fe9eb1dfee4fef0ec623c",
+  "sfx/hit-hurt.wav": "bb768611b7417f4fd55544f3604efa9d2be2ce3a0c4c5f0b2a7d917c666358ce",
+  "sfx/explosion.wav": "adcbc5810867c2352ee52a1414d7e10e8e538b4ab4f30c2227c8ae2d1a63cf16",
+  "sfx/power-up.wav": "19e95291a4ebc1dc3cd2357a5927a43d8e4f7af8cd9c6dfbabe30f714edddd61"
+}

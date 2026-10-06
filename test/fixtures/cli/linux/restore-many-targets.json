@@ -1,0 +1,14 @@
+{
+  "name": "restore-many-targets",
+  "args": [
+    "restore",
+    "latest",
+    "--beside",
+    "--overwrite"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: choose only one of --beside, --to and --overwrite\n\n"
+}

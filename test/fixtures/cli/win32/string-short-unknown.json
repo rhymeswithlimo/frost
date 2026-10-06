@@ -1,0 +1,13 @@
+{
+  "name": "string-short-unknown",
+  "args": [
+    "backup",
+    "-p",
+    "x"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown shorthand flag: 'p' in -p\n\n"
+}

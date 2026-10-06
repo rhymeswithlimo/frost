@@ -58,7 +58,11 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **A missing scheduled job is easy to put back.** If the job disappears, `frost status` says so and `frost config set schedule.enabled true` reinstalls it.
 
-- **frost says what it is on Windows.** `frost.exe` carries a name, version and manifest, and its Task Scheduler task names frost as the author and says how to remove it.
+- **frost packages include the runtime.** macOS, Linux and Windows packages contain Node.js, frost's scripts and assets, so users don't need to install Node.js or npm. The runtime stays at a fixed path while updates activate versioned scripts.
+
+- **Windows scheduled backups use the signed bundled runtime.** The Task Scheduler task names frost as its author, says how to remove it, and runs the launcher with the saved config and cache folders.
+
+- **Windows scheduled runs have a log.** Backup output, failures and update results go to `frost.log` in the cache folder, and logs over 1 MiB are trimmed before the next run.
 
 - **frost updates itself.** `frost update` installs the latest release, and scheduled backups do it on their own at most once a day. Each release is checked against a signing key built into frost before anything is replaced, and setting `update.auto` to `false` only tells you about new ones.
 
@@ -66,4 +70,4 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **`frost config edit` saves only after you check the changes.** It opens a copy of `config.toml`, lists the settings you changed, and saves the copy as written, comments and all, once you type `yes`. A file that doesn't parse goes back to the editor instead of breaking scheduled backups, and a `config.toml` that's already broken can still be opened and fixed.
 
-- **frost installs with one line.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, checks the download against the release's signed checksums, and installs the binary. The signature check needs `ssh-keygen` from OpenSSH 8.1 or newer.
+- **frost installs with one line.** `install/install.sh` detects macOS, Linux, WSL or Git Bash, checks signed checksums, and installs the complete package with a launcher. It requires `ssh-keygen` from OpenSSH 8.1 or newer and refuses an unverified package.

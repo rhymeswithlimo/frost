@@ -1,0 +1,11 @@
+{
+  "name": "completion-command",
+  "args": [
+    "completion"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"completion\" for \"frost\"\n\n"
+}

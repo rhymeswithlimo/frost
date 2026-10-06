@@ -1,0 +1,12 @@
+{
+  "name": "key-verify-eof",
+  "args": [
+    "key",
+    "verify"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "\n┌  key verify\n│\n│  Recovery phrase: ",
+  "stderr": "\nerror: no answer (input closed)\n\n"
+}

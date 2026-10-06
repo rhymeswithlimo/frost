@@ -1,0 +1,14 @@
+{
+  "name": "config-set-bool-invalid",
+  "args": [
+    "config",
+    "set",
+    "update.auto",
+    "maybe"
+  ],
+  "input": "",
+  "configured": true,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: update.auto: expected true or false, got \"maybe\"\n\n"
+}

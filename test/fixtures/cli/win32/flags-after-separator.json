@@ -1,0 +1,13 @@
+{
+  "name": "flags-after-separator",
+  "args": [
+    "backup",
+    "--",
+    "-h"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"-h\" for \"frost backup\"\n\n"
+}

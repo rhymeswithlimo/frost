@@ -1,0 +1,12 @@
+{
+  "name": "string-missing",
+  "args": [
+    "backup",
+    "--path"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: flag needs an argument: --path\n\n"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "local-flag-before-command",
+  "args": [
+    "-n",
+    "backup"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown shorthand flag: 'n' in -n\n\n"
+}

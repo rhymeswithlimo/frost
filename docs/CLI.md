@@ -2,6 +2,44 @@
 
 frost has eight commands. Every one takes `--config-dir <dir>` to use a different config directory, and `-h` (`--help`) to show frost's help, which lists every command and flag. `frost --version` prints the version.
 
+## Installation
+
+Releases include the Node.js runtime, scripts and assets. You don't need Node.js or npm on the machine you back up.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
+```
+
+The installer checks the release signature and archive checksum, installs the application in your user profile, and puts a launcher in a folder on your `PATH`. Signature verification needs `ssh-keygen` from OpenSSH 8.1 or newer. On Windows, run the installer in Git Bash. WSL installs the Linux package.
+
+The default launcher folder is `/usr/local/bin` when writable, otherwise `~/.local/bin`; Windows uses `~/bin`. Set `FROST_INSTALL_DIR` to choose another launcher folder, or `FROST_VERSION` to install a specific release. Changing the launcher folder doesn't move the application folder.
+
+| Platform | Archive architectures | Application folder |
+|---|---|---|
+| macOS | `amd64`, `arm64` | `~/Library/Application Support/frost/app` |
+| Linux | `amd64`, `arm64` | `${XDG_DATA_HOME:-~/.local/share}/frost/app` |
+| Windows | `amd64`, `arm64` | `%LocalAppData%\frost\app` |
+
+There is no Linux ARMv7 package. The runtime stays in `runtime/bin/node` (`node.exe` on Windows); a small launcher loads the active version. Keep the complete application folder together.
+
+### Manual installation
+
+Download the archive for your platform from the [latest release](https://github.com/rhymeswithlimo/frost/releases/latest), and [verify it](SECURITY.md#verifying-a-download-by-hand) before running anything from it. Extract it into a new folder.
+
+On macOS or Linux, run this inside the extracted folder, changing the launcher folder if needed:
+
+```sh
+./runtime/bin/node install.mjs "$PWD" "$HOME/.local/bin"
+```
+
+On Windows, run this in PowerShell inside the extracted folder:
+
+```powershell
+.\runtime\bin\node.exe .\install.mjs "$PWD" "$env:LOCALAPPDATA\frost\bin"
+```
+
+Add the launcher folder to your `PATH` if it isn't there already. Windows includes `frost.cmd` for Command Prompt and PowerShell, and `frost` for Git Bash. macOS and Linux use `frost`. To run an extracted package without installing it, use its launcher directly and leave all its files together.
+
 ## `frost init`
 
 In a terminal, `frost init` opens a full-screen setup that asks one thing at a time:
@@ -74,7 +112,7 @@ frost doesn't take filesystem or database snapshots. Back up a file that's alway
 
 Backups don't list every object in storage. frost trusts its local record of what's uploaded and checks it against storage once a week, after a check finds something missing, or when the storage isn't where it was last checked.
 
-On macOS, protected folders like `~/Documents` need Full Disk Access for the `frost` binary, scheduled runs included. Add it under System Settings > Privacy & Security > Full Disk Access.
+On macOS, protected folders like `~/Documents` need Full Disk Access for the bundled runtime, scheduled runs included. Add `~/Library/Application Support/frost/app/runtime/bin/node` under System Settings > Privacy & Security > Full Disk Access. If an update is followed by permission errors, turn that entry off and on again. Permission persistence across updates still needs a Mac test; see [Validation](development/VALIDATION.md).
 
 ## `frost restore [snapshot] [paths...]`
 
@@ -122,7 +160,7 @@ Every chunk is decrypted and checked against its ID before it's written, and chu
 
 ### Overwriting
 
-`--overwrite` needs a snapshot from a computer with the same kind of paths (macOS and Linux, or Windows). It follows links in the folders above a file only when they belong to you or to root, like macOS's `/var` or a `~/Dropbox` that points at another drive. A link owned by anyone else is refused, and on Windows any link or junction there is refused. frost checks this before asking, and the browser greys out "Overwrite original files" and says why.
+`--overwrite` needs a snapshot from a computer with the same kind of paths (macOS and Linux, or Windows). It follows links above a file only when the link and its parent belong to you or to root, and the parent is protected from writes by other users. Owned sticky folders can protect owned entries. A link in an untrusted folder is refused, and on Windows any link or junction there is refused. frost checks this before asking, and the browser greys out "Overwrite original files" and says why.
 
 Originals that already match the snapshot are checked and skipped, so they aren't downloaded. Overwriting needs room for the new copy of a file next to the old one until it's renamed into place.
 
@@ -165,13 +203,13 @@ After a successful restore, the browser shows the result in Finder, Explorer or 
 
 ## `frost update`
 
-Installs the latest frost release over the binary you ran.
+Installs the latest frost release in the application folder.
 
 | Flag | Does |
 |---|---|
 | `--check` | Only say whether there's a newer release |
 
-frost downloads the release's `checksums.txt` and `checksums.txt.sig` and checks the signature against the release key built into frost. Then it downloads the archive for your platform, checks its SHA-256, writes the new binary next to the old one, runs it once with `--version`, and renames it into place. If any step fails, the old binary stays as it was. Your config, key and backups aren't touched.
+frost checks the release's signed checksums, downloads the package for your platform and checks its SHA-256. It stages the scripts and bundled runtime, tests their versions, then activates the new scripts. The runtime keeps its fixed path, and identical runtime bytes aren't replaced. Config, keys and backups stay in their own folders. [SECURITY.md](SECURITY.md#updates) describes the checks and interruption limits.
 
 It never installs a pre-release, or anything older than what you're running.
 
@@ -179,9 +217,9 @@ It can't update in these cases:
 
 | When | Do instead |
 |---|---|
-| frost was built from source (`go install`, `go build`) | Rebuild it, or use the installer |
+| frost was built from source | Rebuild it with `npm run build`, or use the installer |
 | Homebrew, Nix, Snap, Scoop or a system package installed it | Update it with that |
-| You can't write to the folder it's in, like a root-owned `/usr/local/bin` | Run `sudo frost update`, or reinstall somewhere you can write to |
+| You can't write to its application folder | Reinstall with the installer as your own user |
 
 ### Automatic updates
 
@@ -189,7 +227,7 @@ After a scheduled backup, frost checks for a new release at most once a day and 
 
 With `update.auto` set to `false`, the check still runs and `frost status` says when a release is out, but nothing is installed until you run `frost update`. Without scheduled backups there's no background check at all.
 
-On macOS, Full Disk Access may need turning off and on again for the new binary. If a backup fails with "operation not permitted" soon after an update, the error says so.
+On macOS, an update can be followed by a Full Disk Access error. [What's backed up](#whats-backed-up) explains which runtime to grant access to and how to refresh the permission.
 
 ## `frost config`
 
@@ -259,12 +297,14 @@ Values from the environment are never written to `config.toml`.
 |---|---|---|
 | Config | `~/.config/frost/config.toml` | `%AppData%\frost\config.toml` |
 | Key | `~/.config/frost/key` | `%AppData%\frost\key` |
-| Manifest (a cache) | `~/.cache/frost/manifest-<repo>.db` | `%LocalAppData%\frost\manifest-<repo>.db` |
+| Manifest (a cache) | `~/.cache/frost/manifest-<repo>.jsonl` | `%LocalAppData%\frost\manifest-<repo>.jsonl` |
 | Where backups last opened, one per config folder | `~/.cache/frost/storage-<config>.json` | `%LocalAppData%\frost\storage-<config>.json` |
 | Update check | `~/.cache/frost/update.json` | `%LocalAppData%\frost\update.json` |
 | Scheduled run log, with launchd, cron and Task Scheduler | `~/.cache/frost/frost.log` | `%LocalAppData%\frost\frost.log` |
 
 On macOS and Linux, frost respects `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. With systemd, scheduled runs log to the journal instead (`journalctl --user -u frost-backup`). On Windows, frost appends backup output, failures and update results to the log itself, including with tasks installed by an older version. Logs larger than 1 MiB are emptied before the next run.
+
+The manifest is disposable. Removing it rebuilds the cache from storage and rereads source files on the next backup. Its persistent `.lock` file prevents concurrent cache writers; deleting a lock file isn't a way to stop a running process. [Installation](#installation) lists application folders.
 
 ## Scheduled jobs
 
@@ -275,7 +315,7 @@ On macOS and Linux, frost respects `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. With 
 | Linux without systemd | cron | A line in your crontab tagged `# frost-backup` |
 | Windows | Task Scheduler | A task named `frost backup` |
 
-The job runs `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for, and run daily backups at 03:17 and weekly ones on Sundays at 03:17.
+The job invokes the bundled runtime and launcher to run `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for, and run daily backups at 03:17 and weekly ones on Sundays at 03:17.
 
 With systemd, frost turns on lingering for your user (`loginctl enable-linger`), so the timer runs while you're logged out too. It turns lingering off again when it removes the timer, unless it was already on before frost.
 

@@ -3,3 +3,4 @@
 * text=auto eol=lf
 
 *.wav binary
+*.ans -text

@@ -1,0 +1,12 @@
+{
+  "name": "bool-invalid",
+  "args": [
+    "backup",
+    "--dry-run=maybe"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: invalid argument \"maybe\" for \"-n, --dry-run\" flag: strconv.ParseBool: parsing \"maybe\": invalid syntax\n\n"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "config-set-update",
+  "args": [
+    "config",
+    "set",
+    "update.auto",
+    "false"
+  ],
+  "input": "",
+  "configured": true,
+  "code": 0,
+  "stdout": "\n┌  config  <temp>\\config\\config.toml\n│\n│  update.auto  true to false\n│\n└  Saved.\n\n",
+  "stderr": ""
+}

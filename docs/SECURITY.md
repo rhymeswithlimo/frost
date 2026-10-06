@@ -62,32 +62,38 @@ frost protects against:
 - An attacker who gets a copy of the bucket.
 - Someone on the network between you and the storage. Connections use TLS, and every object is authenticated anyway. TLS is off only when you ask for plain HTTP, with `storage.s3.insecure`, an `http://` S3 endpoint, or an `http://` Permafrost URL on localhost.
 - Tampering, truncation or swapping of stored objects, which frost detects and never silently accepts.
-- A restore escaping its target through `..` paths or symlinked parents. Restores write through confined directory handles and check every path first.
-- An in-place restore being redirected by another user's link on the path to your files. Links owned by root or by you are followed. On Windows, no link is.
+- A restore escaping its target through `..` paths or symlinked parents. Restores retain native directory handles and check every path first.
+- An in-place restore being redirected through another user's link. POSIX ancestor links and their parents must belong to root or you, with protected parent permissions. Windows refuses ancestor links and junctions.
 - Corrupted, swapped or tampered frost downloads. Each release's `checksums.txt` is signed with the release key (`checksums.txt.sig`). The install script checks that signature against the public key in the repository (`install/release-signing.pub`), then checks the archive against the checksums. `frost update` does the same, as [Updates](#updates) describes.
 
 frost doesn't protect against:
 
-- **Someone with access to your machine.** The key file sits unencrypted in your config directory, readable only by your user, so scheduled backups can run without you. Anyone who can read it, or run code as you, can read your backups. Use full disk encryption and a screen lock.
+- **Someone with access to your machine.** The key file sits unencrypted in your config directory so scheduled backups can run without you. POSIX permissions restrict it to your user; Windows uses the profile's inherited ACLs. Anyone who can read it, or run code as you, can read your backups. Use full disk encryption and a screen lock.
 - **Losing data.** A provider can delete or withhold your objects. Verification can detect this, and restoring the affected files fails, but frost can't prevent it. Keep a second, independent copy of anything irreplaceable.
 - **Rollback.** A provider could hide the newest snapshots and serve only older ones. A machine that has already seen those snapshots reports them missing once, but a new machine, or one that never saw them, can't tell. Every snapshot that is served is still authentic.
 - **Traffic analysis.** Backup timing and sizes are visible, as listed above.
-- **An install without `ssh-keygen`.** The install script skips the signature check, with a warning, when `ssh-keygen` is missing or older than OpenSSH 8.1. It still checks the archive against `checksums.txt`, but that only proves the download matches what the server sent.
+- **A compromised local runtime or application.** Code running as you can read the key file and change frost's scripts. Native filesystem confinement doesn't isolate frost from your own account or an administrator.
 
 ## Updates
 
-`frost update`, and scheduled backups unless `update.auto` is `false`, replace the frost binary with the latest release. A release is only installed if it passes every check:
+`frost update`, and scheduled backups unless `update.auto` is `false`, install the latest release package. A release must pass these checks:
 
 | Check | Stops |
 |---|---|
-| `checksums.txt.sig` is an SSH signature, namespace `file`, by the release key compiled into frost | A tampered or swapped release, or a hijacked GitHub account or CDN |
+| `checksums.txt.sig` is an SSH signature, namespace `file`, by frost's pinned release key | A tampered or swapped release, or a hijacked GitHub account or CDN |
 | The archive's SHA-256 matches its line in the signed `checksums.txt` | A tampered or corrupted download |
 | The archive's name in that file carries the release's version, and that version is newer than yours | Rolling you back to an older signed release. Pre-releases are never picked |
-| The new binary runs and reports that version | Installing something that won't start |
+| The package manifest matches its release and platform, and binds the runtime's SHA-256 | A mismatched runtime or package |
+| Archive members use permitted paths and types and stay within size limits | Traversal, links, device paths and excessive extraction |
+| The staged runtime and application run and report their expected versions | Activating a package that fails its startup probes |
 
-The signature check is built into frost and fails closed. Unlike the install script, it never falls back to checking the checksums alone. Only the `frost` binary is taken from the archive, and every download has a size cap.
+Both installation and updates fail closed when signature verification fails. The shell installer requires `ssh-keygen` from OpenSSH 8.1 or newer before running the bundled installer. The updater verifies SSH signatures directly through Node's cryptography API. It accepts the release key in `src/platform/signature.ts`; the same key is in `install/release-signing.pub` and `install/install.sh`.
 
-The binary is replaced with a rename, so it's never half written. On Windows, the running `.exe` is moved aside and deleted on a later run.
+The archive includes the runtime, versioned scripts and assets. The only native executable shipped is the pinned official Node.js runtime. Windows runtime bytes retain their upstream Authenticode signature; the signed checksum list also covers frost's scripts.
+
+Installer and updater hold an OS installation lock, flush staged files and run version probes before changing the active-version pointer. POSIX also flushes directories in order. An existing version must match the package's complete bytes before it can be reused. These checks don't make every installation change one atomic transaction.
+
+On Windows, replacing a changed running runtime requires moving the old executable aside. A reported replacement failure rolls it back, but termination between those renames can leave the fixed runtime path absent. Package metadata can also be written before the active scripts change. Reinstalling the verified package repairs an interrupted activation. [ARCHITECTURE.md](ARCHITECTURE.md#packaging-and-updates) describes the commit order and limits.
 
 Set `update.auto` to `false` to review each release before installing it. frost still tells you when one is out.
 
@@ -95,29 +101,32 @@ Set `update.auto` to `false` to review each release before installing it. frost 
 
 The browser hands the key back to frost on `127.0.0.1`, and frost checks it against a random `state`. [PERMAFROST.md](PERMAFROST.md#getting-a-key) has the details.
 
-## Where things live
+## Local files
 
-| File | Holds | Permissions |
+| File | Holds | Permissions when created |
 |---|---|---|
-| `~/.config/frost/key` | Your recovery phrase, in plain text | `0600` |
-| `~/.config/frost/config.toml` | Settings and storage credentials | `0600` |
-| `~/.cache/frost/manifest-*.db` | Chunk IDs, and your file paths with sizes and mtimes | `0600` |
-| `~/.cache/frost/storage-*.json` | Where your backups last opened (storage settings without credentials) and the repository ID | `0600` |
-| `~/.cache/frost/update.json` | When updates were last checked, the newest release seen, and the last error | `0600` |
-| `~/.cache/frost/frost.log` | Output of scheduled runs with launchd, cron or Task Scheduler, including paths that couldn't be read. [CLI.md](CLI.md#files) lists the Windows path | Set by the scheduler on macOS and Linux; user profile permissions on Windows |
+| `key` | Your recovery phrase, in plain text | `0600` on POSIX |
+| `config.toml` | Settings and storage credentials | `0600` on POSIX |
+| `manifest-*.jsonl` | Chunk IDs, file paths, sizes and modification times | `0600` on POSIX |
+| `storage-*.json` | Last storage settings without credentials, and repository ID | `0600` on POSIX |
+| `update.json` | Latest update check, release and error | `0600` on POSIX |
+| `frost.log` | Scheduled output, including unreadable paths | `0600` when frost creates it; scheduler redirection follows the scheduler's permissions |
 
-The manifest holds file paths in plain text, as your file system does, and it never leaves the machine. On Windows, these files are protected by your user profile's default permissions rather than Unix modes.
+[CLI.md](CLI.md#files) lists locations and logging behavior. The manifest holds file paths in plain text and never leaves the machine. Windows files inherit user-profile permissions rather than Unix modes. Existing permissions aren't a substitute for protecting your account, and custom shared folders can weaken that boundary.
+
+The runtime uses Node's experimental native-call API for fixed OS filesystem and locking functions. There are no downloaded native add-ons or executable helpers. Missing native support fails closed. The API isn't a sandbox, and its runtime and bindings need continued platform validation.
 
 Restore replaces files one at a time, after checking their data and size. If a later file fails, earlier replacements stay. Restored symlinks keep their original targets, which can point outside the restore folder.
 
 ## Verifying a download by hand
 
-The install script does this for you. To check an archive yourself, download it with `checksums.txt` and `checksums.txt.sig` from the same release, and [`install/release-signing.pub`](../install/release-signing.pub) from the repository. Then run:
+The install script does this for you. To check an archive yourself, download it with `checksums.txt` and `checksums.txt.sig` from the same release, and [`install/release-signing.pub`](../install/release-signing.pub) from the repository. Set `archive` to the downloaded filename, then run:
 
 ```sh
+archive='frost_0.1.0_linux_amd64.tar.gz'
 printf 'frost-release %s\n' "$(cat release-signing.pub)" > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I frost-release -n file -s checksums.txt.sig < checksums.txt
-shasum -a 256 -c checksums.txt --ignore-missing
+awk -v archive="$archive" '$2 == archive { print }' checksums.txt | shasum -a 256 -c -
 ```
 
 The first check should print `Good "file" signature`, and the second `OK` for your archive.

@@ -1,0 +1,12 @@
+{
+  "name": "update-extra",
+  "args": [
+    "update",
+    "extra"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"extra\" for \"frost update\"\n\n"
+}

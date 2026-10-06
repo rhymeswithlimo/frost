@@ -1,0 +1,14 @@
+{
+  "name": "config-set-negative-verify",
+  "args": [
+    "config",
+    "set",
+    "verify.sample",
+    "-1"
+  ],
+  "input": "",
+  "configured": true,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown shorthand flag: '1' in -1\n\n"
+}

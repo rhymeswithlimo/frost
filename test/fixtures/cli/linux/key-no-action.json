@@ -1,0 +1,11 @@
+{
+  "name": "key-no-action",
+  "args": [
+    "key"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: accepts 1 arg(s), received 0\n\n"
+}

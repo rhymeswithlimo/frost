@@ -1,0 +1,14 @@
+{
+  "name": "config-edit-many",
+  "args": [
+    "config",
+    "edit",
+    "a",
+    "b"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: usage: frost config edit [editor]\n\n"
+}

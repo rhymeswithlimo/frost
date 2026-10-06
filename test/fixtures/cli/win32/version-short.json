@@ -1,0 +1,11 @@
+{
+  "name": "version-short",
+  "args": [
+    "-v"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 0,
+  "stdout": "frost version dev\n",
+  "stderr": ""
+}

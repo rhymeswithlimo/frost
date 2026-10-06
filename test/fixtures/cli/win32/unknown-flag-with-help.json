@@ -1,0 +1,13 @@
+{
+  "name": "unknown-flag-with-help",
+  "args": [
+    "backup",
+    "--wat",
+    "--help"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown flag: --wat\n\n"
+}

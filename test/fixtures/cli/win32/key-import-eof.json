@@ -1,0 +1,12 @@
+{
+  "name": "key-import-eof",
+  "args": [
+    "key",
+    "import"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "\n┌  key import\n│\n│  Recovery phrase: ",
+  "stderr": "\nerror: no answer (input closed)\n\n"
+}

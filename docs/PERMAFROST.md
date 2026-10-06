@@ -2,7 +2,7 @@
 
 Permafrost is a hosted storage service for frost. It's a plain object store with four operations. Backup objects are encrypted before upload, the same as with S3. Setup also writes and deletes a small plaintext connectivity probe.
 
-This document is the contract. frost's `permafrost` backend (`internal/storage/permafrost`) is a client for it, and its tests run against a reference server built from this document. Anyone can run a compatible server.
+This document is the contract. `PermafrostBackend` in `src/core/storage.ts` implements it. Its tests in `test/core/storage.test.ts` run against a loopback reference server built from this document. Anyone can run a compatible server.
 
 Version: `v1`
 

@@ -1,0 +1,14 @@
+{
+  "name": "config-set-unchanged",
+  "args": [
+    "config",
+    "set",
+    "update.auto",
+    "true"
+  ],
+  "input": "",
+  "configured": true,
+  "code": 0,
+  "stdout": "\n┌  config  <temp>/config/config.toml\n│\n└  update.auto is already set to that, so nothing changed.\n\n",
+  "stderr": ""
+}

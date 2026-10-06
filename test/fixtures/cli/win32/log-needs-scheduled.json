@@ -1,0 +1,13 @@
+{
+  "name": "log-needs-scheduled",
+  "args": [
+    "backup",
+    "--log-file",
+    "<temp>\\never.log"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: --log-file requires --scheduled\n\n"
+}

@@ -13,13 +13,13 @@
 <a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4&style=flat-square" alt="Latest release"></a>
 <a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4?style=flat-square" alt="License: BSD 3-Clause"></a>
-<img src="https://img.shields.io/badge/Go-1.26.6%2B-1926c4?logo=go&logoColor=white&style=flat-square" alt="Go 1.26.6+">
+<img src="https://img.shields.io/badge/TypeScript-5.9.3-1926c4?logo=typescript&logoColor=white&style=flat-square" alt="TypeScript 5.9.3">
 <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1926c4?style=flat-square" alt="macOS, Linux, Windows">
 </p>
 
 ---
 
-frost backs up your folders to S3-compatible storage or [Permafrost](https://example.com), and encrypts everything on your machine before it's uploaded. It's one Go binary with no daemon. Backups run from your OS scheduler, and `frost browse` opens your snapshots in the terminal.
+frost backs up your folders to S3-compatible storage or [Permafrost](docs/PERMAFROST.md), and encrypts everything on your machine before it's uploaded. Releases include their runtime, so you don't need to install Node.js. Backups run from your OS scheduler, and `frost browse` opens your snapshots in the terminal.
 
 ## Install
 
@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/i
 
 #### Manually
 
-Download the archive for your platform from the [latest release](https://github.com/rhymeswithlimo/frost/releases/latest), extract it, and put `frost` somewhere on your `PATH`. To check the download first, see [Verifying a download by hand](docs/SECURITY.md#verifying-a-download-by-hand).
+See [Installation](docs/CLI.md#installation) for manual installation, platform targets and file locations. Keep the complete extracted package together.
 
 ## Get started
 
@@ -45,31 +45,33 @@ Contributions are welcome. Small fixes can go straight to a pull request, and an
 
 | Doc | Covers |
 |---|---|
-| [Architecture](docs/ARCHITECTURE.md) | The packages, how backup and restore work, and the repository format |
+| [Architecture](docs/ARCHITECTURE.md) | The source layout, backup and restore, and the repository format |
 | [Security](docs/SECURITY.md) | The encryption model and what a storage provider can see |
 | [Permafrost API](docs/PERMAFROST.md) | The storage protocol, for anyone running a compatible server |
 | [Changelog](docs/CHANGELOG.md) | What changed in each release |
 
 ## Running locally
 
-You need Go (the version in `go.mod`). There's no cgo, and the tests don't need any external services.
+Use Node.js 26.10.0, the runtime pinned in `tools/runtime-lock.json`. The native filesystem bindings require Node's built-in native-call API. Tests use private temporary folders, fake desktop and scheduler commands, and loopback storage servers.
 
 ```sh
-go build ./cmd/frost    # build the binary
-go test ./...           # run the tests
-go vet ./...            # static checks
+npm ci --ignore-scripts
+npm run audit:dependencies
+npm run format:check
+npm run check
+npm test
 ```
 
 To run the CLI from source without touching your real setup, point it at throwaway folders:
 
 ```sh
 export FROST_CONFIG_DIR=/tmp/frost-dev/config FROST_CACHE_DIR=/tmp/frost-dev/cache
-go run ./cmd/frost <command>
+node dist/src/cli/main.js <command>
 ```
 
-`frost init` installs a real scheduled job when automatic backups are on, so turn them off while developing. A build from source reports its version as `dev` and can't update itself.
+`frost init` installs a real scheduled job when automatic backups are on, so choose "off" while developing. A build from source reports its version as `dev` and can't update itself. `npm run build` refreshes the compiled code and assets in `dist/`.
 
-To work on the TUI without storage or a key, run `go run ./internal/tui/demo`. It opens the snapshot browser on fake data, and these flags change what it shows:
+To work on the TUI without storage or a key, run `npm run demo` after building. It opens the snapshot browser on fake data. Pass flags after `--`, as in `npm run demo -- -latency 400ms`:
 
 | Flag | Shows |
 |---|---|
@@ -78,7 +80,7 @@ To work on the TUI without storage or a key, run `go run ./internal/tui/demo`. I
 | `-empty` | A repository with no snapshots |
 | `-broken` | A failed backup and a failed health check |
 
-`FROST_TUI_DUMP=<dir> go test ./internal/tui` writes every screen's ANSI output to `<dir>`.
+The demo doesn't save your settings or install scheduled jobs. Its temporary files and restores stay in the folder it prints. Tests compare CLI output and TUI cells against frozen reference fixtures.
 
 ## License
 

@@ -1,0 +1,11 @@
+{
+  "name": "unknown",
+  "args": [
+    "nothing"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"nothing\" for \"frost\"\n\n"
+}

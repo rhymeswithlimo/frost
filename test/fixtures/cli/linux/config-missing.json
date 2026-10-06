@@ -1,0 +1,11 @@
+{
+  "name": "config-missing",
+  "args": [
+    "config"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: frost isn't set up yet, run `frost init`\n\n"
+}

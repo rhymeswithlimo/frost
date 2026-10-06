@@ -1,0 +1,11 @@
+{
+  "name": "help-command",
+  "args": [
+    "help"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"help\" for \"frost\"\n\n"
+}

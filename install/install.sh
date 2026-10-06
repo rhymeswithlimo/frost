@@ -4,9 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
 #
 # Works on macOS, Linux (including WSL) and Windows through Git Bash, MSYS2
-# or Cygwin. Downloads the prebuilt binary for your platform, checks that the
+# or Cygwin. Downloads the package for your platform, checks that the
 # release's checksums.txt was signed by the frost release key, checks the
-# download against it, and puts it on your PATH.
+# download against it, and installs a launcher and its bundled runtime.
 #
 # Environment:
 #   FROST_VERSION      install this tag instead of the latest, e.g. v0.1.0
@@ -69,7 +69,7 @@ esac
 case "$(uname -m)" in
   x86_64 | amd64) arch=amd64 ;;
   arm64 | aarch64) arch=arm64 ;;
-  armv7*) arch=armv7 ;; # 32-bit ARM, e.g. older Raspberry Pi OS
+  armv7* | armv6*) die "32-bit ARM isn't supported by the bundled runtime" ;;
   *) die "unsupported CPU architecture: $(uname -m)" ;;
 esac
 
@@ -81,18 +81,17 @@ fi
 version="${FROST_VERSION:-}"
 [ -n "$version" ] || version=$(latest_version)
 num="${version#v}"
-case "$num" in
-  "" | *[!0-9A-Za-z.-]*) die "invalid release version" ;;
-esac
+printf '%s\n' "$version" | LC_ALL=C awk '/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$/ { valid=1 } END { exit !valid }' || die "invalid release version"
 
 ext=tar.gz
 bin=frost
 if [ "$os" = windows ]; then
   ext=zip
-  bin=frost.exe
+  bin=frost.cmd
 fi
 archive="frost_${num}_${os}_${arch}.${ext}"
 base="${FROST_BASE_URL:-https://github.com/$REPO/releases/download/$version}"
+has ssh-keygen || die "need OpenSSH 8.1+ to verify the frost release signature"
 
 # Download and verify.
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t frost)
@@ -104,28 +103,22 @@ fetch "$base/checksums.txt" "$tmp/checksums.txt" || die "download failed: $base/
 
 # The signature proves checksums.txt came from the frost release key, not
 # just from whoever controls the download.
-if [ -n "$RELEASE_KEY" ]; then
-  fetch "$base/checksums.txt.sig" "$tmp/checksums.txt.sig" || die "download failed: $base/checksums.txt.sig"
-  if has ssh-keygen; then
-    printf 'frost-release %s\n' "$RELEASE_KEY" >"$tmp/allowed_signers"
-    if out=$(ssh-keygen -Y verify -f "$tmp/allowed_signers" -I frost-release -n file \
-      -s "$tmp/checksums.txt.sig" <"$tmp/checksums.txt" 2>&1); then
-      say "Signature ok"
-    else
-      case "$out" in
-        *"illegal option"* | *"unknown option"* | *"usage:"*)
-          say "warning: this ssh-keygen is too old to check signatures (needs OpenSSH 8.1+), checking the checksum only"
-          ;;
-        *) die "checksums.txt isn't signed by the frost release key. Don't install this." ;;
-      esac
-    fi
-  else
-    say "warning: ssh-keygen not found, skipping the signature check"
-  fi
+[ -n "$RELEASE_KEY" ] || die "the release signing key is missing"
+fetch "$base/checksums.txt.sig" "$tmp/checksums.txt.sig" || die "download failed: $base/checksums.txt.sig"
+printf 'frost-release %s\n' "$RELEASE_KEY" >"$tmp/allowed_signers"
+if out=$(ssh-keygen -Y verify -f "$tmp/allowed_signers" -I frost-release -n file \
+  -s "$tmp/checksums.txt.sig" <"$tmp/checksums.txt" 2>&1); then
+  say "Signature ok"
+else
+  case "$out" in
+    *"illegal option"* | *"unknown option"* | *"usage:"*) die "need OpenSSH 8.1+ to verify the frost release signature" ;;
+    *) die "checksums.txt isn't signed by the frost release key. Don't install this." ;;
+  esac
 fi
 
-want=$(awk -v f="$archive" '$2 == f || $2 == "*"f { print $1 }' "$tmp/checksums.txt")
-[ -n "$want" ] || die "$archive isn't listed in checksums.txt"
+want=$(awk -v f="$archive" '$2 == f || $2 == "*"f { count++; value=$1 } END { if (count == 1) print value; else exit 1 }' "$tmp/checksums.txt") || die "$archive needs one entry in checksums.txt"
+[ "${#want}" -eq 64 ] || die "invalid SHA-256 checksum for $archive"
+case "$want" in *[!0-9a-fA-F]*) die "invalid SHA-256 checksum for $archive" ;; esac
 got=$(sha256 "$tmp/$archive")
 [ "$want" = "$got" ] || die "checksum mismatch for $archive (expected $want, got $got)"
 say "Checksum ok"
@@ -147,6 +140,7 @@ if [ "$ext" = zip ]; then
 else
   tar -xzf "$tmp/$archive" -C "$tmp/x"
 fi
+[ -f "$tmp/x/manifest.json" ] || die "package manifest not found in $archive"
 [ -f "$tmp/x/$bin" ] || die "$bin not found in $archive"
 
 # Pick where to install.
@@ -164,12 +158,18 @@ if [ -z "$dir" ]; then
 fi
 
 mkdir -p "$dir"
-stage=$(mktemp -d "$dir/.frost-install.XXXXXX")
-trap 'rm -rf "$tmp" "$stage"' EXIT INT TERM
-cp "$tmp/x/$bin" "$stage/$bin"
-chmod 755 "$stage/$bin"
-mv -f "$stage/$bin" "$dir/$bin"
-say "Installed $dir/$bin"
+runtime="$tmp/x/runtime/bin/node"
+[ "$os" = windows ] && runtime="$runtime.exe"
+[ -f "$runtime" ] || die "runtime not found in $archive"
+[ -f "$tmp/x/install.mjs" ] || die "package installer not found in $archive"
+package="$tmp/x"
+launcher_dir="$dir"
+if [ "$os" = windows ]; then
+  has cygpath || die "need cygpath to install from a Windows shell"
+  package=$(cygpath -w "$package")
+  launcher_dir=$(cygpath -w "$launcher_dir")
+fi
+"$runtime" "$tmp/x/install.mjs" "$package" "$launcher_dir" || die "package install failed"
 
 if ! on_path "$dir"; then
   say ""

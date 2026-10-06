@@ -1,0 +1,13 @@
+{
+  "name": "restore-flag-before-command",
+  "args": [
+    "--beside",
+    "restore",
+    "latest"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"latest\" for \"frost\"\n\n"
+}

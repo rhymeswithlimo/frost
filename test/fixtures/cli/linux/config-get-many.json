@@ -1,0 +1,14 @@
+{
+  "name": "config-get-many",
+  "args": [
+    "config",
+    "get",
+    "paths",
+    "exclude"
+  ],
+  "input": "",
+  "configured": true,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: usage: frost config get <key>\n\n"
+}

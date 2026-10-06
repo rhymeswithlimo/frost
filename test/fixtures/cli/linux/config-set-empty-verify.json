@@ -1,0 +1,13 @@
+{
+  "name": "config-set-empty-verify",
+  "args": [
+    "config",
+    "set",
+    "verify.sample"
+  ],
+  "input": "",
+  "configured": true,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: verify.sample: expected a number\n\n"
+}

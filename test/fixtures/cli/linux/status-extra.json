@@ -1,0 +1,12 @@
+{
+  "name": "status-extra",
+  "args": [
+    "status",
+    "extra"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: unknown command \"extra\" for \"frost status\"\n\n"
+}

@@ -1,0 +1,342 @@
+[
+  {
+    "name": "backup-new",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n│\n│  changes      2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n│  files        1,234 (2.2 kB)\n│  new data     1.2 kB in 3 chunks (750 B uploaded after compression)\n│\n└  Saved snapshot maple-absurd-3f1c.\n\n"
+  },
+  {
+    "name": "backup-none",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n│\n│  changes      2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n│  files        1,234 (2.2 kB)\n│  new data     none\n│\n└  Saved snapshot maple-absurd-3f1c.\n\n"
+  },
+  {
+    "name": "backup-warnings",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n│\n│  changes      2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n│  files        1,234 (2.2 kB)\n│  new data     1.2 kB in 3 chunks (750 B uploaded after compression)\n▲  not found    \\source\\missing, \\source\\bad?name\n│               Skipped until they're back. If one moved, update it with `frost init`.\n▲  skipped      12 items couldn't be read:\n│                 cannot read /source/item00?\n│                 cannot read /source/item01?\n│                 cannot read /source/item02?\n│                 cannot read /source/item03?\n│                 cannot read /source/item04?\n│                 cannot read /source/item05?\n│                 cannot read /source/item06?\n│                 cannot read /source/item07?\n│                 cannot read /source/item08?\n│                 cannot read /source/item09?\n│                 ... and 2 more\n▲  kept         13 files kept changing while they were read, so the snapshot has their previous copy:\n│                 \\source\\kept00\n│                 \\source\\kept01\n│                 \\source\\kept02\n│                 \\source\\kept03\n│                 \\source\\kept04\n│                 \\source\\kept05\n│                 \\source\\kept06\n│                 \\source\\kept07\n│                 \\source\\kept08\n│                 \\source\\kept09\n│                 ... and 3 more\n│\n└  Saved snapshot maple-absurd-3f1c.\n\n"
+  },
+  {
+    "name": "backup-repaired",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n│\n│  files        1,234 (2.2 kB)\n│  new data     1.2 kB in 3 chunks (750 B uploaded after compression)\n│               Uploaded again because storage was missing them.\n│\n└  Already backed up. Nothing has changed since snapshot maple-absurd-3f1c, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-kept-unchanged",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n│\n│  files        1,234 (2.2 kB)\n│  new data     1.2 kB in 3 chunks (750 B uploaded after compression)\n▲  kept         1 files kept changing while they were read, so the snapshot has their previous copy:\n│                 \\source\\忙しい.txt\n│\n└  Already backed up. Nothing has changed since snapshot maple-absurd-3f1c, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-unchanged",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n│\n│  files        1,234 (2.2 kB)\n│\n└  Already backed up. Nothing has changed since snapshot maple-absurd-3f1c, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "dry-planned",
+    "profile": "ascii",
+    "output": "\n┌  dry run  memory\n│\n│  changes      2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n│  files        1,234 (2.2 kB)\n│\n│  Would upload new data from 4 files:\n│\n│         0 B  \\source\\?.txt\n│       250 B  \\source\\z.txt\n│         0 B  \\source\\文件.txt\n│      1.0 kB  \\source\\🧊.txt\n│\n│  total        1.2 kB new, in 3 chunks, out of 2.2 kB scanned\n│\n└  Nothing was uploaded. Run without --dry-run to back up.\n\n"
+  },
+  {
+    "name": "dry-empty",
+    "profile": "ascii",
+    "output": "\n┌  dry run  memory\n│\n│  changes      2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n│  files        1,234 (2.2 kB)\n│\n│  No new data to upload. Everything in these files is already stored.\n│\n└  Nothing was uploaded. Run without --dry-run to back up.\n\n"
+  },
+  {
+    "name": "dry-unchanged",
+    "profile": "ascii",
+    "output": "\n┌  dry run  memory\n│\n│  files        1,234 (2.2 kB)\n│\n└  Nothing has changed since snapshot maple-absurd-3f1c, saved \u003cage\u003e ago, so there's nothing to back up.\n\n"
+  },
+  {
+    "name": "snapshots-0-false",
+    "profile": "ascii",
+    "output": "\n┌  frost  dev  memory\n│\n└  No snapshots yet. Run frost backup.\n\n"
+  },
+  {
+    "name": "snapshots-1-false",
+    "profile": "ascii",
+    "output": "\n┌  frost  dev  memory\n│\n├  snapshots\n│\n│  snapshot             taken                  files         size          new\n│  maple-absurd-3f1c    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n└\n\n"
+  },
+  {
+    "name": "snapshots-10-false",
+    "profile": "ascii",
+    "output": "\n┌  frost  dev  memory\n│\n├  snapshots\n│\n│  snapshot                    taken                  files         size          new\n│  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n└\n\n"
+  },
+  {
+    "name": "snapshots-13-false",
+    "profile": "ascii",
+    "output": "\n┌  frost  dev  memory\n│\n├  snapshots\n│\n│  snapshot                    taken                  files         size          new\n│  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n│  +3\n│\n└  See all snapshots with frost status --all\n\n"
+  },
+  {
+    "name": "snapshots-13-true",
+    "profile": "ascii",
+    "output": "\n┌  frost  dev  memory\n│\n├  snapshots\n│\n│  snapshot                    taken                  files         size          new\n│  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c000000a    2006-01-01 17:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c000000b    2006-01-01 16:04       1,234       2.2 kB       1.2 kB\n│  maple-absurd-3f1c000000c    2006-01-01 15:04       1,234       2.2 kB       1.2 kB\n└\n\n"
+  },
+  {
+    "name": "phrase-grid",
+    "profile": "ascii",
+    "output": "\n┌  recovery phrase\n│\n│   1. abandon    7. abandon   13. abandon   19. abandon\n│   2. abandon    8. abandon   14. abandon   20. abandon\n│   3. abandon    9. abandon   15. abandon   21. abandon\n│   4. abandon   10. abandon   16. abandon   22. abandon\n│   5. abandon   11. abandon   17. abandon   23. abandon\n│   6. abandon   12. abandon   18. abandon   24. art\n└  key fingerprint dummy\n\n"
+  },
+  {
+    "name": "error-block",
+    "profile": "ascii",
+    "output": "\n┌  restore  maple-absurd-3f1c\n▲  notice       cannot read\n│               second row \n│\n│               last row   \n└  error: storage refused\n\n   try again\n\n"
+  },
+  {
+    "name": "progress-long",
+    "profile": "ascii",
+    "output": "\n┌  backup  memory\n\r\u001b[K│  1,234 files, 2.2 kB scanned, 1.2 kB new  ...long-long-long-long-long-long-end.txt\r\u001b[K"
+  },
+  {
+    "name": "backup-new",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;2;121;119;116m(750 B uploaded after compression)\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;63;185;80mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-none",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mnew data    \u001b[0m none\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;63;185;80mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-warnings",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;2;121;119;116m(750 B uploaded after compression)\u001b[0m\n\u001b[38;2;210;153;34m▲\u001b[0m  \u001b[38;2;121;119;116mnot found   \u001b[0m \u001b[38;2;210;153;34m\\source\\missing, \\source\\bad?name\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m               \u001b[38;2;121;119;116mSkipped until they're back. If one moved, update it with `frost init`.\u001b[0m\n\u001b[38;2;210;153;34m▲\u001b[0m  \u001b[38;2;121;119;116mskipped     \u001b[0m \u001b[38;2;210;153;34m12 items couldn't be read:\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item00?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item01?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item02?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item03?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item04?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item05?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item06?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item07?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item08?\n\u001b[38;2;67;83;255m│\u001b[0m                 cannot read /source/item09?\n\u001b[38;2;67;83;255m│\u001b[0m                 ... and 2 more\n\u001b[38;2;210;153;34m▲\u001b[0m  \u001b[38;2;121;119;116mkept        \u001b[0m \u001b[38;2;210;153;34m13 files kept changing while they were read, so the snapshot has their previous copy:\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept00\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept01\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept02\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept03\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept04\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept05\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept06\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept07\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept08\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\kept09\n\u001b[38;2;67;83;255m│\u001b[0m                 ... and 3 more\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;63;185;80mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-repaired",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;2;121;119;116m(750 B uploaded after compression)\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m               \u001b[38;2;121;119;116mUploaded again because storage was missing them.\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;63;185;80mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-kept-unchanged",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;2;121;119;116m(750 B uploaded after compression)\u001b[0m\n\u001b[38;2;210;153;34m▲\u001b[0m  \u001b[38;2;121;119;116mkept        \u001b[0m \u001b[38;2;210;153;34m1 files kept changing while they were read, so the snapshot has their previous copy:\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m                 \\source\\忙しい.txt\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;63;185;80mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-unchanged",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;63;185;80mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "dry-planned",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  Would upload new data from 4 files:\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m         0 B  \\source\\?.txt\n\u001b[38;2;67;83;255m│\u001b[0m       250 B  \\source\\z.txt\n\u001b[38;2;67;83;255m│\u001b[0m         0 B  \\source\\文件.txt\n\u001b[38;2;67;83;255m│\u001b[0m      1.0 kB  \\source\\🧊.txt\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mtotal       \u001b[0m \u001b[1m1.2 kB\u001b[0m new, in 3 chunks, out of 2.2 kB scanned\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  Nothing was uploaded. Run without \u001b[1m--dry-run\u001b[0m to back up.\n\n"
+  },
+  {
+    "name": "dry-empty",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  No new data to upload. Everything in these files is already stored.\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  Nothing was uploaded. Run without \u001b[1m--dry-run\u001b[0m to back up.\n\n"
+  },
+  {
+    "name": "dry-unchanged",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago, so there's nothing to back up.\n\n"
+  },
+  {
+    "name": "snapshots-0-false",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;2;121;119;116mdev  memory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  No snapshots yet. Run \u001b[1mfrost backup\u001b[0m.\n\n"
+  },
+  {
+    "name": "snapshots-1-false",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;2;121;119;116mdev  memory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116msnapshot             taken                  files         size          new\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m└\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-10-false",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;2;121;119;116mdev  memory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m└\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-13-false",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;2;121;119;116mdev  memory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m+3\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m└\u001b[0m  See all snapshots with \u001b[1mfrost status --all\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-13-true",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;2;121;119;116mdev  memory\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c000000a    2006-01-01 17:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c000000b    2006-01-01 16:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m│\u001b[0m  maple-absurd-3f1c000000c    2006-01-01 15:04       1,234       2.2 kB       1.2 kB\n\u001b[38;2;67;83;255m└\u001b[0m\n\n"
+  },
+  {
+    "name": "phrase-grid",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mrecovery phrase\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m 1.\u001b[0m abandon   \u001b[38;2;121;119;116m 7.\u001b[0m abandon   \u001b[38;2;121;119;116m13.\u001b[0m abandon   \u001b[38;2;121;119;116m19.\u001b[0m abandon\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m 2.\u001b[0m abandon   \u001b[38;2;121;119;116m 8.\u001b[0m abandon   \u001b[38;2;121;119;116m14.\u001b[0m abandon   \u001b[38;2;121;119;116m20.\u001b[0m abandon\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m 3.\u001b[0m abandon   \u001b[38;2;121;119;116m 9.\u001b[0m abandon   \u001b[38;2;121;119;116m15.\u001b[0m abandon   \u001b[38;2;121;119;116m21.\u001b[0m abandon\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m 4.\u001b[0m abandon   \u001b[38;2;121;119;116m10.\u001b[0m abandon   \u001b[38;2;121;119;116m16.\u001b[0m abandon   \u001b[38;2;121;119;116m22.\u001b[0m abandon\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m 5.\u001b[0m abandon   \u001b[38;2;121;119;116m11.\u001b[0m abandon   \u001b[38;2;121;119;116m17.\u001b[0m abandon   \u001b[38;2;121;119;116m23.\u001b[0m abandon\n\u001b[38;2;67;83;255m│\u001b[0m  \u001b[38;2;121;119;116m 6.\u001b[0m abandon   \u001b[38;2;121;119;116m12.\u001b[0m abandon   \u001b[38;2;121;119;116m18.\u001b[0m abandon   \u001b[38;2;121;119;116m24.\u001b[0m art\n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[38;2;121;119;116mkey fingerprint dummy\u001b[0m\n\n"
+  },
+  {
+    "name": "error-block",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mrestore\u001b[0m  \u001b[38;2;121;119;116mmaple-absurd-3f1c\u001b[0m\n\u001b[38;2;210;153;34m▲\u001b[0m  \u001b[38;2;121;119;116mnotice      \u001b[0m \u001b[38;2;210;153;34mcannot read\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m               \u001b[38;2;210;153;34msecond row\u001b[0m \n\u001b[38;2;67;83;255m│\u001b[0m\n\u001b[38;2;67;83;255m│\u001b[0m               \u001b[38;2;210;153;34mlast row\u001b[0m   \n\u001b[38;2;67;83;255m└\u001b[0m  \u001b[1;38;2;248;81;73merror:\u001b[0m storage refused\n\n   try again\n\n"
+  },
+  {
+    "name": "progress-long",
+    "profile": "truecolor",
+    "output": "\n\u001b[38;2;67;83;255m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;2;121;119;116mmemory\u001b[0m\n\r\u001b[K\u001b[38;2;67;83;255m│\u001b[0m  1,234 files, 2.2 kB scanned, 1.2 kB new  \u001b[38;2;121;119;116m...long-long-long-long-long-long-end.txt\u001b[0m\r\u001b[K"
+  },
+  {
+    "name": "backup-new",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;5;102m(750 B uploaded after compression)\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;71mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-none",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mnew data    \u001b[0m none\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;71mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-warnings",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;5;102m(750 B uploaded after compression)\u001b[0m\n\u001b[38;5;172m▲\u001b[0m  \u001b[38;5;102mnot found   \u001b[0m \u001b[38;5;172m\\source\\missing, \\source\\bad?name\u001b[0m\n\u001b[38;5;63m│\u001b[0m               \u001b[38;5;102mSkipped until they're back. If one moved, update it with `frost init`.\u001b[0m\n\u001b[38;5;172m▲\u001b[0m  \u001b[38;5;102mskipped     \u001b[0m \u001b[38;5;172m12 items couldn't be read:\u001b[0m\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item00?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item01?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item02?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item03?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item04?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item05?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item06?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item07?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item08?\n\u001b[38;5;63m│\u001b[0m                 cannot read /source/item09?\n\u001b[38;5;63m│\u001b[0m                 ... and 2 more\n\u001b[38;5;172m▲\u001b[0m  \u001b[38;5;102mkept        \u001b[0m \u001b[38;5;172m13 files kept changing while they were read, so the snapshot has their previous copy:\u001b[0m\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept00\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept01\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept02\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept03\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept04\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept05\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept06\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept07\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept08\n\u001b[38;5;63m│\u001b[0m                 \\source\\kept09\n\u001b[38;5;63m│\u001b[0m                 ... and 3 more\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;71mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-repaired",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;5;102m(750 B uploaded after compression)\u001b[0m\n\u001b[38;5;63m│\u001b[0m               \u001b[38;5;102mUploaded again because storage was missing them.\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;71mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-kept-unchanged",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[38;5;102m(750 B uploaded after compression)\u001b[0m\n\u001b[38;5;172m▲\u001b[0m  \u001b[38;5;102mkept        \u001b[0m \u001b[38;5;172m1 files kept changing while they were read, so the snapshot has their previous copy:\u001b[0m\n\u001b[38;5;63m│\u001b[0m                 \\source\\忙しい.txt\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;71mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-unchanged",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;71mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "dry-planned",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  Would upload new data from 4 files:\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m         0 B  \\source\\?.txt\n\u001b[38;5;63m│\u001b[0m       250 B  \\source\\z.txt\n\u001b[38;5;63m│\u001b[0m         0 B  \\source\\文件.txt\n\u001b[38;5;63m│\u001b[0m      1.0 kB  \\source\\🧊.txt\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mtotal       \u001b[0m \u001b[1m1.2 kB\u001b[0m new, in 3 chunks, out of 2.2 kB scanned\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  Nothing was uploaded. Run without \u001b[1m--dry-run\u001b[0m to back up.\n\n"
+  },
+  {
+    "name": "dry-empty",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  No new data to upload. Everything in these files is already stored.\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  Nothing was uploaded. Run without \u001b[1m--dry-run\u001b[0m to back up.\n\n"
+  },
+  {
+    "name": "dry-unchanged",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago, so there's nothing to back up.\n\n"
+  },
+  {
+    "name": "snapshots-0-false",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;5;102mdev  memory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  No snapshots yet. Run \u001b[1mfrost backup\u001b[0m.\n\n"
+  },
+  {
+    "name": "snapshots-1-false",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;5;102mdev  memory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102msnapshot             taken                  files         size          new\u001b[0m\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m└\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-10-false",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;5;102mdev  memory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m└\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-13-false",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;5;102mdev  memory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m+3\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m└\u001b[0m  See all snapshots with \u001b[1mfrost status --all\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-13-true",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[38;5;102mdev  memory\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c000000a    2006-01-01 17:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c000000b    2006-01-01 16:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m│\u001b[0m  maple-absurd-3f1c000000c    2006-01-01 15:04       1,234       2.2 kB       1.2 kB\n\u001b[38;5;63m└\u001b[0m\n\n"
+  },
+  {
+    "name": "phrase-grid",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mrecovery phrase\u001b[0m\n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m 1.\u001b[0m abandon   \u001b[38;5;102m 7.\u001b[0m abandon   \u001b[38;5;102m13.\u001b[0m abandon   \u001b[38;5;102m19.\u001b[0m abandon\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m 2.\u001b[0m abandon   \u001b[38;5;102m 8.\u001b[0m abandon   \u001b[38;5;102m14.\u001b[0m abandon   \u001b[38;5;102m20.\u001b[0m abandon\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m 3.\u001b[0m abandon   \u001b[38;5;102m 9.\u001b[0m abandon   \u001b[38;5;102m15.\u001b[0m abandon   \u001b[38;5;102m21.\u001b[0m abandon\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m 4.\u001b[0m abandon   \u001b[38;5;102m10.\u001b[0m abandon   \u001b[38;5;102m16.\u001b[0m abandon   \u001b[38;5;102m22.\u001b[0m abandon\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m 5.\u001b[0m abandon   \u001b[38;5;102m11.\u001b[0m abandon   \u001b[38;5;102m17.\u001b[0m abandon   \u001b[38;5;102m23.\u001b[0m abandon\n\u001b[38;5;63m│\u001b[0m  \u001b[38;5;102m 6.\u001b[0m abandon   \u001b[38;5;102m12.\u001b[0m abandon   \u001b[38;5;102m18.\u001b[0m abandon   \u001b[38;5;102m24.\u001b[0m art\n\u001b[38;5;63m└\u001b[0m  \u001b[38;5;102mkey fingerprint dummy\u001b[0m\n\n"
+  },
+  {
+    "name": "error-block",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mrestore\u001b[0m  \u001b[38;5;102mmaple-absurd-3f1c\u001b[0m\n\u001b[38;5;172m▲\u001b[0m  \u001b[38;5;102mnotice      \u001b[0m \u001b[38;5;172mcannot read\u001b[0m\n\u001b[38;5;63m│\u001b[0m               \u001b[38;5;172msecond row\u001b[0m \n\u001b[38;5;63m│\u001b[0m\n\u001b[38;5;63m│\u001b[0m               \u001b[38;5;172mlast row\u001b[0m   \n\u001b[38;5;63m└\u001b[0m  \u001b[1;38;5;203merror:\u001b[0m storage refused\n\n   try again\n\n"
+  },
+  {
+    "name": "progress-long",
+    "profile": "ansi256",
+    "output": "\n\u001b[38;5;63m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[38;5;102mmemory\u001b[0m\n\r\u001b[K\u001b[38;5;63m│\u001b[0m  1,234 files, 2.2 kB scanned, 1.2 kB new  \u001b[38;5;102m...long-long-long-long-long-long-end.txt\u001b[0m\r\u001b[K"
+  },
+  {
+    "name": "backup-new",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m  \u001b[90mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[90m(750 B uploaded after compression)\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  \u001b[32mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-none",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m  \u001b[90mnew data    \u001b[0m none\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  \u001b[32mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-warnings",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m  \u001b[90mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[90m(750 B uploaded after compression)\u001b[0m\n\u001b[91m▲\u001b[0m  \u001b[90mnot found   \u001b[0m \u001b[91m\\source\\missing, \\source\\bad?name\u001b[0m\n\u001b[94m│\u001b[0m               \u001b[90mSkipped until they're back. If one moved, update it with `frost init`.\u001b[0m\n\u001b[91m▲\u001b[0m  \u001b[90mskipped     \u001b[0m \u001b[91m12 items couldn't be read:\u001b[0m\n\u001b[94m│\u001b[0m                 cannot read /source/item00?\n\u001b[94m│\u001b[0m                 cannot read /source/item01?\n\u001b[94m│\u001b[0m                 cannot read /source/item02?\n\u001b[94m│\u001b[0m                 cannot read /source/item03?\n\u001b[94m│\u001b[0m                 cannot read /source/item04?\n\u001b[94m│\u001b[0m                 cannot read /source/item05?\n\u001b[94m│\u001b[0m                 cannot read /source/item06?\n\u001b[94m│\u001b[0m                 cannot read /source/item07?\n\u001b[94m│\u001b[0m                 cannot read /source/item08?\n\u001b[94m│\u001b[0m                 cannot read /source/item09?\n\u001b[94m│\u001b[0m                 ... and 2 more\n\u001b[91m▲\u001b[0m  \u001b[90mkept        \u001b[0m \u001b[91m13 files kept changing while they were read, so the snapshot has their previous copy:\u001b[0m\n\u001b[94m│\u001b[0m                 \\source\\kept00\n\u001b[94m│\u001b[0m                 \\source\\kept01\n\u001b[94m│\u001b[0m                 \\source\\kept02\n\u001b[94m│\u001b[0m                 \\source\\kept03\n\u001b[94m│\u001b[0m                 \\source\\kept04\n\u001b[94m│\u001b[0m                 \\source\\kept05\n\u001b[94m│\u001b[0m                 \\source\\kept06\n\u001b[94m│\u001b[0m                 \\source\\kept07\n\u001b[94m│\u001b[0m                 \\source\\kept08\n\u001b[94m│\u001b[0m                 \\source\\kept09\n\u001b[94m│\u001b[0m                 ... and 3 more\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  \u001b[32mSaved snapshot \u001b[0m\u001b[1mmaple-absurd-3f1c\u001b[0m.\n\n"
+  },
+  {
+    "name": "backup-repaired",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m  \u001b[90mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[90m(750 B uploaded after compression)\u001b[0m\n\u001b[94m│\u001b[0m               \u001b[90mUploaded again because storage was missing them.\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  \u001b[32mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-kept-unchanged",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m  \u001b[90mnew data    \u001b[0m 1.2 kB in 3 chunks \u001b[90m(750 B uploaded after compression)\u001b[0m\n\u001b[91m▲\u001b[0m  \u001b[90mkept        \u001b[0m \u001b[91m1 files kept changing while they were read, so the snapshot has their previous copy:\u001b[0m\n\u001b[94m│\u001b[0m                 \\source\\忙しい.txt\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  \u001b[32mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "backup-unchanged",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  \u001b[32mAlready backed up.\u001b[0m Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago.\n\n"
+  },
+  {
+    "name": "dry-planned",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  Would upload new data from 4 files:\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m         0 B  \\source\\?.txt\n\u001b[94m│\u001b[0m       250 B  \\source\\z.txt\n\u001b[94m│\u001b[0m         0 B  \\source\\文件.txt\n\u001b[94m│\u001b[0m      1.0 kB  \\source\\🧊.txt\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mtotal       \u001b[0m \u001b[1m1.2 kB\u001b[0m new, in 3 chunks, out of 2.2 kB scanned\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  Nothing was uploaded. Run without \u001b[1m--dry-run\u001b[0m to back up.\n\n"
+  },
+  {
+    "name": "dry-empty",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mchanges     \u001b[0m 2 added, 1 changed, 3 removed, 1 folder added, 2 folders changed, 1 folder removed\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  No new data to upload. Everything in these files is already stored.\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  Nothing was uploaded. Run without \u001b[1m--dry-run\u001b[0m to back up.\n\n"
+  },
+  {
+    "name": "dry-unchanged",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mdry run\u001b[0m  \u001b[90mmemory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90mfiles       \u001b[0m 1,234 (2.2 kB)\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  Nothing has changed since snapshot \u001b[1mmaple-absurd-3f1c\u001b[0m, saved \u003cage\u003e ago, so there's nothing to back up.\n\n"
+  },
+  {
+    "name": "snapshots-0-false",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[90mdev  memory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  No snapshots yet. Run \u001b[1mfrost backup\u001b[0m.\n\n"
+  },
+  {
+    "name": "snapshots-1-false",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[90mdev  memory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90msnapshot             taken                  files         size          new\u001b[0m\n\u001b[94m│\u001b[0m  maple-absurd-3f1c    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[94m└\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-10-false",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[90mdev  memory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[94m└\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-13-false",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[90mdev  memory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  \u001b[90m+3\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m└\u001b[0m  See all snapshots with \u001b[1mfrost status --all\u001b[0m\n\n"
+  },
+  {
+    "name": "snapshots-13-true",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mfrost\u001b[0m  \u001b[90mdev  memory\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m├\u001b[0m  \u001b[1msnapshots\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90msnapshot                    taken                  files         size          new\u001b[0m\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000000    2006-01-02 03:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000001    2006-01-02 02:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000002    2006-01-02 01:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000003    2006-01-02 00:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000004    2006-01-01 23:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000005    2006-01-01 22:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000006    2006-01-01 21:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000007    2006-01-01 20:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000008    2006-01-01 19:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c0000009    2006-01-01 18:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c000000a    2006-01-01 17:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c000000b    2006-01-01 16:04       1,234       2.2 kB       1.2 kB\n\u001b[94m│\u001b[0m  maple-absurd-3f1c000000c    2006-01-01 15:04       1,234       2.2 kB       1.2 kB\n\u001b[94m└\u001b[0m\n\n"
+  },
+  {
+    "name": "phrase-grid",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mrecovery phrase\u001b[0m\n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m  \u001b[90m 1.\u001b[0m abandon   \u001b[90m 7.\u001b[0m abandon   \u001b[90m13.\u001b[0m abandon   \u001b[90m19.\u001b[0m abandon\n\u001b[94m│\u001b[0m  \u001b[90m 2.\u001b[0m abandon   \u001b[90m 8.\u001b[0m abandon   \u001b[90m14.\u001b[0m abandon   \u001b[90m20.\u001b[0m abandon\n\u001b[94m│\u001b[0m  \u001b[90m 3.\u001b[0m abandon   \u001b[90m 9.\u001b[0m abandon   \u001b[90m15.\u001b[0m abandon   \u001b[90m21.\u001b[0m abandon\n\u001b[94m│\u001b[0m  \u001b[90m 4.\u001b[0m abandon   \u001b[90m10.\u001b[0m abandon   \u001b[90m16.\u001b[0m abandon   \u001b[90m22.\u001b[0m abandon\n\u001b[94m│\u001b[0m  \u001b[90m 5.\u001b[0m abandon   \u001b[90m11.\u001b[0m abandon   \u001b[90m17.\u001b[0m abandon   \u001b[90m23.\u001b[0m abandon\n\u001b[94m│\u001b[0m  \u001b[90m 6.\u001b[0m abandon   \u001b[90m12.\u001b[0m abandon   \u001b[90m18.\u001b[0m abandon   \u001b[90m24.\u001b[0m art\n\u001b[94m└\u001b[0m  \u001b[90mkey fingerprint dummy\u001b[0m\n\n"
+  },
+  {
+    "name": "error-block",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mrestore\u001b[0m  \u001b[90mmaple-absurd-3f1c\u001b[0m\n\u001b[91m▲\u001b[0m  \u001b[90mnotice      \u001b[0m \u001b[91mcannot read\u001b[0m\n\u001b[94m│\u001b[0m               \u001b[91msecond row\u001b[0m \n\u001b[94m│\u001b[0m\n\u001b[94m│\u001b[0m               \u001b[91mlast row\u001b[0m   \n\u001b[94m└\u001b[0m  \u001b[1;91merror:\u001b[0m storage refused\n\n   try again\n\n"
+  },
+  {
+    "name": "progress-long",
+    "profile": "ansi",
+    "output": "\n\u001b[94m┌\u001b[0m  \u001b[1mbackup\u001b[0m  \u001b[90mmemory\u001b[0m\n\r\u001b[K\u001b[94m│\u001b[0m  1,234 files, 2.2 kB scanned, 1.2 kB new  \u001b[90m...long-long-long-long-long-long-end.txt\u001b[0m\r\u001b[K"
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "name": "restore-no-target",
+  "args": [
+    "restore",
+    "latest"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: choose where to restore: --beside, --to <dir> or --overwrite\n\n"
+}

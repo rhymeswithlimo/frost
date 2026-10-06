@@ -1,0 +1,13 @@
+{
+  "name": "key-many-actions",
+  "args": [
+    "key",
+    "show",
+    "verify"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: accepts 1 arg(s), received 2\n\n"
+}

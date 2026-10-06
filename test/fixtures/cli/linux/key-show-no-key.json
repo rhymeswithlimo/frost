@@ -1,0 +1,12 @@
+{
+  "name": "key-show-no-key",
+  "args": [
+    "key",
+    "show"
+  ],
+  "input": "",
+  "configured": false,
+  "code": 1,
+  "stdout": "",
+  "stderr": "\nerror: no key on this machine, run `frost init` or `frost key import`\n\n"
+}

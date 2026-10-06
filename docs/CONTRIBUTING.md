@@ -38,9 +38,11 @@ Clone the repository with `git clone https://github.com/rhymeswithlimo/frost`, t
 
 - New behaviour comes with a test.
 - Never log, print or send the key or phrase, except in `frost key show` and `frost init`.
-- A change to the on-disk or in-bucket format needs a version bump in `internal/repo` and a migration.
-- A change to the Permafrost API changes [PERMAFROST.md](PERMAFROST.md) and the reference server in `internal/storage/permafrost/server_test.go` together.
-- Docs, help text, output and comments follow [STYLE.md](STYLE.md).
+- A repository format change needs a version bump in `src/core/repo.ts` and a migration. Blob and local cache formats also need explicit compatibility handling.
+- A change to the Permafrost API changes [PERMAFROST.md](PERMAFROST.md) and the reference server tests in `test/core/storage.test.ts` together.
+- Tests use private temporary folders and loopback servers. Inject scheduler, desktop, editor and updater dependencies; never change a real scheduled job, open an external app, go online or replace the running test application.
+- Keep runtime and dependency versions pinned. Native filesystem operations fail closed; don't add a path-based fallback.
+- Keep docs, help text, output and comments short and plain, with no em dashes.
 - "frost" is always lowercase, even at the start of a sentence.
 
 ## Before you open a pull request
@@ -48,14 +50,21 @@ Clone the repository with `git clone https://github.com/rhymeswithlimo/frost`, t
 Run the same checks CI runs, from the repository root:
 
 ```sh
-gofmt -l .      # should print nothing
-go vet ./...
-go test ./...
+npm ci --ignore-scripts
+npm run audit:dependencies
+npm run format:check
+npm run check
+npm test
+npm audit
 ```
 
-If you changed `install/install.sh` or `scripts/release.sh`, run shellcheck on it too. For a change to the TUI, try it in the demo (`go run ./internal/tui/demo`) at a few window sizes, small ones included.
+`npm run format` formats the code with Prettier.
 
-CI runs the build, vet and tests on Linux, macOS and Windows, with the race detector on Linux and macOS. It also checks `gofmt`, runs shellcheck on the scripts, and cross-compiles every release target. govulncheck checks dependencies for known vulnerabilities every week and whenever `go.mod` changes.
+Check shell changes with `bash -n` and shellcheck. Never run `scripts/release.sh`, including `--dry-run` or `--setup-key`; only the maintainer runs it.
+
+For a TUI change, try `npm run demo` after building, at small and large window sizes. The design needs agreement before it changes. Keep the demo and frozen output fixtures working.
+
+CI is configured to check formatting, build, type-check and test on Linux, macOS and Windows. Dependency checks compare installed files with pinned archive hashes and run npm's vulnerability audit. Packaging checks cover each pinned release runtime; workflow configuration doesn't establish native execution on every architecture. Releases remain manual.
 
 ## Pull requests
 
@@ -86,4 +95,4 @@ Before opening an issue, check the docs at [getfro.st/docs](https://getfro.st/do
 
 An S3-compatible service needs atomic conditional writes to work through the `s3` backend. [CLI.md](CLI.md#storage-compatibility) lists the requirement and provider findings. If setup fails, open an issue with the provider's name and the error `frost init` shows.
 
-A new storage backend needs an issue first. It implements `storage.Backend` and has to pass `storagetest.Conformance`, as [ARCHITECTURE.md](ARCHITECTURE.md#storage-backends) describes.
+A new storage backend needs an issue first. It implements the `Backend` interface in `src/core/storage.ts` and passes the contract tests, as [ARCHITECTURE.md](ARCHITECTURE.md#storage-backends) describes.

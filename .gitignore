@@ -1,48 +1,28 @@
-# Secrets / local config
+# Local secrets and signing keys
 .env
-.claude
-
-# Signing keys
 *.pem
 *.key
 *.p12
 *.pfx
 frost-release*
-frost-macos-signing*
 
-# Tooling
+# Editors, agents and working notes
 .vscode/
 .idea/
+.claude/
+CLAUDE.md
+AGENTS.md
+PLAN.md
+STYLE.md
+mockup/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Working notes
-CLAUDE.md
-AGENTS.md
-STYLE.md
-PLAN.md
-mockup/
-
-# Build output (`go build ./cmd/frost` drops the binary in the repo root)
-/frost
-/frost.exe
-*.test
-dist/
-
-# Release builds from scripts/release.sh
-releases/
-
-# frost.exe's version resource, from go generate or scripts/release.sh
-/cmd/frost/winres/*.syso
-
-# Test and dev leftovers
-*.out
-coverage.*
-*.ans
-frost-restore-*/
-
-# Design files
-*.psd
-design-assets/
+# Generated: dependencies, build output, scratch work and release artifacts
+node_modules/
+/dist/
+/.work/
+/releases/
+*.cpuprofile
