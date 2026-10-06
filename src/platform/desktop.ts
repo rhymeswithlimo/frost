@@ -1,6 +1,7 @@
 // Opens links and folders, reveals files, launches an editor and shows a native folder picker.
 // Tests pass a runner so nothing real opens.
 import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { run, type Runner } from './command.js';
 
@@ -133,13 +134,15 @@ export async function pickFolder(title: string, startDir = '', options: DesktopO
       options.signal,
     );
   } else if (platform === 'darwin') {
-    // AppleScript string literals escape backslashes and double quotes.
+    // AppleScript string literals escape backslashes and double quotes. A start folder that doesn't
+    // exist makes choose folder fail before the dialog opens, so it's left out then.
     const quote = (s: string) => '"' + s.replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
+    const start = startDir && (await stat(startDir).catch(() => undefined))?.isDirectory() ? startDir : '';
     result = await runner(
       'osascript',
       [
         '-e',
-        `POSIX path of (choose folder with prompt ${quote(title)}${startDir ? ' default location (POSIX file ' + quote(startDir) + ')' : ''})`,
+        `POSIX path of (choose folder with prompt ${quote(title)}${start ? ' default location (POSIX file ' + quote(start) + ')' : ''})`,
       ],
       undefined,
       options.signal,

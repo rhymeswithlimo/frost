@@ -26,12 +26,12 @@ import type { Runner } from '../../src/platform/command.js';
 
 const job = { binary: '/usr/local/bin/frost', every: 6 * hour, logFile: '/home/me/.cache/frost/frost.log' };
 
-// Paths with quotes, ampersands and angle brackets must survive each format's escaping. Cron jobs
-// run at minute 17, and daily and weekly ones at 03:17.
+// Paths with quotes, ampersands and angle brackets must survive each format's escaping. Cron and
+// launchd jobs run at minute 17, and daily and weekly ones at 03:17.
 test('scheduler definitions preserve interval, quoting, and logging', () => {
   const j = { ...job, configDir: "/it's here", cacheDir: '/cache & <files>' };
-  assert.match(launchdPlist(j), /<integer>21600<\/integer>/);
   assert.match(launchdPlist(j), /\/cache &amp; &lt;files&gt;/);
+  assert.doesNotMatch(launchdPlist(j), /StartInterval/);
   const { service, timer } = systemdUnits(j);
   assert.match(service, /ExecStart="\/usr\/local\/bin\/frost" backup --scheduled/);
   assert.match(timer, /OnCalendar=\*-\*-\* 00\/6:00:00\nPersistent=true/);
@@ -53,6 +53,26 @@ test('scheduler definitions preserve interval, quoting, and logging', () => {
     assert.equal(onCalendar(every), calendar);
     assert.equal(cronSpec(every), cron);
   }
+
+  // launchd gets one calendar entry per run time, in the same order as cron's fields.
+  const launchdTimes = (every: number) =>
+    [
+      ...launchdPlist({ ...job, every }).matchAll(
+        /<dict>\n((?:\t+<key>\w+<\/key>\n\t+<integer>\d+<\/integer>\n)+)\t+<\/dict>/g,
+      ),
+    ].map(m =>
+      [...m[1].matchAll(/<key>(\w+)<\/key>\n\t+<integer>(\d+)<\/integer>/g)].map(f => f[1] + '=' + f[2]).join(' '),
+    );
+  assert.deepEqual(launchdTimes(hour), ['Minute=17']);
+  assert.deepEqual(launchdTimes(6 * hour), [
+    'Hour=0 Minute=17',
+    'Hour=6 Minute=17',
+    'Hour=12 Minute=17',
+    'Hour=18 Minute=17',
+  ]);
+  assert.deepEqual(launchdTimes(8 * hour), ['Hour=0 Minute=17', 'Hour=8 Minute=17', 'Hour=16 Minute=17']);
+  assert.deepEqual(launchdTimes(24 * hour), ['Hour=3 Minute=17']);
+  assert.deepEqual(launchdTimes(168 * hour), ['Weekday=0 Hour=3 Minute=17']);
 });
 // Installed frost runs as the bundled runtime plus a launch script, which must stay two arguments.
 test('signed runtime and script remain separate scheduler arguments', () => {
@@ -134,6 +154,33 @@ test('scheduler tests never run the real scheduler', async t => {
 
   await assert.rejects(scheduler.install({ ...job, binary: 'bad\npath' }), /line breaks/);
   await assert.rejects(scheduler.install({ ...job, every: 1 }), /at least an hour/);
+});
+
+// Switching frost off under Login Items unloads the launchd job and leaves its plist behind, so an
+// installed job needs both the plist and a loaded service.
+test('a launchd job counts as installed only while launchd has it loaded', async t => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'frost-launchd-test-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  let loaded = true;
+  const calls: string[][] = [];
+  const runner: Runner = async (cmd, args) => {
+    calls.push([cmd, ...args]);
+    return { code: cmd === 'launchctl' && args[0] === 'print' && !loaded ? 113 : 0, stdout: '', stderr: '' };
+  };
+  const scheduler = new Scheduler({ platform: 'darwin', home, uid: 501, runner });
+  assert.equal(await scheduler.installed(), false);
+
+  await scheduler.install(job);
+  const plist = path.join(home, 'Library', 'LaunchAgents', 'io.github.rhymeswithlimo.frost.plist');
+  assert.match(await readFile(plist, 'utf8'), /StartCalendarInterval/);
+  assert.deepEqual(calls.at(-1), ['launchctl', 'bootstrap', 'gui/501', plist]);
+  assert.equal(await scheduler.installed(), true);
+  assert.deepEqual(calls.at(-1), ['launchctl', 'print', 'gui/501/io.github.rhymeswithlimo.frost']);
+
+  loaded = false;
+  assert.equal(await scheduler.installed(), false);
+  await scheduler.remove();
+  await assert.rejects(readFile(plist), { code: 'ENOENT' });
 });
 // The stub inspects the XML file handed to `schtasks /Create`, which must be deleted afterwards.
 test('Windows task is UTF-16 and gets removed after mocked registration', async t => {

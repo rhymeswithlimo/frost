@@ -9,19 +9,6 @@ import { printable, relative, tildify } from './format.js';
 
 export const updateStatePath = () => path.join(config.cacheDir(), 'update.json');
 
-// macOS may not recognise an updated binary for Full Disk Access.
-export const fdaHint =
-  'If backups of protected folders start failing with "operation not permitted", turn frost off and on again under System Settings > Privacy & Security > Full Disk Access.';
-
-// The version frost updated itself to, if that's the running version and the update was in the last 30
-// days.
-export async function recentlyUpdated(version: string, now = Date.now()): Promise<string | undefined> {
-  const st = await update.loadState(updateStatePath());
-  return st.installed && st.installed === version && now - Date.parse(st.installed_at ?? '') <= 30 * 86400_000
-    ? st.installed
-    : undefined;
-}
-
 // The updates row and whether it's a warning. Automatic updates only run after scheduled backups, so
 // they're effectively off without a schedule.
 export function updateSummary(

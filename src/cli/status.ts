@@ -9,7 +9,7 @@ import { Context } from './context.js';
 import { ago, Block, humanBytes, humanCount, inTime, plural, printable, when } from './format.js';
 import { missingList } from './backup.js';
 import { loadKnown, moveHint, StorageError } from './known.js';
-import { updateSummary, updateStatePath, recentlyUpdated, fdaHint } from './update.js';
+import { updateSummary, updateStatePath } from './update.js';
 
 // Returns the next-backup row and how bad it is, where 0 is fine, 1 is a warning and 2 is a failure.
 async function nextRun(ctx: Context, cfg: config.Config, e: Engine): Promise<[string, number]> {
@@ -125,16 +125,9 @@ export async function runStatus(ctx: Context, verify: boolean, all: boolean): Pr
     const last = e.lastBackup();
 
     if (!last) b.row('last backup', f.dim('never'));
-    else if (last.error) {
-      // On macOS a permission error within 30 days of an update gets the Full Disk Access hint.
-      let text = f.error('failed') + ' ' + ago(last.time) + ': ' + printable(last.error);
-      const version =
-        process.platform === 'darwin' && last.error.includes('operation not permitted')
-          ? await recentlyUpdated(ctx.version)
-          : undefined;
-      if (version) text += '\n' + f.dim('frost updated itself to ' + version + '. ' + fdaHint);
-      b.failRow('last backup', text);
-    } else if (last.missing?.length || last.skipped || last.kept) {
+    else if (last.error)
+      b.failRow('last backup', f.error('failed') + ' ' + ago(last.time) + ': ' + printable(last.error));
+    else if (last.missing?.length || last.skipped || last.kept) {
       const buts: string[] = [];
       if (last.missing?.length) buts.push('not found: ' + missingList(last.missing));
       if (last.skipped) buts.push(`${last.skipped} items couldn't be read`);

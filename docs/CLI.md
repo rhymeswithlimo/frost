@@ -103,7 +103,7 @@ frost backs up regular files, folders and symlinks, with their permissions and m
 
 | What happens | What frost does |
 |---|---|
-| A file or folder inside a backed-up folder can't be read (permissions, deleted mid-run) | Skips it and lists it. The snapshot is still saved, and `status` shows how many were skipped |
+| A file or folder inside a backed-up folder can't be read (permissions, deleted mid-run, kept only in iCloud on macOS) | Skips it and lists it. The snapshot is still saved, and `status` shows how many were skipped |
 | A configured folder isn't there (an unplugged drive, a moved folder) | Skips it and backs up the rest. `backup` and `status` name it |
 | None of the configured folders are there, or one exists but can't be read | Fails the whole backup, so it doesn't look fine while saving nothing |
 | A file changes while it's read (a database in use, a running VM's disk, a download) | Reads it again at the end of the backup. If it's still changing, the snapshot keeps its previous copy, and `backup` and `status` list it. A file that was never backed up cleanly is skipped |
@@ -112,7 +112,9 @@ frost doesn't take filesystem or database snapshots. Back up a file that's alway
 
 Backups don't list every object in storage. frost trusts its local record of what's uploaded and checks it against storage once a week, after a check finds something missing, or when the storage isn't where it was last checked.
 
-On macOS, protected folders like `~/Documents` need Full Disk Access for the bundled runtime, scheduled runs included. Add `~/Library/Application Support/frost/app/runtime/bin/node` under System Settings > Privacy & Security > Full Disk Access. If an update is followed by permission errors, turn that entry off and on again. Permission persistence across updates still needs a Mac test; see [Validation](development/VALIDATION.md).
+On macOS, frost doesn't download files that iCloud keeps only online. They're skipped and listed like other files that can't be read.
+
+macOS also protects some folders. A backup you run in a terminal gets access through the terminal app (Terminal, iTerm and so on). Scheduled backups run the bundled runtime, `~/Library/Application Support/frost/app/runtime/bin/node`. macOS asks about it the first time it reads `~/Desktop`, `~/Documents` or `~/Downloads`, and refuses it access to other protected folders like `~/Library/Mail` and `~/Library/Safari` without asking. To cover them all, add the runtime under System Settings > Privacy & Security > Full Disk Access. The permission carries over when frost updates.
 
 ## `frost restore [snapshot] [paths...]`
 
@@ -227,8 +229,6 @@ After a scheduled backup, frost checks for a new release at most once a day and 
 
 With `update.auto` set to `false`, the check still runs and `frost status` says when a release is out, but nothing is installed until you run `frost update`. Without scheduled backups there's no background check at all.
 
-On macOS, an update can be followed by a Full Disk Access error. [What's backed up](#whats-backed-up) explains which runtime to grant access to and how to refresh the permission.
-
 ## `frost config`
 
 | Usage | Does |
@@ -315,7 +315,9 @@ The manifest is disposable. Removing it rebuilds the cache from storage and rere
 | Linux without systemd | cron | A line in your crontab tagged `# frost-backup` |
 | Windows | Task Scheduler | A task named `frost backup` |
 
-The job invokes the bundled runtime and launcher to run `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for, and run daily backups at 03:17 and weekly ones on Sundays at 03:17.
+The job invokes the bundled runtime and launcher to run `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for. launchd, cron and Task Scheduler run daily backups at 03:17 and weekly ones on Sundays at 03:17.
+
+macOS lists the job under System Settings > General > Login Items & Extensions as Node.js Foundation, the publisher of the bundled runtime. Switching it off there stops scheduled backups, and `frost status` says the job is missing. frost loads the job again whenever it reinstalls it, after a schedule change for example, even though the switch still shows off. To stop scheduled backups, run `frost config set schedule.enabled false`.
 
 With systemd, frost turns on lingering for your user (`loginctl enable-linger`), so the timer runs while you're logged out too. It turns lingering off again when it removes the timer, unless it was already on before frost.
 

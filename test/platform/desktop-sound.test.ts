@@ -3,6 +3,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { available, openCommand, revealCommand, openBrowser, pickFolder } from '../../src/platform/desktop.js';
 import { Player, decodeWAV, encodeWAV, resample, vary, cut, effects, sampleRate } from '../../src/platform/sound.js';
 
@@ -35,6 +36,21 @@ test('desktop integrations preserve URLs and treat paths as arguments', async ()
     pickFolder('title', '/start', { platform: 'darwin', runner: async () => ({ code: 1, stdout: '', stderr: '' }) }),
     /no folder chosen/,
   );
+
+  // On macOS, choose folder fails without opening when its start folder is missing, so only a folder
+  // that exists is passed.
+  const scripts: string[] = [];
+  const picker = async (_: string, args: string[]) => {
+    scripts.push(args[1]);
+    return { code: 0, stdout: '/Users/me/Picked/\n', stderr: '' };
+  };
+  const here = process.cwd();
+  assert.equal(await pickFolder('Restore "to"', here, { platform: 'darwin', runner: picker }), '/Users/me/Picked/');
+  await pickFolder('Restore to', path.join(here, 'no such folder'), { platform: 'darwin', runner: picker });
+  assert.deepEqual(scripts, [
+    `POSIX path of (choose folder with prompt "Restore \\"to\\"" default location (POSIX file ${JSON.stringify(here)}))`,
+    'POSIX path of (choose folder with prompt "Restore to")',
+  ]);
 });
 
 const sine = (hz: number, n: number) =>

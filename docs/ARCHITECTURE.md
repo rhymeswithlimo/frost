@@ -100,9 +100,9 @@ A new restore folder holds a `.frost-restore` marker until completion. The marke
 
 ### Native filesystem operations
 
-`src/platform/fs-root*` opens and retains directory handles. Subsequent opens, renames, removals, metadata operations and locks resolve relative to those handles. Restore rejects traversal, duplicate destinations, linked parents, Windows devices and alternate data streams. There is no ordinary path-based fallback when a native binding or lock is unavailable.
+`src/platform/fs-root*` opens and retains directory handles. Subsequent opens, renames, removals, metadata operations and locks resolve relative to those handles. Restore rejects traversal, duplicate destinations (compared without case on Windows and macOS, and without Unicode normalisation on macOS), linked parents, Windows devices and alternate data streams. There is no ordinary path-based fallback when a native binding or lock is unavailable.
 
-The bindings use Node's built-in native-call API and fixed signatures for known OS libraries. POSIX uses directory-relative system calls; Windows uses native file handles and no-follow opens. Native metadata preserves nanosecond timestamps, with Windows' 100 ns resolution. [Validation](development/VALIDATION.md) records the tested platforms and remaining checks.
+The bindings use Node's built-in native-call API and fixed signatures for known OS libraries. POSIX uses directory-relative system calls; Windows uses native file handles and no-follow opens. Native metadata preserves nanosecond timestamps, with Windows' 100 ns resolution.
 
 An overwrite restore resolves trusted ancestor links before retaining its root. POSIX permits links owned by root or the current user only when the parent is also trusted and isn't writable by other users, except for protected sticky directories. Windows refuses ancestor links and junctions. Nothing below the retained restore root follows a directory link. Restored symlinks keep their original targets, including targets outside the restored folder.
 

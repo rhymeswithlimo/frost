@@ -250,7 +250,8 @@ export async function restore(
     check(signal);
 
     // Check every destination before writing anything. Names are compared without case on Windows and
-    // macOS, whose filesystems usually ignore it.
+    // macOS, whose filesystems usually ignore it. macOS filesystems also treat composed and decomposed
+    // forms of a name (é and e plus an accent) as one file, so names are compared decomposed there.
     const relOf = (p: string) => (target ? restoreRel(p, base) : safeRel(p));
     const destinations = new Map<string, string>();
     for (const f of files) {
@@ -258,6 +259,7 @@ export async function restore(
       if (!target && !path.isAbsolute(f.path))
         throw new Error(`can't restore foreign or relative path ${JSON.stringify(f.path)} in place`);
       if (process.platform === 'win32' || process.platform === 'darwin') rel = rel.toLowerCase();
+      if (process.platform === 'darwin') rel = rel.normalize('NFD');
       if (destinations.has(rel)) throw new Error(`duplicate restore destination ${JSON.stringify(f.path)}`);
       if (opts.newTarget && rel.toLowerCase() === marker)
         throw new Error(`can't restore ${JSON.stringify(f.path)} into a new folder: frost uses that name there`);

@@ -90,11 +90,32 @@ function argumentValue(j: Job, args: string[], i: number): boolean {
   return Boolean(j.script && i === 0) || ['--config-dir', '--cache-dir', '--log-file'].includes(args[i - 1] ?? '');
 }
 
-// A launchd agent that reruns every interval (StartInterval in seconds) as a background process
-// with low-priority I/O, sending stdout and stderr to the log file.
+// launchd runs at the same times as cron: minute 17, and daily and weekly jobs at 03:17. Unlike
+// StartInterval, which skips a run due while the Mac sleeps, StartCalendarInterval runs it on wake.
+function launchdCalendar(every: number): string {
+  const h = Math.trunc(every / hour);
+  const times: Record<string, number>[] =
+    h >= 168
+      ? [{ Weekday: 0, Hour: 3, Minute: 17 }]
+      : h >= 24
+        ? [{ Hour: 3, Minute: 17 }]
+        : h <= 1
+          ? [{ Minute: 17 }]
+          : Array.from({ length: Math.floor(23 / h) + 1 }, (_, i) => ({ Hour: i * h, Minute: 17 }));
+  const entry = (fields: Record<string, number>) =>
+    '\t\t<dict>\n' +
+    Object.entries(fields)
+      .map(([key, value]) => `\t\t\t<key>${key}</key>\n\t\t\t<integer>${value}</integer>\n`)
+      .join('') +
+    '\t\t</dict>';
+  return `\t<key>StartCalendarInterval</key>\n\t<array>\n${times.map(entry).join('\n')}\n\t</array>`;
+}
+
+// A launchd agent that runs on the calendar above as a background process with low-priority I/O,
+// sending stdout and stderr to the log file.
 export function launchdPlist(j: Job): string {
   const args = [j.binary, ...argumentsFor(j)].map(s => `\t\t<string>${xmlEscape(s)}</string>`).join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>Label</key>\n\t<string>${launchdLabel}</string>\n\t<key>ProgramArguments</key>\n\t<array>\n${args}\n\t</array>\n\t<key>StartInterval</key>\n\t<integer>${Math.trunc(j.every / 1000)}</integer>\n\t<key>ProcessType</key>\n\t<string>Background</string>\n\t<key>LowPriorityIO</key>\n\t<true/>\n\t<key>StandardOutPath</key>\n\t<string>${xmlEscape(j.logFile ?? '')}</string>\n\t<key>StandardErrorPath</key>\n\t<string>${xmlEscape(j.logFile ?? '')}</string>\n</dict>\n</plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>Label</key>\n\t<string>${launchdLabel}</string>\n\t<key>ProgramArguments</key>\n\t<array>\n${args}\n\t</array>\n${launchdCalendar(j.every)}\n\t<key>ProcessType</key>\n\t<string>Background</string>\n\t<key>LowPriorityIO</key>\n\t<true/>\n\t<key>StandardOutPath</key>\n\t<string>${xmlEscape(j.logFile ?? '')}</string>\n\t<key>StandardErrorPath</key>\n\t<string>${xmlEscape(j.logFile ?? '')}</string>\n</dict>\n</plist>\n`;
 }
 
 // A oneshot service at low CPU and idle I/O priority, and a timer for it. Persistent catches up
@@ -352,7 +373,14 @@ export class Scheduler {
   async installed(): Promise<boolean> {
     switch (await this.kind()) {
       case 'launchd':
-        return exists(this.plistPath);
+        // Switching frost off under Login Items unloads the job but leaves its plist, so launchd must
+        // still have it loaded too.
+        if (!(await exists(this.plistPath))) return false;
+        try {
+          return (await this.runner('launchctl', ['print', `gui/${this.uid}/${launchdLabel}`])).code === 0;
+        } catch {
+          return false;
+        }
       case 'systemd':
         return exists(path.join(this.unitDir, systemdUnit + '.timer'));
       case 'cron':

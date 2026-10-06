@@ -23,6 +23,7 @@ import { location } from '../core/storage.js';
 import { Excluder, patternRegex, slash } from './exclude.js';
 import { listDigest, countChanges } from './changes.js';
 import { isPartial } from './restore.js';
+import { refuseDatalessReads } from '../platform/dataless.js';
 import {
   check,
   code,
@@ -132,6 +133,9 @@ export async function backup(e: EngineLike, opts: BackupOptions, signal?: AbortS
       throw new Error(`invalid exclude pattern ${JSON.stringify(p)}: ${message(err)}`);
     }
   }
+
+  // Reading a file that's only in iCloud would download it, so those reads fail instead.
+  refuseDatalessReads();
 
   const snap: Snapshot = {
     id: newID(),
@@ -344,6 +348,13 @@ export async function backup(e: EngineLike, opts: BackupOptions, signal?: AbortS
     if (snap.warnings!.length < 100) snap.warnings!.push(text);
   };
 
+  // Why a file or folder couldn't be read. With downloads refused, a read of one that's only in iCloud fails
+  // with EDEADLK (11), which Node reports as an unknown system error. Node's read errors don't name the file,
+  // so `named` puts the path in front.
+  const icloud = (err: unknown) => process.platform === 'darwin' && (err as NodeJS.ErrnoException)?.errno === -11;
+  const unreadable = (p: string, err: unknown, named = true) =>
+    icloud(err) ? (named ? p + ' is' : "it's") + " only in iCloud, so frost didn't download it" : message(err);
+
   // `retry` holds files that changed while they were read.
   const tree: Tree = { files: [] };
   const retry: { p: string; f: File }[] = [];
@@ -412,8 +423,8 @@ export async function backup(e: EngineLike, opts: BackupOptions, signal?: AbortS
         try {
           entries = readdirSync(p);
         } catch (err) {
-          if (p === root) throw new Error(`can't read ${root}: ${message(err)}`, { cause: err });
-          warn(message(err));
+          if (p === root) throw new Error(`can't read ${root}: ${unreadable(p, err, false)}`, { cause: err });
+          warn(unreadable(p, err));
           return;
         }
         snap.stats.dirs++;
@@ -465,7 +476,7 @@ export async function backup(e: EngineLike, opts: BackupOptions, signal?: AbortS
           check(signal);
           if (uploadFailure) throw uploadFailure;
           if (err instanceof Changed) retry.push({ p, f });
-          else warn(message(err));
+          else warn(unreadable(p, err));
         }
       }
     };
@@ -514,7 +525,7 @@ export async function backup(e: EngineLike, opts: BackupOptions, signal?: AbortS
         check(signal);
         if (uploadFailure) throw uploadFailure;
         if (!(err instanceof Changed)) {
-          warn(message(err));
+          warn(unreadable(p, err));
           continue;
         }
         const prev = manifest.file(f.path);

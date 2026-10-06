@@ -114,7 +114,7 @@ The browser hands the key back to frost on `127.0.0.1`, and frost checks it agai
 
 [CLI.md](CLI.md#files) lists locations and logging behavior. The manifest holds file paths in plain text and never leaves the machine. Windows files inherit user-profile permissions rather than Unix modes. Existing permissions aren't a substitute for protecting your account, and custom shared folders can weaken that boundary.
 
-The runtime uses Node's experimental native-call API for fixed OS filesystem and locking functions. There are no downloaded native add-ons or executable helpers. Missing native support fails closed. The API isn't a sandbox, and its runtime and bindings need continued platform validation.
+The runtime uses Node's experimental native-call API for fixed OS filesystem and locking functions, and on macOS for the I/O policy that stops backups downloading files kept only in iCloud. There are no downloaded native add-ons or executable helpers. Missing native support fails closed. The API isn't a sandbox, and its runtime and bindings need continued platform validation.
 
 Restore replaces files one at a time, after checking their data and size. If a later file fails, earlier replacements stay. Restored symlinks keep their original targets, which can point outside the restore folder.
 

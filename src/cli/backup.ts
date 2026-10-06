@@ -25,7 +25,7 @@ import {
   nativePath,
 } from './format.js';
 import { StorageError, rememberFailure } from './known.js';
-import { autoUpdate, recentlyUpdated } from './update.js';
+import { autoUpdate } from './update.js';
 
 interface BackupFlags {
   paths: string[];
@@ -58,6 +58,32 @@ function someOf(items: string[], total: number): string {
 }
 
 export const missingList = (paths: string[]) => paths.map(p => printable(tildify(nativePath(p)))).join(', ');
+
+// Terminal apps by their TERM_PROGRAM value, for naming the app macOS asks about.
+const terminalApps: Record<string, string> = {
+  Apple_Terminal: 'Terminal',
+  'iTerm.app': 'iTerm',
+  vscode: 'Visual Studio Code',
+  WarpTerminal: 'Warp',
+  ghostty: 'Ghostty',
+  WezTerm: 'WezTerm',
+};
+
+// What to allow when macOS refuses a backup. macOS asks a scheduled run about the bundled runtime itself, and a
+// run started in a terminal about that terminal app.
+export function accessHint(scheduled: boolean, runtime = process.execPath, env = process.env): string {
+  const open =
+    'macOS blocks access to some folders until you allow it. Open System Settings > Privacy & Security > Full Disk Access and ';
+  if (scheduled) return open + 'add or switch on ' + runtime;
+  const app = terminalApps[env.TERM_PROGRAM ?? ''];
+  return (
+    open +
+    (app ? 'allow ' + app + ', the app frost ran in' : 'allow the terminal app frost ran in') +
+    '. Scheduled backups need ' +
+    runtime +
+    ' on that list too'
+  );
+}
 
 // The rows for a finished backup, including any folders that weren't found and files that couldn't be read.
 export function printBackup(b: Block, res: BackupResult): void {
@@ -292,27 +318,15 @@ export async function runBackup(ctx: Context, flags: BackupFlags): Promise<void>
           ctx.signal,
         );
       } catch (err) {
-        // On macOS a permission error anywhere in the cause chain gets a Full Disk Access hint, plus a
-        // note when frost has just updated itself.
+        // On macOS a permission error anywhere in the cause chain gets a Full Disk Access hint.
         let reason: unknown = err;
         let denied = false;
         while (reason) {
           denied ||= code(reason) === 'EACCES' || code(reason) === 'EPERM';
           reason = (reason as Error).cause;
         }
-        if (process.platform === 'darwin' && denied) {
-          let text =
-            message(err) +
-            '\n\nmacOS blocks access to some folders until you allow it. Open System Settings > Privacy & Security > Full Disk Access and add ' +
-            process.execPath;
-          const version = await recentlyUpdated(ctx.version);
-          if (version)
-            text +=
-              '\n\nfrost updated itself to ' +
-              version +
-              ', and macOS may not recognise the new binary. If frost is already on the list, turn it off and on again';
-          throw new Error(text, { cause: err });
-        }
+        if (process.platform === 'darwin' && denied)
+          throw new Error(message(err) + '\n\n' + accessHint(flags.scheduled), { cause: err });
         throw err;
       } finally {
         if (progress) ctx.fmt.write('\r\x1b[K');

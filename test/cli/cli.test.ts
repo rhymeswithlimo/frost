@@ -15,7 +15,7 @@ import { type Hooks } from '../../src/cli/context.js';
 import { Format, statusLine, cellWidth, tildify, humanBytes, when } from '../../src/cli/format.js';
 import { phraseGrid } from '../../src/cli/key.js';
 import { probe } from '../../src/cli/connect.js';
-import { openScheduledLog } from '../../src/cli/backup.js';
+import { openScheduledLog, accessHint } from '../../src/cli/backup.js';
 import { updateStatePath } from '../../src/cli/update.js';
 import { knownPath, loadKnown } from '../../src/cli/known.js';
 import { rerunCommand } from '../../src/cli/restore.js';
@@ -826,4 +826,22 @@ test('closing setup after a checkout says the access key was saved', async () =>
   );
   await assert.rejects((await failing(undefined)).wait(), /cancelled/);
   assert.equal(setupClosed(failedSaved), 'Setup closed. Nothing was changed.');
+});
+
+// macOS asks a scheduled run about the bundled runtime, and a run started in a terminal about the terminal app.
+test('the macOS access hint names what macOS asks about', () => {
+  const runtime = '/Users/me/Library/Application Support/frost/app/runtime/bin/node';
+  const settings = 'Open System Settings > Privacy & Security > Full Disk Access and ';
+  assert.match(
+    accessHint(true, runtime, { TERM_PROGRAM: 'Apple_Terminal' }),
+    new RegExp(settings + 'add or switch on /Users/me/.+/node$'),
+  );
+  assert.match(
+    accessHint(false, runtime, { TERM_PROGRAM: 'Apple_Terminal' }),
+    new RegExp(
+      settings + 'allow Terminal, the app frost ran in\\. Scheduled backups need /Users/me/.+/node on that list too$',
+    ),
+  );
+  assert.match(accessHint(false, runtime, { TERM_PROGRAM: 'iTerm.app' }), /allow iTerm, the app frost ran in/);
+  assert.match(accessHint(false, runtime, {}), /allow the terminal app frost ran in\. /);
 });

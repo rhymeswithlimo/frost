@@ -10,11 +10,12 @@ import { fixture, random } from '../support.js';
 import { Engine, RestoreError, newRestoreFolder, partialName, isPartial } from '../../src/engine/index.js';
 import { chunkKey } from '../../src/core/repo.js';
 import { newTable, split } from '../../src/core/chunker.js';
-import { emptyStats, newID, timeValue, compare } from '../../src/core/snapshot.js';
+import { emptyStats, newID, timeValue, compare, type FileEntry } from '../../src/core/snapshot.js';
 import { Excluder } from '../../src/engine/exclude.js';
 import { mtime } from '../../src/engine/backup.js';
 import { openRoot } from '../../src/platform/fs-root.js';
 import { countChanges } from '../../src/engine/changes.js';
+import { loadFFI } from '../../src/platform/ffi-loader.js';
 
 // Change lists are base64 runs of 16-byte entries: an 8-byte path key and an 8-byte content
 // hash. Identical lists must be recognised without decoding a single entry.
@@ -209,6 +210,36 @@ test('busy files retry once, keep a clean earlier copy, and skip without one', a
   const skipped = await f.engine.backup({ paths: [f.src] });
   assert.equal(skipped.snapshot.stats.skipped, 1);
   assert.match(skipped.snapshot.warnings![0], /no earlier copy/);
+});
+
+// On macOS, backup refuses to download files that are only in iCloud, so reading one fails with EDEADLK
+// (errno 11), which Node can't name. The warning names the file instead. Elsewhere errno 11 means something
+// else and keeps its own message.
+test('files only in iCloud are skipped with a warning that names them', async t => {
+  const f = await fixture(t);
+  await f.write('local', 'on this Mac');
+  const remote = await f.write('remote', 'only in iCloud');
+  f.engine.chunkRead = async name => {
+    if (name === remote)
+      throw Object.assign(new Error('Unknown system error -11: Unknown system error -11, read'), { errno: -11 });
+  };
+  const result = await f.engine.backup({ paths: [f.src] });
+  assert.equal(result.snapshot.stats.files, 1);
+  assert.equal(result.snapshot.stats.skipped, 1);
+  assert.equal(
+    result.snapshot.warnings![0],
+    process.platform === 'darwin'
+      ? remote + " is only in iCloud, so frost didn't download it"
+      : 'Unknown system error -11: Unknown system error -11, read',
+  );
+
+  // The policy is the process's own, so turning it on is the only change.
+  if (process.platform === 'darwin') {
+    const { lib } = loadFFI().dlopen('/usr/lib/libSystem.B.dylib');
+    t.after(() => lib.close());
+    const policy = lib.getFunction('getiopolicy_np', { return: 'int32', arguments: ['int32', 'int32'] });
+    assert.equal(policy(3, 0), 1);
+  }
 });
 
 // Skipping a backup needs the recorded snapshot to still exist and to be the newest known one.
@@ -467,6 +498,36 @@ test('restored timestamp keeps microseconds and paths use UTF-8 byte ordering', 
     tree.files.map(v => v.path),
     tree.files.map(v => v.path).sort(compare),
   );
+});
+
+// A snapshot from Linux can hold names that differ only in case, or only in Unicode form (é composed, and
+// e followed by a combining accent). Windows and macOS treat a case pair as one file, and macOS treats a
+// Unicode pair as one file too, so restoring both there would leave one copy holding the other's bytes.
+test('restore refuses names this platform stores as one file', async t => {
+  const f = await fixture(t);
+  const pairs = [
+    { name: 'case', names: ['A.txt', 'a.txt'], refused: process.platform === 'win32' || process.platform === 'darwin' },
+    { name: 'unicode', names: ['é.txt', 'é.txt'], refused: process.platform === 'darwin' },
+  ];
+  for (const pair of pairs) {
+    const snap = { id: newID(), time: new Date().toISOString(), host: 'linux', paths: [], stats: emptyStats() };
+    const files: FileEntry[] = [];
+    for (const name of pair.names) {
+      const data = Buffer.from(name);
+      const id = f.repo.key.chunkID(data);
+      await f.repo.putChunk(id, data);
+      files.push({ path: '/' + name, type: 'file', mode: 0o600, mtime: snap.time, size: data.length, chunks: [id] });
+    }
+    await f.repo.saveSnapshot(snap, { files });
+    const target = path.join(f.root, pair.name);
+    if (pair.refused) {
+      await assert.rejects(f.engine.restore(snap.id, { target, newTarget: true }), /duplicate restore destination/);
+      await assert.rejects(stat(target), { code: 'ENOENT' });
+    } else {
+      assert.equal((await f.engine.restore(snap.id, { target, newTarget: true })).files, 2);
+      for (const name of pair.names) assert.equal(await readFile(path.join(target, name), 'utf8'), name);
+    }
+  }
 });
 
 test('zero worker overrides use default concurrency and uppercase IDs restore correctly', async t => {

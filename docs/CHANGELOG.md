@@ -34,6 +34,8 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **An unreadable folder fails the backup.** Items inside a folder that can't be read are skipped and counted in `frost status`, but a backed-up folder frost can't read at all fails the run rather than saving nothing. On macOS, the error explains how to grant Full Disk Access.
 
+- **Backups don't download files that are only in iCloud.** On macOS, a file iCloud keeps only online is skipped and listed rather than downloaded, so a backup doesn't fill your disk or wait on downloads.
+
 - **Restores say where they go.** Choose `--beside` for a new folder next to the originals, `--to <dir>` for a new folder somewhere else, or `--overwrite` to replace the originals. Only `--overwrite` replaces files, and each file is checked and written to a temporary file before it's moved into place.
 
 - **Restores download in parallel.** Chunks download 8 at a time across all the files being restored. A chunk that repeats, like the empty parts of a disk image, downloads once.
