@@ -42,6 +42,7 @@ Clone the repository with `git clone https://github.com/rhymeswithlimo/frost`, t
 - A change to the Permafrost API changes [PERMAFROST.md](PERMAFROST.md) and the reference server tests in `test/core/storage.test.ts` together.
 - Tests use private temporary folders and loopback servers. Inject scheduler, desktop, editor and updater dependencies; never change a real scheduled job, open an external app, go online or replace the running test application.
 - Keep runtime and dependency versions pinned. Native filesystem operations fail closed; don't add a path-based fallback.
+- A change to what a package contains, or to the runtime it ships, must still pass `validatePackage` as installed copies run it. [ARCHITECTURE.md](ARCHITECTURE.md#packaging-and-updates) has the details.
 - Keep docs, help text, output and comments short and plain, with no em dashes.
 - "frost" is always lowercase, even at the start of a sentence.
 

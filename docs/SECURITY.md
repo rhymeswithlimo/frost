@@ -123,7 +123,7 @@ Restore replaces files one at a time, after checking their data and size. If a l
 The install script does this for you. To check an archive yourself, download it with `checksums.txt` and `checksums.txt.sig` from the same release, and [`install/release-signing.pub`](../install/release-signing.pub) from the repository. Set `archive` to the downloaded filename, then run:
 
 ```sh
-archive='frost_0.1.0_linux_amd64.tar.gz'
+archive='frost_X.Y.Z_linux_amd64.tar.gz'
 printf 'frost-release %s\n' "$(cat release-signing.pub)" > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I frost-release -n file -s checksums.txt.sig < checksums.txt
 awk -v archive="$archive" '$2 == archive { print }' checksums.txt | shasum -a 256 -c -

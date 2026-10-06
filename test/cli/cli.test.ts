@@ -617,6 +617,26 @@ test('updates check permissions first, do not install on --check, and automatic 
   assert.equal((await update.loadState(updateStatePath())).error, 'network down');
 });
 
+// The installer and the updater read the last word of `--version` as the version, so it has to stay last. An installed
+// frost applies that rule to every later release.
+test('--version ends with the version', async t => {
+  const f = await fixture(t);
+  let out = '';
+  const code = await execute(['--version'], {
+    input: '',
+    version: 'v1.2.3-rc.1',
+    write: s => {
+      out += s;
+    },
+    error: s => {
+      out += s;
+    },
+    hooks: f.hooks,
+  });
+  assert.equal(code, 0);
+  assert.equal(out.trim().split(/\s+/).at(-1), 'v1.2.3-rc.1');
+});
+
 test('terminal sanitizing, truncation, palette and numbered phrase columns preserve visible behavior', () => {
   // The live status line clears its row first, and its text stays narrower than the terminal so it never wraps.
   for (const width of [1, 2, 3, 10, 40, 80]) {

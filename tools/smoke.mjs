@@ -1,6 +1,6 @@
-// Smoke-tests a release package with its own runtime. It unpacks the package, then runs a scheduled and a manual
-// backup, status and a restore against a loopback Permafrost server, and prints a JSON summary. CI runs it as
-// `smoke.mjs <archive>` after package.mjs. tools.test.ts imports smokeFixture. Build first.
+// Smoke-tests a release package with its own runtime. It unpacks the package, checks the version it reports, then runs
+// a scheduled and a manual backup, status and a restore against a loopback Permafrost server, and prints a JSON
+// summary. CI runs it as `smoke.mjs <archive>` after package.mjs. tools.test.ts imports smokeFixture. Build first.
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -179,7 +179,7 @@ async function smoke(archive) {
     // A recent update check in the cache keeps the CLI from checking online.
     await writeFile(path.join(cache, 'update.json'), JSON.stringify({ checked: new Date().toISOString() }));
 
-    // Runs the packaged CLI with the fixture's config and the private cache, and keeps its combined output.
+    // Runs the packaged CLI with the fixture's config and the private cache, keeps its combined output and returns it.
     const outputs = [];
     async function command(args) {
       const result = await new Promise((resolve, reject) => {
@@ -202,7 +202,14 @@ async function smoke(archive) {
       });
       if (result.code !== 0) throw new Error(`Packaged command failed: ${args[0]}\n${result.output}`);
       outputs.push(result.output);
+      return result.output;
     }
+
+    // The package must report the version it was built for, not the `dev` of a source build.
+    const version = JSON.parse(await readFile(path.join(app, 'current.json'), 'utf8')).version;
+    const reported = await command(['--version']);
+    if (reported.trim() !== `frost version ${version}`)
+      throw new Error(`Packaged version is ${JSON.stringify(reported.trim())}, expected ${version}`);
 
     // The scheduled backup saves the only snapshot. A manual backup of the same files must not save another.
     await command(['backup', '--no-verify', '--scheduled', '--log-file', log]);
@@ -238,7 +245,8 @@ async function smoke(archive) {
       JSON.stringify({
         platform: process.platform,
         arch: process.arch,
-        version: JSON.parse(await readFile(path.join(app, 'current.json'), 'utf8')).version,
+        version,
+        versionReported: true,
         scheduledBackup: true,
         unchangedBackup: true,
         statusVerification: true,

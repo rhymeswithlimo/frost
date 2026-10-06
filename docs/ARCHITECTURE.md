@@ -14,7 +14,7 @@ frost runs as a TypeScript application on its bundled Node.js runtime. It has no
 | `assets/` | The BIP39 wordlist, wordmarks and sound effects |
 | `test/` | Unit, integration, security and output reference tests |
 | `tools/` | Build, dependency audit, packaging, the package smoke test and the benchmark |
-| `install/` | The shell installer, the installer every package carries, and the release public key |
+| `install/` | The shell installer, the installer and launcher every package carries, and the release public key |
 | `scripts/` | The manual release script |
 
 `cli` connects the components. `engine` builds on `core/repo`, `core/manifest` and `core/chunker`. The repository seals objects through `core/crypto`; storage clients only handle bytes. The only runtime npm dependency is the pure JavaScript TOML parser. Node supplies HTTP, cryptography, zstd and worker threads.
@@ -143,9 +143,15 @@ README.md
 
 The runtime stays at a fixed path. `current.json` selects immutable versioned scripts. `manifest.json` binds the release version, platform and runtime checksum. The demo, tests, source maps and development dependencies aren't shipped.
 
-`tools/runtime-lock.json` pins official runtime archives, executable bytes and the runtime license. The dependency audit compares every installed npm file with recorded archive hashes and rejects additions, missing files, install hooks, links, native add-ons and executables. Packaging uses deterministic member ordering and archive metadata.
+The release tag is the only source of the version. `tools/package.mjs` writes it into the packaged CLI and into `versions/vX.Y.Z/package.json`, then reads it back from the finished archive. The version in the project's `package.json` is a placeholder, and a source build reports `dev`.
+
+`tools/runtime-lock.json` pins official runtime archives, executable bytes and the runtime license, and a package is built for each target it lists. The dependency audit compares every installed npm file with recorded archive hashes and rejects additions, missing files, install hooks, links, native add-ons and executables. Packaging uses deterministic member ordering and archive metadata.
 
 The updater verifies the signed checksum list, downloads an archive of at most 128 MiB and extracts at most 384 MiB in memory. Extraction rejects traversal, duplicate names, links, devices, unsafe Windows names and damaged archive checksums. Only the known runtime, version scripts and assets are accepted. The staged runtime and CLI must report the expected versions before activation.
+
+An installed frost applies these checks to every later release, so they can't be tightened for a release that older installs must read. They accept ahead of use instead: Node 26.10 or newer with no ceiling, and a few file types no release ships yet. A release the installed frost can't read says to reinstall with the installer.
+
+Other parts of an install are fixed the same way. An update replaces the version folder, the runtime, `manifest.json` and `current.json`, but not `launch.mjs` or the launchers on PATH, so only the installer renews those. Every install keeps starting the CLI at `versions/<version>/src/cli/main.js` through the `launch.mjs` it was installed with, and reads a new release's version as the last word of `main.js --version`. `install/launch.mjs` is small on purpose and `test/platform/launcher.test.ts` pins its behavior. Anything that has to change belongs in `main.js`, which ships with each version. If `launch.mjs` itself ever has to change, the updater must first learn to replace it. An install then gets the new launcher on the update after the one that brings that code, and later still if it skips releases.
 
 Installer and updater share a persistent OS installation lock. POSIX installation ancestry must belong to root or the current user and exclude unsafe writable parents. The root handle is retained and its identity checked after probes and before activation. Windows refuses links and checks root identity; default profile ACLs provide the permission boundary.
 

@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { readTar, isFile, writeTar, writeZip } from './archives.mjs';
 import { auditDependencies } from './dependencies.mjs';
 import { extractArchive } from '../dist/src/platform/archive.js';
-import { validatePackage } from '../dist/src/platform/update.js';
+import { validatePackage, valid, archiveName } from '../dist/src/platform/update.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -26,9 +26,10 @@ const args = Object.fromEntries(
   }, []),
 );
 const { version, platform } = args;
-if (!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$/.test(version || ''))
-  throw new Error('A release version is required');
+if (!valid(version || '')) throw new Error('A release version is required');
 const lock = JSON.parse(await readFile(new URL('./runtime-lock.json', import.meta.url), 'utf8'));
+// The packaged package.json asks for the pinned runtime's release line, like the project's own engines field.
+const engines = `>=${lock.version.slice(1)} <${Number(lock.version.slice(1).split('.')[0]) + 1}`;
 const artifact = lock.artifacts[platform];
 if (!artifact) throw new Error('No reviewed runtime for this platform');
 const [os, arch] = platform.split('/');
@@ -122,10 +123,12 @@ const build = path.join(root, 'dist');
 await collect(path.join(build, 'src'), `versions/${version}/src`, n => n.endsWith('.js') && n !== 'demo.js');
 if (!entries.some(e => e.name.endsWith('/src/cli/main.js'))) throw new Error('Build the frost CLI before packaging');
 
-// A source build reports `dev`. Packages get the release version written into the CLI.
+// A source build reports `dev`, and package.json's version is a placeholder. Packages get the release version written
+// into the CLI here, and the audit below reads it back.
 const versionModule = entries.find(e => e.name.endsWith('/src/cli/version.js'));
 if (!versionModule) throw new Error('CLI version module is missing');
-versionModule.data = Buffer.from(`export const version = ${JSON.stringify(version)};\n`);
+const stamp = `export const version = ${JSON.stringify(version)};\n`;
+versionModule.data = Buffer.from(stamp);
 
 await collect(path.join(build, 'assets'), `versions/${version}/assets`);
 await collect(
@@ -135,8 +138,7 @@ await collect(
 );
 add(
   `versions/${version}/package.json`,
-  JSON.stringify({ name: 'frost', version: version.slice(1), type: 'module', engines: { node: '>=26.10.0 <27' } }) +
-    '\n',
+  JSON.stringify({ name: 'frost', version: version.slice(1), type: 'module', engines: { node: engines } }) + '\n',
 );
 
 // The runtime and its license sit beside the versions, shared by all of them.
@@ -153,10 +155,7 @@ add(
 );
 add('current.json', JSON.stringify({ version }) + '\n');
 add('install.mjs', await readFile(path.join(root, 'install/install.mjs')));
-add(
-  'launch.mjs',
-  `import { readFileSync } from 'node:fs';\nimport { fileURLToPath } from 'node:url';\nconst root = new URL('./', import.meta.url);\nconst { version } = JSON.parse(readFileSync(new URL('current.json', root), 'utf8'));\nif (!/^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Invalid installed version');\nprocess.env.FROST_APP_ROOT = fileURLToPath(root);\nawait import(new URL('versions/' + version + '/src/cli/main.js', root));\n`,
-);
+add('launch.mjs', await readFile(path.join(root, 'install/launch.mjs')));
 
 // Launchers for running straight from the unpacked folder, for sh and for cmd.
 add(
@@ -178,13 +177,15 @@ add(
 
 // Sort by name bytes, not locale, so the archive doesn't depend on the build machine.
 entries.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-const name = `frost_${version.slice(1)}_${os}_${arch}.${os === 'windows' ? 'zip' : 'tar.gz'}`;
+const name = archiveName(version, os, arch);
 const archive = os === 'windows' ? writeZip(entries) : writeTar(entries);
 
 // Audit what was written, read back the way the updater reads it: the updater's own layout checks, the pinned runtime
 // and its license, no development or native add-on files, and a runtime built for the target with a signature attached.
 const unpacked = extractArchive(name, archive);
 validatePackage(unpacked, version, { os, arch });
+if (unpacked.find(e => e.name === `versions/${version}/src/cli/version.js`)?.data.toString() !== stamp)
+  throw new Error('Package does not report its release version');
 if (!unpacked.some(e => e.name === 'runtime/LICENSE')) throw new Error('Node license is missing');
 if (
   unpacked.some(

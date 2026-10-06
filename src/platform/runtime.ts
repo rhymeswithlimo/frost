@@ -1,17 +1,7 @@
-// Describes the pinned runtime, release targets and installed layout. An app root holds
-// runtime/bin/node, launch.mjs, current.json and versions/<version>/.
+// Describes the installed layout. An app root holds runtime/bin/node, launch.mjs, current.json and
+// versions/<version>/. tools/runtime-lock.json owns the runtime version and the release targets.
 import os from 'node:os';
 import path from 'node:path';
-
-export const nodeVersion = 'v26.10.0';
-export const targets = [
-  'darwin/amd64',
-  'darwin/arm64',
-  'linux/amd64',
-  'linux/arm64',
-  'windows/amd64',
-  'windows/arm64',
-] as const;
 
 // The default per-user app root on each platform.
 export function installationRoot(platform = process.platform, env = process.env, home = os.homedir()): string {

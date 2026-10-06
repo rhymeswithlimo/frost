@@ -290,9 +290,26 @@ interface PackageManifest {
   arch: string;
 }
 
+// The oldest runtime frost runs on is Node 26.10, which added the native-call API its filesystem
+// bindings use. A later release may ship a newer runtime, so this sets a floor and no ceiling.
+const runtimeRe = /^v(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$/;
+export function supportedRuntime(version: string): boolean {
+  const m = runtimeRe.exec(version);
+  if (!m) return false;
+  const major = Number(m[1]);
+  return major > 26 || (major === 26 && Number(m[2]) >= 10);
+}
+
+// The file types a package may hold under versions/<version>/, besides LICENSE files. Installed
+// copies apply this to every later release, so it already accepts types that none uses yet.
+const packageFiles = /\.(js|mjs|json|txt|md|wav|ogg|mp3)$/;
+
 // Checks an extracted package against its manifest. The manifest must name this version and
 // target, the runtime must match its recorded hash, and every other file must be a known
 // top-level file or plain script, data or sound under versions/<version>/. Native code is refused.
+//
+// An installed frost runs this on every later release, so a rule added here can only be relied
+// on once the installs that predate it are gone. Loosen rules before any release needs them.
 export function validatePackage(
   entries: ArchiveEntry[],
   version: string,
@@ -305,7 +322,7 @@ export function validatePackage(
     m.version !== version ||
     m.os !== target.os ||
     m.arch !== target.arch ||
-    !/^v26\.(?:[1-9]\d+)\.\d+$/.test(m.nodeVersion) ||
+    !supportedRuntime(m.nodeVersion) ||
     !/^[a-f0-9]{64}$/.test(m.nodeSha256)
   )
     throw new Error('package manifest mismatch');
@@ -326,7 +343,7 @@ export function validatePackage(
       continue;
     if (!entry.name.startsWith(`versions/${version}/`)) throw new Error('unexpected package path');
     if (
-      (!/\.(js|json|txt|wav)$/.test(entry.name) && !entry.name.endsWith('/LICENSE')) ||
+      (!packageFiles.test(entry.name) && !entry.name.endsWith('/LICENSE')) ||
       /\.(node|exe|dll|so|dylib)$/i.test(entry.name)
     )
       throw new Error('unexpected package code');
@@ -451,7 +468,16 @@ export async function installRelease(
       throw new Error(`${rel.archive} doesn't match its signed checksum, not installing it`);
     const entries = extractArchive(rel.archive, archive);
     const target = options.platform ?? (await platform(options.runner));
-    const manifest = validatePackage(entries, rel.version, target);
+    // A release this frost can't read is signed and fine, so say how to get past it.
+    let manifest: PackageManifest;
+    try {
+      manifest = validatePackage(entries, rel.version, target);
+    } catch (e) {
+      throw new Error(
+        `${(e as Error).message}. This frost may be too old to read ${rel.version}, so reinstall it: https://github.com/${repo}#install`,
+        { cause: e },
+      );
+    }
     for (const e of entries) {
       const file = path.join(stage, ...e.name.split('/'));
       await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });

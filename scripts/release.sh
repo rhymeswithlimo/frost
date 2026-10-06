@@ -2,7 +2,7 @@
 # Builds and signs frost packages. Only maintainers run this script.
 #
 #   scripts/release.sh --release v0.1.0
-#   scripts/release.sh --pre-release latest
+#   scripts/release.sh --pre-release v0.2.0-rc.1
 #   scripts/release.sh --dry-run latest
 #   scripts/release.sh --setup-key
 set -euo pipefail
@@ -14,7 +14,6 @@ key="${FROST_SIGNING_KEY:-$HOME/.ssh/frost-release}"
 pubfile='install/release-signing.pub'
 installer='install/install.sh'
 appkey='src/platform/signature.ts'
-targets='darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64'
 mode="${1:-}"
 
 die() { printf 'release.sh: %s\n' "$*" >&2; exit 1; }
@@ -22,8 +21,8 @@ has() { command -v "$1" >/dev/null 2>&1; }
 usage() {
   printf '%s\n' \
     'Usage: scripts/release.sh <mode> <version>' \
-    '  --release       build, sign, test and publish a release' \
-    '  --pre-release   build, sign, test and publish a pre-release' \
+    '  --release       build, sign, test and publish a release, such as v0.1.0' \
+    '  --pre-release   build, sign, test and publish a pre-release, such as v0.2.0-rc.1' \
     '  --dry-run       build and sign locally, publish nothing' \
     '  --setup-key     create or reuse the release signing key' \
     'Use a changelog version such as v0.1.0, or latest.'
@@ -71,6 +70,12 @@ if [ "$version" = latest ]; then
   version="$(awk '$1 == "##" && $2 ~ /^v[0-9]/ { print $2; exit }' docs/CHANGELOG.md)"
 fi
 [[ "$version" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] || die 'Invalid release version'
+# The installer and updater take GitHub's latest release, so the flag decides who gets it. A suffix keeps the two
+# agreeing, and a pre-release never uses up a stable version.
+case "$mode" in
+  --release) [[ "$version" != *-* ]] || die "$version has a suffix, so publish it with --pre-release" ;;
+  --pre-release) [[ "$version" == *-* ]] || die "--pre-release needs a version with a suffix, like $version-rc.1" ;;
+esac
 notes="$(awk -v v="$version" '$1 == "##" && $2 == v { found=1; print; next } found && /^## / { exit } found { print }' docs/CHANGELOG.md)"
 [ -n "$notes" ] || die 'This version is missing from docs/CHANGELOG.md'
 printf '%s\n' "$notes" | awk '/^[[:space:]]*- / { found=1 } END { exit !found }' || die 'The release notes have no changes'
@@ -84,6 +89,9 @@ public="$(awk 'NR == 1 { print $1, $2 }' "$key.pub")"
 [ "$public" = "$(sed -n 's/^RELEASE_KEY="\(.*\)"$/\1/p' "$installer")" ] || die 'Installer release key differs from the pinned key'
 [ "$public" = "$(sed -n "s/^export const releaseKey = '\(.*\)';$/\1/p" "$appkey")" ] || die 'Application release key differs from the pinned key'
 node --input-type=module -e 'import {readFileSync} from "node:fs"; const expected=JSON.parse(readFileSync("tools/runtime-lock.json","utf8")).version; if(process.version!==expected) throw new Error("Use the pinned release runtime "+expected);'
+# Every target the runtime lock pins gets a package.
+targets="$(node tools/targets.mjs)"
+[ -n "$targets" ] || die 'The runtime lock names no targets'
 
 # Publishing needs a signed-in gh, a clean pushed main and an unused version.
 if [ "$mode" != --dry-run ]; then

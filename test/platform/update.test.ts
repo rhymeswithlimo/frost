@@ -17,8 +17,10 @@ import {
   loadState,
   saveState,
   managed,
+  validatePackage,
   type UpdateOptions,
 } from '../../src/platform/update.js';
+import type { ArchiveEntry } from '../../src/platform/archive.js';
 import { signingKey, tar } from './fixtures.js';
 import { installationLock } from '../../src/platform/install-lock.js';
 
@@ -76,8 +78,9 @@ async function recordDurability(
 
 // Serves a signed v1.2.3 release on loopback and sets up an installed v1.0.0 to update. `mutate`
 // can damage the archive in flight. The server also answers /retry (two 503s, then "ok") and
-// /large (a declared length far over the test's limit). The probe is stubbed, as the runtime is fake.
-async function fixture(t: test.TestContext, mutate = (b: Buffer): Buffer => b) {
+// /large (a declared length far over the test's limit). The probe is stubbed, as the runtime is fake. `nodeVersion`
+// is the runtime version the signed manifest names.
+async function fixture(t: test.TestContext, mutate = (b: Buffer): Buffer => b, nodeVersion = 'v26.10.0') {
   const version = 'v1.2.3';
   const target = { os: 'linux', arch: 'amd64' };
   const key = signingKey();
@@ -87,7 +90,7 @@ async function fixture(t: test.TestContext, mutate = (b: Buffer): Buffer => b) {
     version,
     os: target.os,
     arch: target.arch,
-    nodeVersion: 'v26.10.0',
+    nodeVersion,
     nodeSha256: createHash('sha256').update(node).digest('hex'),
   };
   const archive = tar([
@@ -388,6 +391,89 @@ test('update rejects a runtime version mismatch before activating signed files',
   assert.equal(await readFile(path.join(f.root, 'runtime/bin/node'), 'utf8'), 'old runtime');
   assert.equal(JSON.parse(await readFile(path.join(f.root, 'current.json'), 'utf8')).version, 'v1.0.0');
   assert.deepEqual(await readFile(path.join(f.root, 'manifest.json')), oldManifest);
+});
+
+// Installed copies run these checks on every later release, so what they accept sets what a release may contain. The
+// runtime has a floor and no ceiling, and the file types include a few that no release uses yet.
+const packageTarget = { os: 'linux', arch: 'amd64' };
+function packageEntries(nodeVersion: string, files: string[] = []): ArchiveEntry[] {
+  const node = Buffer.from('runtime');
+  const manifest = {
+    version: 'v1.2.3',
+    ...packageTarget,
+    nodeVersion,
+    nodeSha256: createHash('sha256').update(node).digest('hex'),
+  };
+  return [
+    { name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest)), mode: 0o644 },
+    { name: 'runtime/bin/node', data: node, mode: 0o755 },
+    { name: 'versions/v1.2.3/src/cli/main.js', data: Buffer.from('main'), mode: 0o644 },
+    ...files.map(name => ({ name: 'versions/v1.2.3/' + name, data: Buffer.from('data'), mode: 0o644 })),
+  ];
+}
+
+test('package validation sets a floor for the runtime and no ceiling', () => {
+  for (const nodeVersion of ['v26.10.0', 'v26.11.2', 'v26.100.0', 'v27.0.0', 'v30.1.0'])
+    assert.doesNotThrow(() => validatePackage(packageEntries(nodeVersion), 'v1.2.3', packageTarget), nodeVersion);
+  for (const nodeVersion of [
+    'v26.9.9',
+    'v25.99.0',
+    'v0.0.0',
+    'v26.10',
+    '26.10.0',
+    'v26.10.0-rc.1',
+    'v026.10.0',
+    'v99999999.0.0',
+  ])
+    assert.throws(
+      () => validatePackage(packageEntries(nodeVersion), 'v1.2.3', packageTarget),
+      /package manifest mismatch/,
+      nodeVersion,
+    );
+});
+
+test('package validation accepts scripts, data and sounds and refuses native code', () => {
+  const accepted = [
+    'package.json',
+    'src/extra.mjs',
+    'assets/words.txt',
+    'assets/ding.wav',
+    'assets/ding.ogg',
+    'assets/ding.mp3',
+    'node_modules/dependency/LICENSE',
+    'node_modules/dependency/README.md',
+  ];
+  assert.doesNotThrow(() => validatePackage(packageEntries('v26.10.0', accepted), 'v1.2.3', packageTarget));
+  for (const name of [
+    'src/addon.node',
+    'src/tool.exe',
+    'src/lib.dll',
+    'src/lib.so',
+    'src/lib.dylib',
+    'src/gear.wasm',
+    'src/run.sh',
+    'assets/data.bin',
+  ])
+    assert.throws(
+      () => validatePackage(packageEntries('v26.10.0', [name]), 'v1.2.3', packageTarget),
+      /unexpected package code/,
+      name,
+    );
+
+  // A new top-level file needs updater code that older installs don't have, so it stays refused.
+  const entries = [...packageEntries('v26.10.0'), { name: 'uninstall.mjs', data: Buffer.from('x'), mode: 0o644 }];
+  assert.throws(() => validatePackage(entries, 'v1.2.3', packageTarget), /unexpected package path/);
+});
+
+// A release the installed frost can't read says how to get past it, and nothing is replaced.
+test('a release with a runtime below the floor says to reinstall and changes nothing', async t => {
+  const f = await fixture(t, undefined, 'v25.0.0');
+  await assert.rejects(
+    installRelease(await latest(f.options), f.root, f.options),
+    /package manifest mismatch\. This frost may be too old to read v1\.2\.3, so reinstall it: https:\/\/github\.com\/rhymeswithlimo\/frost#install/,
+  );
+  assert.equal(JSON.parse(await readFile(path.join(f.root, 'current.json'), 'utf8')).version, 'v1.0.0');
+  assert.equal(await readFile(path.join(f.root, 'runtime/bin/node'), 'utf8'), 'old runtime');
 });
 
 // Plain HTTP only works with the fixture's allowHTTP option, so the last call without options fails.
