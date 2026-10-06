@@ -20,7 +20,7 @@
   "devDependencies": {
     "@types/node": "24.10.1",
     "prettier": "3.9.9",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   },
   "dependencies": {
     "@iarna/toml": "2.2.5"
