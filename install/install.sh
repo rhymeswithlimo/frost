@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs the latest frost release.
 #
-#   curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/whatithasisandalwayswillbe/frost/main/install/install.sh | sh
 #
 # Works on macOS, Linux (including WSL) and Windows through Git Bash, MSYS2
 # or Cygwin. Downloads the package for your platform, checks that the
@@ -14,7 +14,7 @@
 #   FROST_BASE_URL     download from a mirror (expects the same file names)
 set -eu
 
-REPO="rhymeswithlimo/frost"
+REPO="whatithasisandalwayswillbe/frost"
 
 # Public key that signs every release's checksums.txt. Same as
 # install/release-signing.pub. Written by scripts/release.sh --setup-key.

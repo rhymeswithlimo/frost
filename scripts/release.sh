@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-repo='rhymeswithlimo/frost'
+repo='whatithasisandalwayswillbe/frost'
 root="$(pwd)"
 key="${FROST_SIGNING_KEY:-$HOME/.ssh/frost-release}"
 pubfile='install/release-signing.pub'

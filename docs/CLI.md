@@ -7,7 +7,7 @@ frost has eight commands. Every one takes `--config-dir <dir>` to use a differen
 Releases include the Node.js runtime, scripts and assets. You don't need Node.js or npm on the machine you back up.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/whatithasisandalwayswillbe/frost/main/install/install.sh | sh
 ```
 
 The installer checks the release signature and archive checksum, installs the application in your user profile, and puts a launcher in a folder on your `PATH`. Signature verification needs `ssh-keygen` from OpenSSH 8.1 or newer. On Windows, run the installer in Git Bash. WSL installs the Linux package.
@@ -24,7 +24,7 @@ There is no Linux ARMv7 package. The runtime stays in `runtime/bin/node` (`node.
 
 ### Manual installation
 
-Download the archive for your platform from the [latest release](https://github.com/rhymeswithlimo/frost/releases/latest), and [verify it](SECURITY.md#verifying-a-download-by-hand) before running anything from it. Extract it into a new folder.
+Download the archive for your platform from the [latest release](https://github.com/whatithasisandalwayswillbe/frost/releases/latest), and [verify it](SECURITY.md#verifying-a-download-by-hand) before running anything from it. Extract it into a new folder.
 
 On macOS or Linux, run this inside the extracted folder, changing the launcher folder if needed:
 
@@ -310,7 +310,7 @@ The manifest is disposable. Removing it rebuilds the cache from storage and rere
 
 | OS | Scheduler | Where |
 |---|---|---|
-| macOS | launchd | `~/Library/LaunchAgents/io.github.rhymeswithlimo.frost.plist` |
+| macOS | launchd | `~/Library/LaunchAgents/io.github.whatithasisandalwayswillbe.frost.plist` |
 | Linux with systemd | systemd user timer | `~/.config/systemd/user/frost-backup.{service,timer}` |
 | Linux without systemd | cron | A line in your crontab tagged `# frost-backup` |
 | Windows | Task Scheduler | A task named `frost backup` |

@@ -55,6 +55,15 @@ test('the repository and archive names agree across the script, installer and up
   assert.ok(release.includes('"$out"/frost_*'));
 });
 
+// The install line, badges and issue links name the repository by hand, so a move must update every one of them.
+test('every repository link in the docs and installer names the updater repository', async () => {
+  for (const file of ['README.md', 'docs/CLI.md', 'docs/CONTRIBUTING.md', 'install/install.sh']) {
+    const owners = [...(await read(file)).matchAll(/github[^\s"'()]*?\/([\w.-]+)\/frost\b/g)].map(m => m[1]);
+    assert.ok(owners.length > 0, file);
+    for (const owner of owners) assert.equal(owner + '/frost', repo, file);
+  }
+});
+
 // The release script and CI build a package for each target the lock reviews a runtime for, and nothing else.
 test('release targets come from the runtime lock', async () => {
   const targets = Object.keys((await lock()).artifacts);

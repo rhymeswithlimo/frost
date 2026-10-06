@@ -171,11 +171,11 @@ test('a launchd job counts as installed only while launchd has it loaded', async
   assert.equal(await scheduler.installed(), false);
 
   await scheduler.install(job);
-  const plist = path.join(home, 'Library', 'LaunchAgents', 'io.github.rhymeswithlimo.frost.plist');
+  const plist = path.join(home, 'Library', 'LaunchAgents', 'io.github.whatithasisandalwayswillbe.frost.plist');
   assert.match(await readFile(plist, 'utf8'), /StartCalendarInterval/);
   assert.deepEqual(calls.at(-1), ['launchctl', 'bootstrap', 'gui/501', plist]);
   assert.equal(await scheduler.installed(), true);
-  assert.deepEqual(calls.at(-1), ['launchctl', 'print', 'gui/501/io.github.rhymeswithlimo.frost']);
+  assert.deepEqual(calls.at(-1), ['launchctl', 'print', 'gui/501/io.github.whatithasisandalwayswillbe.frost']);
 
   loaded = false;
   assert.equal(await scheduler.installed(), false);

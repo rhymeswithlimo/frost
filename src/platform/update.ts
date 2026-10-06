@@ -12,7 +12,7 @@ import { installationDirectory, installationLock } from './install-lock.js';
 export { errBusy } from './install-lock.js';
 export { releaseKey } from './signature.js';
 
-export const repo = 'rhymeswithlimo/frost';
+export const repo = 'whatithasisandalwayswillbe/frost';
 export const baseURL = 'https://github.com/' + repo + '/releases';
 export const errDevBuild = new Error(
   "this frost was built from source, so it can't update itself. Rebuild it, or install a release with the installer: https://github.com/" +

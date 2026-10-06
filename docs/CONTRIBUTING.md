@@ -15,7 +15,7 @@ The changes most likely to be accepted are:
 
 Some changes need agreement in an issue before you write any code: anything that touches encryption, the storage format or dependencies, a new command or storage backend, and any change to how the TUI looks. frost keeps a small, fixed set of commands, so a new feature usually belongs as a flag or an action on an existing one.
 
-If you're not sure a change fits, ask in an issue, or pick one labelled [`help wanted`](https://github.com/rhymeswithlimo/frost/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22), [`good first issue`](https://github.com/rhymeswithlimo/frost/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) or [`bug`](https://github.com/rhymeswithlimo/frost/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug). To take on an issue, leave a comment on it, and a maintainer will assign it to you unless someone's already working on it.
+If you're not sure a change fits, ask in an issue, or pick one labelled [`help wanted`](https://github.com/whatithasisandalwayswillbe/frost/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22help%20wanted%22), [`good first issue`](https://github.com/whatithasisandalwayswillbe/frost/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22) or [`bug`](https://github.com/whatithasisandalwayswillbe/frost/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug). To take on an issue, leave a comment on it, and a maintainer will assign it to you unless someone's already working on it.
 
 > [!NOTE]
 > Pull requests that ignore these guidelines will likely be closed.
@@ -30,7 +30,7 @@ You don't need to touch the changelog. The maintainer writes it when merging.
 
 ## Setup
 
-Clone the repository with `git clone https://github.com/rhymeswithlimo/frost`, then follow [Running locally](../README.md#running-locally) in the README. If you've already installed a scheduled job while developing, remove it with `frost config set schedule.enabled false`.
+Clone the repository with `git clone https://github.com/whatithasisandalwayswillbe/frost`, then follow [Running locally](../README.md#running-locally) in the README. If you've already installed a scheduled job while developing, remove it with `frost config set schedule.enabled false`.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) explains how the code is laid out.
 

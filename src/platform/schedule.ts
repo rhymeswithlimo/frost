@@ -16,7 +16,7 @@ interface Job {
 }
 
 export const hour = 3_600_000;
-const launchdLabel = 'io.github.rhymeswithlimo.frost';
+const launchdLabel = 'io.github.whatithasisandalwayswillbe.frost';
 const systemdUnit = 'frost-backup';
 const cronMarker = '# frost-backup';
 const taskName = 'frost backup';

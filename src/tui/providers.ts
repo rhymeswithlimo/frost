@@ -4,7 +4,7 @@
 import type { Storage } from './types.js';
 import type { Field } from './input.js';
 
-export const projectLink = 'github.com/rhymeswithlimo/frost';
+export const projectLink = 'getfro.st';
 
 // Setup asks a provider's fields in order. read and apply use that same order, and match
 // tells whether a config already points at this provider.

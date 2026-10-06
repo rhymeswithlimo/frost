@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-<a href="https://github.com/rhymeswithlimo/frost/releases"><img src="https://img.shields.io/github/v/release/rhymeswithlimo/frost?color=1926c4&style=flat-square" alt="Latest release"></a>
-<a href="https://github.com/rhymeswithlimo/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/rhymeswithlimo/frost/ci.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
+<a href="https://github.com/whatithasisandalwayswillbe/frost/releases"><img src="https://img.shields.io/github/v/release/whatithasisandalwayswillbe/frost?color=1926c4&style=flat-square" alt="Latest release"></a>
+<a href="https://github.com/whatithasisandalwayswillbe/frost/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/whatithasisandalwayswillbe/frost/ci.yml?branch=main&label=CI&style=flat-square" alt="CI"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-1926c4?style=flat-square" alt="License: BSD 3-Clause"></a>
 <img src="https://img.shields.io/badge/TypeScript-5.9.3-1926c4?logo=typescript&logoColor=white&style=flat-square" alt="TypeScript 5.9.3">
 <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-1926c4?style=flat-square" alt="macOS, Linux, Windows">
@@ -24,7 +24,7 @@ frost backs up your folders to S3-compatible storage or [Permafrost](docs/PERMAF
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rhymeswithlimo/frost/main/install/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/whatithasisandalwayswillbe/frost/main/install/install.sh | sh
 ```
 
 #### Manually
