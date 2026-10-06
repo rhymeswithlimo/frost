@@ -43,12 +43,12 @@ if [ "$mode" = --setup-key ]; then
     printf '%s\n' 'Creating the release signing key. Choose a passphrase.'
     (umask 077; ssh-keygen -t ed25519 -f "$key" -C 'frost release signing key')
   fi
-  [ -f "$key" ] && [ -f "$key.pub" ] || die 'The private key and its .pub file are both required'
+  if [ ! -f "$key" ] || [ ! -f "$key.pub" ]; then die 'The private key and its .pub file are both required'; fi
   public="$(awk 'NR == 1 { print $1, $2 }' "$key.pub")"
   [[ "$public" =~ ^ssh-ed25519\ [A-Za-z0-9+/]+={0,2}$ ]] || die 'The release key must be ed25519'
   ssh-keygen -l -f "$key.pub" >/dev/null || die 'The public key is invalid'
   [ "$public" = "$(ssh-keygen -y -f "$key")" ] || die 'The public key does not match the private key'
-  [ -f "$installer" ] && [ -f "$appkey" ] || die 'The installer or application key is missing'
+  if [ ! -f "$installer" ] || [ ! -f "$appkey" ]; then die 'The installer or application key is missing'; fi
   [ "$(awk '/^RELEASE_KEY=/ { n++ } END { print n+0 }' "$installer")" = 1 ] || die 'The installer key declaration is ambiguous'
   [ "$(awk '/^export const releaseKey = / { n++ } END { print n+0 }' "$appkey")" = 1 ] || die 'The application key declaration is ambiguous'
   temporary="$(mktemp -d)"
@@ -78,7 +78,7 @@ printf '%s\n' "$notes" | awk '/^[[:space:]]*- / { found=1 } END { exit !found }'
 # Tools, the signing key and its three public copies, and the pinned runtime.
 for tool in node npm git ssh-keygen shellcheck; do has "$tool" || die "Missing $tool"; done
 if [ "$mode" != --dry-run ]; then has gh || die 'Missing gh'; fi
-[ -f "$key" ] && [ -f "$key.pub" ] || die 'Release signing key is missing; run --setup-key'
+if [ ! -f "$key" ] || [ ! -f "$key.pub" ]; then die 'Release signing key is missing; run --setup-key'; fi
 public="$(awk 'NR == 1 { print $1, $2 }' "$key.pub")"
 [ "$public" = "$(cat "$pubfile")" ] || die 'Release signing key differs from the pinned key'
 [ "$public" = "$(sed -n 's/^RELEASE_KEY="\(.*\)"$/\1/p' "$installer")" ] || die 'Installer release key differs from the pinned key'

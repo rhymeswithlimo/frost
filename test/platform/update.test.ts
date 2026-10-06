@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { mkdtemp, writeFile, readFile, mkdir, rm, rename, symlink, readdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, mkdir, rm, rename, symlink, readdir, realpath } from 'node:fs/promises';
 import promises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
@@ -130,7 +130,9 @@ async function fixture(t: test.TestContext, mutate = (b: Buffer): Buffer => b) {
     probe: async () => {},
   };
 
-  const root = await mkdtemp(path.join(os.tmpdir(), 'frost-update-test-'));
+  // macOS keeps its temp folder behind a symlink, and the updater works on the real path, so the
+  // paths it reports only match once the root is resolved too.
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'frost-update-test-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'runtime/bin'), { recursive: true });
   await writeFile(path.join(root, 'runtime/bin/node'), 'old runtime');
