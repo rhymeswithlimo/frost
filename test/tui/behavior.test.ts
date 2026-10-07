@@ -734,6 +734,37 @@ test('icebreaker cracks ice, rescues files, ignores rot damage, and emits cues',
   assert.equal(a.things[0].kind, 'rot');
 });
 
+// Each game opens its own sound, and leaving the game or closing the browser closes it, so the audio output isn't
+// held open outside the game.
+test('icebreaker closes its sound when the game is left or the browser closes', async () => {
+  let opened = 0;
+  let closed = 0;
+  const m = browser(
+    {},
+    {
+      gameSound: () => {
+        opened++;
+        return {
+          available: () => false,
+          play: () => {},
+          close: async () => {
+            closed++;
+          },
+        };
+      },
+    },
+  );
+  await m.init();
+  await m.onKey('i');
+  assert.ok(m.game);
+  await m.onKey('esc');
+  assert.equal(m.game, undefined);
+  assert.deepEqual([opened, closed], [1, 1]);
+  await m.onKey('i');
+  m.close();
+  assert.deepEqual([opened, closed], [2, 2]);
+});
+
 test('icebreaker powers up, remembers best and mute, ignores stale ticks, and freezes in small windows', async t => {
   const file = path.join(await temp(t), 'icebreaker.json');
   const a = new Arcade(file, 42n);

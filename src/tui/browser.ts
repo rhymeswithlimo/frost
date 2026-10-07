@@ -11,7 +11,7 @@ import * as desktop from '../platform/desktop.js';
 import type { BrowserRepo, Snapshot, Config, State, Change } from './types.js';
 import { FileTree, covered } from './tree.js';
 import { Form, type KeyEvent } from './input.js';
-import { Arcade, openGameSound } from './arcade.js';
+import { Arcade, openGameSound, type GameSound } from './arcade.js';
 import { RestoreState, restoreContent, restoreHints, carryOn, asError } from './restore.js';
 import { runTerminal, type TerminalOptions } from './terminal.js';
 import {
@@ -122,7 +122,7 @@ export interface BrowserDeps {
   besideFolder: typeof besideFolder;
   newRestoreFolder: typeof newRestoreFolder;
   canOverwrite: typeof canOverwrite;
-  gameSound?: typeof openGameSound;
+  gameSound?: () => GameSound;
 }
 
 const defaults: BrowserDeps = {
@@ -412,7 +412,10 @@ export class BrowserModel {
     }
 
     if (this.game) {
-      if (this.game.key(k)) this.game = undefined;
+      if (this.game.key(k)) {
+        void this.game.snd?.close();
+        this.game = undefined;
+      }
       return;
     }
     if (k === 'v') {
@@ -603,9 +606,11 @@ export class BrowserModel {
   }
 
   // Runs when the terminal closes and again from runBrowser. A running restore is recorded, and kept on the
-  // second call, so runBrowser can report it. Then the folder picker and every storage call are cancelled.
+  // second call, so runBrowser can report it. Then the game's sound, the folder picker and every storage call are
+  // stopped.
   close(): void {
     this.stoppedRestore ||= this.screen === 'restore' && this.rs.phase === 'running';
+    void this.game?.snd?.close();
     this.rs.pickController?.abort();
     this.controller.abort();
   }

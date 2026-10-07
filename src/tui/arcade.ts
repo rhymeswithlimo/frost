@@ -144,34 +144,39 @@ function loadSaved(file: string): { best: number; muted: boolean } {
   }
 }
 
-let player: Player | undefined;
+let clips: Record<string, Clip> | undefined;
 
-// Loads the game's sound effects once and shares the player between games. The crack and ding cues reuse the
-// explosion sample with different effects.
+// What the game needs from its sound effects.
+export type GameSound = Pick<Player, 'available' | 'play' | 'close'>;
+
+// Opens the game's sound effects. Each game gets its own player, and the browser closes it when the game is left,
+// so the audio output isn't held open outside the game. The crack and ding cues reuse the explosion sample with
+// different effects.
 export function openGameSound(): Player {
-  if (player) return player;
-  const wav = (name: string) => readFileSync(new URL('../../assets/sfx/' + name + '.wav', import.meta.url));
-  const explosion = wav('explosion');
-  const clips: Record<string, Clip> = {
-    explosion: { wav: explosion, pitch: 0.05, tempo: 0.04, volume: 0.5 },
-    crack: { wav: explosion, pitch: 0.05, tempo: 0.04, volume: 0.3, cut: 150 },
-    ding: {
-      wav: explosion,
-      shift: 2.5,
-      ring: 1600,
-      crush: 5,
-      decay: 35,
-      cut: 120,
-      volume: 0.35,
-      pitch: 0.06,
-      tempo: 0.03,
-    },
-    shoot: { wav: wav('laser-shoot'), pitch: 0.03, tempo: 0.02 },
-    hurt: { wav: wav('hit-hurt'), pitch: 0.025, tempo: 0.02 },
-    pickup: { wav: wav('pickup-file'), pitch: 0.02, tempo: 0.01 },
-    powerup: { wav: wav('power-up'), pitch: 0.01, tempo: 0.01 },
-  };
-  return (player = new Player(clips));
+  if (!clips) {
+    const wav = (name: string) => readFileSync(new URL('../../assets/sfx/' + name + '.wav', import.meta.url));
+    const explosion = wav('explosion');
+    clips = {
+      explosion: { wav: explosion, pitch: 0.05, tempo: 0.04, volume: 0.5 },
+      crack: { wav: explosion, pitch: 0.05, tempo: 0.04, volume: 0.3, cut: 150 },
+      ding: {
+        wav: explosion,
+        shift: 2.5,
+        ring: 1600,
+        crush: 5,
+        decay: 35,
+        cut: 120,
+        volume: 0.35,
+        pitch: 0.06,
+        tempo: 0.03,
+      },
+      shoot: { wav: wav('laser-shoot'), pitch: 0.03, tempo: 0.02 },
+      hurt: { wav: wav('hit-hurt'), pitch: 0.025, tempo: 0.02 },
+      pickup: { wav: wav('pickup-file'), pitch: 0.02, tempo: 0.01 },
+      powerup: { wav: wav('power-up'), pitch: 0.01, tempo: 0.01 },
+    };
+  }
+  return new Player(clips);
 }
 
 // One game session, from the title screen to game over.
@@ -217,7 +222,7 @@ export class Arcade {
   newBest = false;
   muted = false;
 
-  snd?: Pick<Player, 'available' | 'play'>;
+  snd?: GameSound;
 
   // Tests listen here for sound cues.
   heard?: (name: string) => void;
