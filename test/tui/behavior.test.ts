@@ -887,6 +887,63 @@ test('terminal restores modes, stops work on exit, and does not repaint idle fra
   assert.equal(input.listenerCount('data'), 0);
 });
 
+test('terminal paces game ticks by the clock when timers fire late, and drops a long stall', async t => {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+  const input = Object.assign(new PassThrough(), {
+    isTTY: true,
+    isRaw: false,
+    setRawMode(raw: boolean) {
+      this.isRaw = raw;
+      return this;
+    },
+  });
+  const output = Object.assign(new PassThrough(), { isTTY: true, columns: 80, rows: 24 });
+  output.resume();
+  let ticks = 0;
+  const model = {
+    w: 0,
+    h: 0,
+    spin: 0,
+    exited: false,
+    resize() {},
+    view: () => 'frame',
+    onKey(e: any) {
+      if (e.key === 'q') this.exited = true;
+    },
+    animation: () => 'game' as const,
+    tick() {
+      ticks++;
+    },
+  };
+
+  // The game clock runs a quarter faster than the mocked timers, as if every timer fired late. Two timer seconds are
+  // 2.5 clock seconds, so about 50 ticks, where counting timer firings would give 39.
+  let jump = 0;
+  const done = runTerminal(model, {
+    input: input as any,
+    output: output as any,
+    now: () => Date.now() * 1.25 + jump,
+  });
+  // Mocked timers set the time before firing, so timers set while firing need time to move in small steps.
+  const advance = (ms: number) => {
+    for (let i = 0; i < ms; i++) t.mock.timers.tick(1);
+  };
+  advance(2000);
+  assert.ok(ticks >= 47 && ticks <= 50, `${ticks} ticks`);
+
+  // After a one-second stall, one tick catches up and the next comes 50 ms later.
+  const before = ticks;
+  jump = 1000;
+  while (ticks === before) advance(1);
+  advance(1);
+  assert.equal(ticks, before + 2);
+  advance(30);
+  assert.equal(ticks, before + 2);
+
+  input.write('q');
+  await done;
+});
+
 test('terminal uses the selected console color profile without changing model frames', async () => {
   // Each profile should turn this truecolor frame into the expected bytes.
   const frame = '\x1b[38;2;242;239;231mframe\x1b[0m';

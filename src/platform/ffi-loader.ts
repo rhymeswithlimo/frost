@@ -1,4 +1,4 @@
-// Loads Node's built-in node:ffi module for the native filesystem and console bindings.
+// Loads Node's built-in node:ffi module for the native filesystem, console and audio bindings.
 // The types cover only the parts frost uses.
 import { createRequire } from 'node:module';
 

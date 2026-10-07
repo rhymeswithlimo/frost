@@ -21,11 +21,13 @@ interface TerminalModel {
   close?(): void;
 }
 
+// now is the clock in milliseconds that paces the game. Tests pass a fake.
 export interface TerminalOptions {
   input?: NodeJS.ReadStream;
   output?: NodeJS.WriteStream;
   signal?: AbortSignal;
   colorProfile?: ColorProfile;
+  now?: () => number;
 }
 
 // sequences maps escape sequences to key names. Terminals send arrows, home and end in either
@@ -164,6 +166,7 @@ export async function runTerminal(model: TerminalModel, options: TerminalOptions
   const decoder = new InputDecoder();
   const wasRaw = input.isRaw;
   const profile = options.colorProfile ?? terminalProfile(true);
+  const now = options.now ?? (() => performance.now());
   let escaped: ReturnType<typeof setTimeout> | undefined;
   let finished = false;
 
@@ -200,6 +203,7 @@ export async function runTerminal(model: TerminalModel, options: TerminalOptions
       if (finished) return;
       finished = true;
       clearInterval(timer);
+      if (game) clearTimeout(game);
       if (escaped) clearTimeout(escaped);
       input.off('data', data);
       input.off('error', fail);
@@ -231,13 +235,30 @@ export async function runTerminal(model: TerminalModel, options: TerminalOptions
       }, 30);
     };
 
-    // Drives animations, and notices a model that exits without a key press.
+    // Game ticks follow the clock, because a Windows timer can fire up to a 15.6 ms clock tick late, and counting
+    // firings would run the game at 16 ticks a second. Each tick aims the next 50 ms after its own due time. After a
+    // stall, one tick catches up and the rest of the backlog is dropped.
+    let game: ReturnType<typeof setTimeout> | undefined;
+    let tickAt = 0;
+    const play = () => {
+      game = undefined;
+      if (finished || model.animation?.() !== 'game') return;
+      const t = now();
+      if (t >= tickAt) {
+        model.tick?.();
+        draw();
+        tickAt = tickAt + 50 > t ? tickAt + 50 : t;
+      }
+      game = setTimeout(play, Math.max(0, tickAt - now()));
+    };
+
+    // Starts the game ticks and the spinner, and notices a model that exits without a key press.
     let spinAt = Date.now();
     const timer = setInterval(() => {
       const animation = model.animation?.();
-      if (animation === 'game') {
-        model.tick?.();
-        draw();
+      if (animation === 'game' && !game) {
+        tickAt = now();
+        play();
       } else if (animation === 'spinner' && Date.now() - spinAt >= 100) {
         spinAt = Date.now();
         model.spin++;

@@ -4,8 +4,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { available, openCommand, revealCommand, openBrowser, pickFolder } from '../../src/platform/desktop.js';
@@ -13,7 +11,8 @@ import {
   Player,
   Mixer,
   decodeWAV,
-  encodeWAV,
+  openWaveOut,
+  openPulse,
   resample,
   vary,
   cut,
@@ -21,8 +20,9 @@ import {
   sampleRate,
   type HelperProcess,
   type Stream,
+  type WinMM,
+  type PulseAPI,
 } from '../../src/platform/sound.js';
-import { WaveOut, type WinMM } from '../../src/platform/waveout.js';
 
 // An SSH session has no usable desktop even when DISPLAY is set. URLs and paths are passed as
 // single arguments, never through a shell.
@@ -108,6 +108,25 @@ test('sound effects preserve independent pitch and tempo, fading, and input', ()
   assert.equal(samples[0], 0);
 });
 
+// Encodes mono 16-bit PCM WAV, the format of the game's clips.
+function encodeWAV(samples: Float32Array): Buffer {
+  const b = Buffer.alloc(44 + samples.length * 2);
+  b.write('RIFF', 0);
+  b.writeUInt32LE(b.length - 8, 4);
+  b.write('WAVEfmt ', 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(sampleRate, 24);
+  b.writeUInt32LE(sampleRate * 2, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write('data', 36);
+  b.writeUInt32LE(samples.length * 2, 40);
+  for (let i = 0; i < samples.length; i++) b.writeInt16LE(Math.round(samples[i] * 32767), 44 + i * 2);
+  return b;
+}
+
 test('WAV decoder validates structure and preserves PCM', async () => {
   const samples = sine(330, 4000);
   const wav = encodeWAV(samples);
@@ -117,12 +136,12 @@ test('WAV decoder validates structure and preserves PCM', async () => {
   for (const bytes of [Buffer.alloc(0), Buffer.from('RIFFxxxxWAVE'), wav.subarray(0, 30), Buffer.from('BAD!')])
     assert.throws(() => decodeWAV(bytes));
 
-  // FROST_NO_SOUND turns the player off before it ever runs an audio command.
+  // FROST_NO_SOUND turns the player off before it ever opens an output.
   const player = new Player(
     { tone: { wav } },
     {
       env: { FROST_NO_SOUND: '1' },
-      runner: async () => {
+      openStream: async () => {
         throw new Error('must not open audio');
       },
     },
@@ -197,9 +216,6 @@ test('the macOS helper loads variants once, ignores early plays and shares its v
       spawn: (program, args) => {
         spawned.push([program, ...args]);
         return child;
-      },
-      runner: async () => {
-        throw new Error('must not run a player');
       },
     },
   );
@@ -278,79 +294,40 @@ test('a stuck macOS helper is killed, and one that stops turns sound off', async
   await other.close();
 });
 
-test('sound falls back to the platform player, reuses its files and stops them on close', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'frost-sound-test-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const calls: string[][] = [];
-  // Probes pass straight away. Plays run until close() aborts them.
-  const runner = async (program: string, args: string[], _?: unknown, signal?: AbortSignal) => {
-    calls.push([program, ...args]);
-    if (args[0] === '-h' || args[0] === '--version') return { code: 0, stdout: '', stderr: '' };
-    return new Promise<never>((_, reject) => signal!.addEventListener('abort', () => reject(new Error('aborted'))));
-  };
-
-  // On macOS a helper that can't start, like a missing osascript, leaves afplay.
-  const player = new Player(
-    { a: { wav: tone, pitch: 0.05 } },
+test("an output that can't start leaves the game silent", async () => {
+  // A missing osascript on macOS.
+  const mac = new Player(
+    { a: { wav: tone } },
     {
       env: {},
       platform: 'darwin',
-      cacheDir: dir,
-      random: () => 0,
-      runner,
       spawn: () => {
-        const { child } = fakeHelper();
+        const { child } = fakeProcess();
         setImmediate(() => child.emit('error', new Error('spawn osascript ENOENT')));
         return child;
       },
     },
   );
-  await until(() => player.available());
-  assert.match(player.err()!.message, /ENOENT/);
-  const [folder] = await readdir(dir);
-  const files = (await readdir(path.join(dir, folder))).map(f => path.join(dir, folder, f)).sort();
-  assert.equal(files.length, 4);
-  assert.equal(decodeWAV(await readFile(files[0])).length, 4410);
+  await until(() => !!mac.err());
+  await mac.close();
+  assert.equal(mac.available(), false);
+  assert.match(mac.err()!.message, /ENOENT/);
 
-  // Four copies of a clip play at once, from the files written up front, and closing stops them and the folder.
-  for (let i = 0; i < 5; i++) player.play('a');
-  assert.deepEqual(calls.slice(1), [
-    ['afplay', files[0]],
-    ['afplay', files[1]],
-    ['afplay', files[0]],
-    ['afplay', files[1]],
-  ]);
-  await player.close();
-  assert.deepEqual(await readdir(dir), []);
-  assert.equal(player.err()!.message, 'spawn osascript ENOENT');
-
-  // On Linux a pacat that exits straight away leaves paplay, and at most eight sounds play at once.
-  calls.length = 0;
-  const spawned: string[] = [];
+  // A Linux machine without libpulse.
   const linux = new Player(
-    { a: { wav: tone }, b: { wav: tone }, c: { wav: tone } },
+    { a: { wav: tone } },
     {
       env: {},
       platform: 'linux',
-      cacheDir: dir,
-      runner,
-      spawn: program => {
-        spawned.push(program);
-        const { child } = fakeProcess();
-        setImmediate(() => child.emit('exit'));
-        return child;
+      openStream: async () => {
+        throw new Error('libpulse.so.0: cannot open shared object file');
       },
     },
   );
-  await until(() => linux.available());
-  assert.deepEqual(spawned, ['pacat']);
-  assert.match(linux.err()!.message, /pacat could not play/);
-  for (const name of ['a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'c']) linux.play(name);
-  assert.deepEqual(calls[0], ['paplay', '--version']);
-  assert.equal(calls.length, 1 + 8);
-  assert.ok(calls.slice(1).every(([program]) => program === 'paplay'));
+  await until(() => !!linux.err());
+  linux.play('a');
+  assert.equal(linux.available(), false);
   await linux.close();
-  assert.deepEqual(await readdir(dir), []);
 });
 
 const int16 = (block: Buffer) => Array.from({ length: block.length / 2 }, (_, i) => block.readInt16LE(i * 2));
@@ -380,13 +357,14 @@ test('the mixer sums voices, clips to full scale, limits each clip and fades a s
   assert.equal(mixed[fade + 1], Math.round(0.08 * 32767));
 });
 
-test('a stream starts a sound straight away, adds a silent tail and stops writing when idle', async t => {
+test('a stream is fed silence from the start, mixes sounds in as it has room and stops when closed', async t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
+  // A stream that keeps 50 ms queued, with played counting what the device has used up.
   const blocks: Buffer[] = [];
   let played = 0;
   let closed = 0;
   const stream: Stream = {
-    queued: () => Math.max(0, blocks.length * 10 - played),
+    room: () => 50 - (blocks.length * 10 - played),
     write: block => blocks.push(block),
     close: async () => {
       closed++;
@@ -395,80 +373,52 @@ test('a stream starts a sound straight away, adds a silent tail and stops writin
   const player = new Player({ a: { wav: tone } }, { env: {}, platform: 'linux', openStream: async () => stream });
   await until(() => player.available());
 
-  // The first 50 ms go out during the play itself. The 100 ms tone is followed by 250 ms of silence, then nothing.
+  // 50 ms of silence goes out as soon as the stream opens, and a play with no room waits for the next block.
+  assert.equal(blocks.length, 5);
+  assert.ok(blocks.every(b => b.length === 882 && b.every(x => x === 0)));
   player.play('a');
   assert.equal(blocks.length, 5);
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 20; i++) {
     played += 10;
     t.mock.timers.tick(10);
   }
-  assert.equal(blocks.length, 35);
-  assert.ok(blocks.every(b => b.length === 882));
-  const samples = blocks.flatMap(int16);
-  assert.equal(samples[100], Math.round(sine(440, 4410)[100] * 0.36 * 32767));
-  assert.ok(samples.slice(4410).every(x => x === 0));
 
+  // The 100 ms tone fills the ten blocks after the queued silence, and silence follows it.
+  assert.equal(blocks.length, 25);
+  const samples = blocks.flatMap(int16);
+  assert.equal(samples[5 * 441 + 100], Math.round(sine(440, 4410)[100] * 0.36 * 32767));
+  assert.ok(samples.slice(0, 5 * 441).every(x => x === 0));
+  assert.ok(samples.slice(15 * 441).every(x => x === 0));
+
+  // Closing stops the stream, and nothing is written after.
   await player.close();
   assert.equal(closed, 1);
   player.play('a');
   t.mock.timers.tick(100);
-  assert.equal(blocks.length, 35);
+  assert.equal(blocks.length, 25);
 });
 
-test('pacat streams raw audio and hands over to paplay when it stops', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'frost-sound-test-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const { child, chunks } = fakeProcess();
-  const spawned: string[][] = [];
-  const calls: string[][] = [];
-  const player = new Player(
-    { a: { wav: tone } },
-    {
-      env: {},
-      platform: 'linux',
-      cacheDir: dir,
-      now: () => 0,
-      spawn: (program, args) => {
-        spawned.push([program, ...args]);
-        return child;
-      },
-      runner: async (program, args) => {
-        calls.push([program, ...args]);
-        return { code: 0, stdout: '', stderr: '' };
-      },
+test('a stream that fails turns sound off and closes', async () => {
+  let failing = false;
+  let closed = 0;
+  const stream: Stream = {
+    room: () => {
+      if (failing) throw new Error('the sound server stopped the stream');
+      return 0;
     },
-  );
-
-  // A pacat still running after 250 ms counts as working.
-  await until(() => spawned.length === 1);
-  assert.deepEqual(spawned[0], [
-    'pacat',
-    '--playback',
-    '--raw',
-    '--format=s16le',
-    '--rate=44100',
-    '--channels=1',
-    '--latency-msec=30',
-    '--client-name=frost',
-  ]);
-  await new Promise(resolve => setImmediate(resolve));
-  t.mock.timers.tick(250);
+    write: () => {},
+    close: async () => {
+      closed++;
+    },
+  };
+  const player = new Player({ a: { wav: tone } }, { env: {}, platform: 'linux', openStream: async () => stream });
   await until(() => player.available());
+  failing = true;
   player.play('a');
-  const written = Buffer.concat(chunks);
-  assert.equal(written.length, 5 * 882);
-  assert.equal(written.readInt16LE(200), Math.round(sine(440, 4410)[100] * 0.36 * 32767));
-  assert.deepEqual(calls, []);
-
-  // When pacat stops, sound carries on through paplay.
-  child.emit('exit');
-  await until(() => calls.length === 1 && player.available());
-  assert.deepEqual(calls[0], ['paplay', '--version']);
-  player.play('a');
-  assert.equal(calls[1][0], 'paplay');
-  assert.match(player.err()!.message, /stream stopped/);
+  assert.equal(player.available(), false);
+  assert.match(player.err()!.message, /stopped the stream/);
   await player.close();
+  assert.equal(closed, 1);
 });
 
 // A winmm stand-in. Prepare marks a header prepared, reset marks every header done, and pointer() hands out fake
@@ -508,55 +458,72 @@ function fakeWinMM(failOpen = 0, failPrepare = -1) {
       calls.push('close');
       return 0;
     },
+    timeBeginPeriod: ms => {
+      calls.push(`begin ${ms}`);
+      return 0;
+    },
+    timeEndPeriod: ms => {
+      calls.push(`end ${ms}`);
+      return 0;
+    },
     pointer: buffer => {
       blocks.set((next += 0x1000n), buffer);
       return next;
     },
   };
-  return { api, calls, blocks, headers };
+  // Marks the first n queued blocks played.
+  const play = (n: number) => {
+    for (const h of headers.filter(h => !(h.readUInt32LE(24) & 1)).slice(0, n))
+      h.writeUInt32LE(h.readUInt32LE(24) | 1, 24);
+  };
+  return { api, calls, blocks, headers, play };
 }
 
-test('waveOut writes through a prepared ring, polls blocks done and closes in order', () => {
-  const { api, calls, blocks, headers } = fakeWinMM();
-  const out = new WaveOut(882, api);
+test('waveOut queues through a prepared ring, raises its lead when it runs low and closes in order', async () => {
+  const { api, calls, blocks, headers, play } = fakeWinMM();
+  const out = openWaveOut(api);
 
-  // The default device opens for 44.1 kHz 16-bit mono without a callback, and eight 882-byte blocks are prepared.
-  assert.deepEqual(calls.slice(0, 2), ['open ffffffff 0 0100010044ac000088580100020010000000', 'prepare abc 48']);
-  assert.equal(headers.length, 8);
-  for (const h of headers) {
-    assert.equal(blocks.get(h.readBigUInt64LE(0))!.length, 882);
-    assert.equal(h.readUInt32LE(8), 882);
-  }
+  // The default device opens for 44.1 kHz 16-bit mono without a callback, timers go to 1 ms, and fifteen 882-byte
+  // blocks are prepared, enough for a 150 ms lead.
+  assert.deepEqual(calls.slice(0, 3), [
+    'open ffffffff 0 0100010044ac000088580100020010000000',
+    'begin 1',
+    'prepare abc 48',
+  ]);
+  assert.equal(headers.length, 15);
+  for (const h of headers) assert.equal(blocks.get(h.readBigUInt64LE(0))!.length, 882);
 
-  // A written block is copied into its slot and stays pending until winmm sets WHDR_DONE.
-  const block = Buffer.alloc(882, 7);
-  out.write(block);
-  assert.equal(out.pending(), 1);
+  // A fresh device wants the 50 ms lead. Written blocks are copied into their slots and count until WHDR_DONE.
+  assert.equal(out.room(), 50);
+  for (let i = 0; i < 5; i++) out.write(Buffer.alloc(882, i + 1));
   assert.equal(calls.at(-1), 'write 882 48');
-  const used = headers.find(h => blocks.get(h.readBigUInt64LE(0))![0] === 7)!;
-  assert.deepEqual(blocks.get(used.readBigUInt64LE(0)), block);
-  used.writeUInt32LE(used.readUInt32LE(24) | 1, 24);
-  assert.equal(out.pending(), 0);
+  assert.deepEqual(blocks.get(headers[4].readBigUInt64LE(0)), Buffer.alloc(882, 5));
+  assert.equal(out.room(), 0);
+  play(2);
+  assert.equal(out.room(), 20);
 
-  // A reused slot has WHDR_DONE cleared before it's queued again, and a full ring refuses more.
-  for (let i = 0; i < 8; i++) out.write(Buffer.alloc(441));
+  // Finding 20 ms or less queued raises the lead by a block each time, up to 150 ms, and a full ring refuses more.
+  play(3);
+  assert.equal(out.room(), 60);
+  for (let i = 0; i < 20; i++) out.room();
+  assert.equal(out.room(), 150);
+  for (let i = 0; i < 15; i++) out.write(Buffer.alloc(882));
   assert.ok(headers.every(h => !(h.readUInt32LE(24) & 1)));
-  assert.equal(out.pending(), 8);
-  assert.throws(() => out.write(block), /no free audio block/);
+  assert.throws(() => out.write(Buffer.alloc(882)), /closed or full/);
 
-  // Closing resets, unprepares every block and only then closes the device.
-  out.close();
-  assert.deepEqual(calls.slice(-10), ['reset', ...Array(8).fill('unprepare'), 'close']);
-  assert.throws(() => out.write(block), /closed/);
-  out.close();
-  assert.equal(calls.at(-1), 'close');
+  // Closing resets, unprepares every block, closes the device and gives the timers back, once.
+  await out.close();
+  assert.deepEqual(calls.slice(-18), ['reset', ...Array(15).fill('unprepare'), 'close', 'end 1']);
+  assert.throws(() => out.write(Buffer.alloc(882)), /closed or full/);
+  await out.close();
   assert.equal(calls.filter(c => c === 'close').length, 1);
 
   // A device that won't open throws. One that fails partway through preparing undoes what it did.
-  assert.throws(() => new WaveOut(882, fakeWinMM(2).api), /waveOutOpen failed with error 2/);
+  assert.throws(() => openWaveOut(fakeWinMM(2).api), /waveOutOpen failed with error 2/);
   const partial = fakeWinMM(0, 2);
-  assert.throws(() => new WaveOut(882, partial.api), /waveOutPrepareHeader failed with error 11/);
+  assert.throws(() => openWaveOut(partial.api), /waveOutPrepareHeader failed with error 11/);
   assert.deepEqual(partial.calls.slice(1), [
+    'begin 1',
     'prepare abc 48',
     'prepare abc 48',
     'prepare abc 48',
@@ -564,5 +531,105 @@ test('waveOut writes through a prepared ring, polls blocks done and closes in or
     'unprepare',
     'unprepare',
     'close',
+    'end 1',
   ]);
+});
+
+// A libpulse stand-in. States step through the given lists, one per poll, and every call after the loop starts checks
+// that the lock is held.
+function fakePulse(contextStates: number[], streamStates: number[]) {
+  const calls: string[] = [];
+  let started = false;
+  let locks = 0;
+  let writable = 0n;
+  let state = 2;
+  const locked = () => assert.ok(!started || locks === 1, 'libpulse called without the lock');
+  const api: PulseAPI = {
+    pa_threaded_mainloop_new: () => 1n,
+    pa_threaded_mainloop_get_api: () => 2n,
+    pa_threaded_mainloop_start: () => {
+      started = true;
+      return 0;
+    },
+    pa_threaded_mainloop_lock: () => void locks++,
+    pa_threaded_mainloop_unlock: () => void locks--,
+    pa_threaded_mainloop_stop: () => {
+      assert.equal(locks, 0);
+      calls.push('stop');
+    },
+    pa_threaded_mainloop_free: () => void calls.push('free'),
+    pa_context_new: (_, name) => {
+      calls.push(`context ${name}`);
+      return 3n;
+    },
+    pa_context_connect: (_, server, flags) => {
+      calls.push(`connect ${server} ${flags}`);
+      return 0;
+    },
+    pa_context_get_state: () => (locked(), contextStates.length > 1 ? contextStates.shift()! : contextStates[0]),
+    pa_context_disconnect: () => (locked(), void calls.push('disconnect')),
+    pa_context_unref: () => (locked(), void calls.push('unref context')),
+    pa_stream_new: (_, name, spec) => {
+      locked();
+      calls.push(`stream ${name} ${spec.toString('hex')}`);
+      return 4n;
+    },
+    pa_stream_connect_playback: (_, device, attr, flags) => {
+      locked();
+      calls.push(`playback ${device} ${attr.toString('hex')} ${flags}`);
+      return 0;
+    },
+    pa_stream_get_state: () => (locked(), streamStates.length > 1 ? streamStates.shift()! : state),
+    pa_stream_writable_size: () => (locked(), writable),
+    pa_stream_write: (_, data, bytes, free, offset, seek) => {
+      locked();
+      calls.push(`write ${data.length} ${bytes} ${free} ${offset} ${seek}`);
+      return 0;
+    },
+    pa_stream_unref: () => (locked(), void calls.push('unref stream')),
+  };
+  return {
+    api,
+    calls,
+    setWritable: (n: bigint) => (writable = n),
+    setState: (n: number) => (state = n),
+  };
+}
+
+test('libpulse connects through a polled loop, writes what the server asks for and closes in order', async () => {
+  const pulse = fakePulse([1, 2, 3, 4], [1, 2]);
+  const polls: number[] = [];
+  const out = await openPulse(pulse.api, async ms => void polls.push(ms));
+
+  // Connecting never starts a server. The stream is 16-bit mono at 44.1 kHz, keeps 50 ms (4410 bytes) buffered,
+  // starts and refills a block at a time, and asks the server to match the device's latency.
+  assert.deepEqual(pulse.calls, [
+    'context frost',
+    'connect null 1',
+    'stream sound effects 0300000044ac000001000000',
+    'playback null ffffffff3a1100007203000072030000ffffffff 8192',
+  ]);
+  assert.deepEqual(polls, [5, 5, 5, 5]);
+
+  // Room is whatever the server asks for, and a block is written whole for libpulse to copy.
+  pulse.setWritable(1764n);
+  assert.equal(out.room(), 20);
+  out.write(Buffer.alloc(882));
+  assert.equal(pulse.calls.at(-1), 'write 882 882 null 0 0');
+  pulse.setState(3);
+  assert.throws(() => out.room(), /stopped the stream/);
+
+  // Closing disconnects and frees under the lock, then stops the loop unlocked, once.
+  await out.close();
+  await out.close();
+  assert.deepEqual(pulse.calls.slice(-5), ['disconnect', 'unref stream', 'unref context', 'stop', 'free']);
+  assert.throws(() => out.room(), /closed/);
+
+  // A server that refuses the connection fails the open and cleans up.
+  const refused = fakePulse([1, 5], [2]);
+  await assert.rejects(
+    openPulse(refused.api, async () => {}),
+    /could not connect to the sound server/,
+  );
+  assert.deepEqual(refused.calls.slice(-4), ['disconnect', 'unref context', 'stop', 'free']);
 });
