@@ -59,7 +59,7 @@ Picking Permafrost asks whether you have an access key. If you don't, frost open
 
 Saving writes `config.toml` and the key file and installs the scheduled job. Run `frost init` again any time to review or change your settings.
 
-The full-screen setup doesn't ask for a Permafrost server or a folder inside an S3 bucket, and keeps whatever's already set. Use `frost config edit` for a new server or prefix, accept its warning, save and run `frost init` again. `frost config set` requires an existing repository at the new location. For a fresh custom-server setup, prepare `config.toml` as described in the [Permafrost help](https://getfro.st/docs#permafrost).
+The full-screen setup doesn't ask for a Permafrost server or a folder inside an S3 bucket, and keeps whatever's already set. Use `frost config edit` for a new server or prefix, accept its warning, save and run `frost init` again. `frost config set` requires an existing repository at the new location. For a fresh custom-server setup, prepare `config.toml` as described in the [Permafrost help](https://getfro.st/help/storage/permafrost).
 
 With piped input, `init` asks plain questions, one per line. It offers a generic S3 option instead of the provider presets and asks for the folder inside the bucket. Getting a Permafrost key works there too.
 

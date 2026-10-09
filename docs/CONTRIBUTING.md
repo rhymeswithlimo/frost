@@ -90,7 +90,7 @@ The title becomes the commit message when the pull request is squash merged. Mak
 
 ## Issues
 
-Before opening an issue, check the docs at [getfro.st/docs](https://getfro.st/docs) and the existing issues. A bug report needs your frost version (`frost --version`), your OS, your storage provider, the command you ran and what it printed. Leave out your recovery phrase and storage credentials. `frost config` masks credentials unless you ask it not to.
+Before opening an issue, check the docs at [getfro.st/help](https://getfro.st/help) and the existing issues. A bug report needs your frost version (`frost --version`), your OS, your storage provider, the command you ran and what it printed. Leave out your recovery phrase and storage credentials. `frost config` masks credentials unless you ask it not to.
 
 ## Storage providers
 

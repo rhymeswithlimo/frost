@@ -33,7 +33,7 @@ See [Installation](docs/CLI.md#installation) for manual installation, platform t
 
 ## Get started
 
-Learn how to use frost at [getfro.st/docs](https://getfro.st/docs).
+Learn how to use frost at [getfro.st/help](https://getfro.st/help).
 
 ## Contributing
 

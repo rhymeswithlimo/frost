@@ -1079,8 +1079,8 @@ export class BrowserModel {
       w >= 68
         ? stack(side(3, everywhere, snapshots), fill(w), side(3, moving, files))
         : stack(everywhere, fill(1), moving, fill(1), snapshots, fill(1), files);
-    let footer = style('dim', 'Documentation  ') + style('bold', 'getfro.st/docs');
-    if (width(footer) > w) footer = stack(para('dim', 'Documentation', w), para('bold', 'getfro.st/docs', w));
+    let footer = style('dim', 'Documentation  ') + style('bold', 'getfro.st/help');
+    if (width(footer) > w) footer = stack(para('dim', 'Documentation', w), para('bold', 'getfro.st/help', w));
     return stack(body, fill(1), footer);
   }
 
