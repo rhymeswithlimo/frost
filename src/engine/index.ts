@@ -50,10 +50,10 @@ export class Engine {
     return this.manifest?.getMeta<VerifyResult>('verify');
   }
 
-  // Verification is due when the last check is missing, failed, more than a day old or dated in the future.
+  // Verification is due when the last check is missing, failed, invalid, more than a day old or dated in the future.
   verifyDue(): boolean {
     const v = this.lastVerify();
     const age = v ? Date.now() - Date.parse(v.time) : Infinity;
-    return !v || !!v.failures?.length || age < 0 || age > 24 * 3600_000;
+    return !v || !!v.failures?.length || !Number.isFinite(age) || age < 0 || age > 24 * 3600_000;
   }
 }

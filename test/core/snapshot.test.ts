@@ -94,6 +94,9 @@ test('safe restore paths reject Windows aliases and traversal on both platforms'
     ['/home/me/a.txt', 'home/me/a.txt'],
     ['C:/Users/me/a', 'C/Users/me/a'],
     ['/a/./b', 'a/b'],
+    ['/a\\b', 'a/b'],
+    ['/a\\.\\b', 'a/b'],
+    ['C:\\Users\\me\\a', 'C/Users/me/a'],
   ])
     assert.equal(safeRel(input, 'win32'), expected);
   for (const platform of ['linux', 'win32'] as const)
@@ -116,6 +119,7 @@ test('safe restore paths reject Windows aliases and traversal on both platforms'
     assert.throws(() => safeRel(value, 'win32'));
   assert.equal(safeRel('/:file', 'linux'), ':file');
   assert.equal(safeRel('/a/..\\b', 'linux'), 'a/..\\b');
+  assert.equal(safeRel('/a\\b', 'linux'), 'a\\b');
   assert.equal(safeRel('/a/'), 'a');
 });
 

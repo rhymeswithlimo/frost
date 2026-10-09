@@ -140,12 +140,18 @@ export function cronLine(j: Job): string {
   return `${cronSpec(j.every)} ${command.replaceAll('%', '\\%')} ${cronMarker}`;
 }
 
+// A comment mentioning the marker belongs to the user, even when the marker is its last text.
+function isFrostCronLine(line: string): boolean {
+  const value = line.trim();
+  return !value.startsWith('#') && value.endsWith(' ' + cronMarker);
+}
+
 // Drops frost's line from a crontab and keeps everything else, with one trailing newline, or
 // returns '' when nothing is left.
 export function stripCron(text: string): string {
   const keep = text
     .split('\n')
-    .filter(s => !s.trim().endsWith(' ' + cronMarker))
+    .filter(s => !isFrostCronLine(s))
     .join('\n');
   return keep.trim() ? keep.replace(/\n+$/, '') + '\n' : '';
 }
@@ -261,7 +267,9 @@ export class Scheduler {
     if (old.includes(lingerMarker)) return { ours: true, enabled: false };
     try {
       const r = await this.runner('loginctl', ['show-user', String(this.uid), '--property=Linger', '--value']);
-      if (!r.code && r.stdout.trim() === 'yes') return { ours: false, enabled: false };
+      // Only a confirmed disabled state is ours to change. An unreadable or unfamiliar reply
+      // could hide lingering that was already enabled by the user or another application.
+      if (r.code || r.stdout.trim() !== 'no') return { ours: false, enabled: false };
       await this.linger(true);
       return { ours: true, enabled: true };
     } catch {
@@ -318,7 +326,16 @@ export class Scheduler {
           await checked(this.runner, 'systemctl', ['--user', 'daemon-reload']);
           await checked(this.runner, 'systemctl', ['--user', 'enable', '--now', systemdUnit + '.timer']);
         } catch (e) {
-          if (claimed.enabled) await this.linger(false).catch(() => {});
+          if (claimed.enabled) {
+            try {
+              await this.linger(false);
+              // A timer written before registration failed must no longer claim the grant
+              // we just rolled back. Otherwise a retry skips enabling lingering again.
+              const current = await optionalRead(timer);
+              if (current.includes(lingerMarker))
+                await writeFile(timer, current.replace(lingerMarker + '\n', ''), { mode: 0o644 });
+            } catch {}
+          }
           throw e;
         }
         break;
@@ -382,9 +399,16 @@ export class Scheduler {
           return false;
         }
       case 'systemd':
-        return exists(path.join(this.unitDir, systemdUnit + '.timer'));
+        if (!(await exists(path.join(this.unitDir, systemdUnit + '.timer')))) return false;
+        try {
+          return (
+            (await this.runner('systemctl', ['--user', 'is-active', '--quiet', systemdUnit + '.timer'])).code === 0
+          );
+        } catch {
+          return false;
+        }
       case 'cron':
-        return (await this.readCrontab().catch(() => '')).includes(cronMarker);
+        return (await this.readCrontab().catch(() => '')).split('\n').some(isFrostCronLine);
       default:
         try {
           return (await this.runner('schtasks', ['/Query', '/TN', taskName])).code === 0;

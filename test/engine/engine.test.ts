@@ -153,6 +153,16 @@ test('weekly sync is bound to location and missing chunks are repaired', async t
   assert.equal(f.memory.lists, 4);
 });
 
+test('verification is due when its saved time is invalid or outside the daily window', async t => {
+  const f = await fixture(t);
+  for (const time of ['invalid', '', new Date(Date.now() + 3600_000).toISOString(), '2000-01-01T00:00:00Z']) {
+    await f.manifest.putMeta('verify', { time, checked: 0, total: 0, failures: [] });
+    assert.equal(f.engine.verifyDue(), true);
+  }
+  await f.manifest.putMeta('verify', { time: new Date().toISOString(), checked: 0, total: 0, failures: [] });
+  assert.equal(f.engine.verifyDue(), false);
+});
+
 test('missing roots warn when another exists and fail when all are gone', async t => {
   const f = await fixture(t);
   await f.write('a', 'a');
@@ -508,6 +518,7 @@ test('restore refuses names this platform stores as one file', async t => {
   const pairs = [
     { name: 'case', names: ['A.txt', 'a.txt'], refused: process.platform === 'win32' || process.platform === 'darwin' },
     { name: 'unicode', names: ['é.txt', 'é.txt'], refused: process.platform === 'darwin' },
+    { name: 'separators', names: ['dir/a.txt', 'dir\\a.txt'], refused: process.platform === 'win32' },
   ];
   for (const pair of pairs) {
     const snap = { id: newID(), time: new Date().toISOString(), host: 'linux', paths: [], stats: emptyStats() };

@@ -21,6 +21,7 @@ import { knownPath, loadKnown } from '../../src/cli/known.js';
 import { rerunCommand } from '../../src/cli/restore.js';
 import { setupClosed, trackedCheckout } from '../../src/cli/tui.js';
 import { Key } from '../../src/core/crypto.js';
+import { Repo, chunkKey } from '../../src/core/repo.js';
 import * as config from '../../src/core/config.js';
 import * as update from '../../src/platform/update.js';
 import { Memory } from '../support.js';
@@ -777,8 +778,8 @@ test('a storage record that is not an object counts as empty', async t => {
   }
 });
 
-// The rerun hint quotes for a POSIX shell, or with double quotes on Windows, which cmd and PowerShell
-// both accept. Plain paths stay unquoted on both.
+// Ordinary rerun hints work in the platform's usual shells. Windows shell expansion characters need
+// PowerShell literals and the runtime directly, bypassing the batch launcher.
 test('restore rerun hints quote arguments for the platform shell', () => {
   const flags = { beside: false, to: '', overwrite: false, yes: false };
   assert.equal(
@@ -792,12 +793,93 @@ test('restore rerun hints quote arguments for the platform shell', () => {
   assert.equal(
     rerunCommand(
       'ab12',
+      [],
+      { ...flags, to: '/tmp/a\\b', configDir: '/tmp/config dir', cacheDir: '/tmp/cache' },
+      'linux',
+    ),
+    "frost restore ab12 --to '/tmp/a\\b' --config-dir '/tmp/config dir' --cache-dir /tmp/cache",
+  );
+  assert.equal(
+    rerunCommand(
+      'ab12',
       ['C:\\Users\\me\\My Files', 'C:\\Users\\me\\plain'],
       { ...flags, to: 'D:\\Restore (1)' },
       'win32',
     ),
     'frost restore ab12 "C:\\Users\\me\\My Files" C:\\Users\\me\\plain --to "D:\\Restore (1)"',
   );
+  const special = rerunCommand(
+    'ab12',
+    ["C:\\Users\\me\\$cash`back%USERPROFILE%!it's"],
+    { ...flags, to: 'D:\\Restore (1)' },
+    'win32',
+  );
+  assert.ok(special.startsWith('& '));
+  const literals = [...special.matchAll(/'((?:[^']|'')*)'/g)].map(match => match[1].replaceAll("''", "'"));
+  assert.equal(literals[0], process.execPath);
+  assert.ok(literals[1].endsWith(process.env.FROST_APP_ROOT ? 'launch.mjs' : 'main.js'));
+  assert.deepEqual(literals.slice(2), [
+    'restore',
+    'ab12',
+    "C:\\Users\\me\\$cash`back%USERPROFILE%!it's",
+    '--to',
+    'D:\\Restore (1)',
+  ]);
+});
+
+test(
+  'restore selections preserve a literal backslash in POSIX filenames',
+  { skip: process.platform === 'win32' },
+  async t => {
+    const f = await fixture(t);
+    const selected = path.join(f.src, 'report\\final.txt');
+    await writeFile(selected, 'literal backslash');
+    await f.must(['init'], f.answers);
+    await f.must(['backup']);
+    const target = path.join(f.root, 'selected');
+    await mkdir(target);
+    await f.must(['restore', 'latest', selected, '--to', target]);
+    const folders = await readdir(target);
+    assert.equal(folders.length, 1);
+    assert.deepEqual(await readdir(path.join(target, folders[0])), ['report\\final.txt']);
+    assert.equal(await readFile(path.join(target, folders[0], 'report\\final.txt'), 'utf8'), 'literal backslash');
+  },
+);
+
+test('an interrupted restore keeps its config and cache directories in the command that resumes it', async t => {
+  const f = await fixture(t);
+  await f.must(['init'], f.answers);
+  await f.must(['backup']);
+  const target = path.join(f.root, 'resume');
+  await mkdir(target);
+  const repo = await Repo.open(f.mem, f.key);
+  const snapshot = (await repo.snapshots())[0];
+  const tree = await repo.loadTree(snapshot.id);
+  const fileChunk = chunkKey(tree.files.find(file => file.type === 'file')!.chunks![0]);
+  f.mem.beforeGet = async key => {
+    if (key === fileChunk) throw new Error('connection lost');
+  };
+  const stopped = await f.invoke(['restore', 'latest', '--to', target]);
+  assert.equal(stopped.code, 1);
+  assert.match(stopped.stderr, /To carry on from there, run(?: in PowerShell)?:/);
+  assert.ok(
+    stopped.stderr.includes(
+      rerunCommand(snapshot.id, [], {
+        beside: false,
+        to: target,
+        overwrite: false,
+        yes: false,
+        configDir: f.conf,
+        cacheDir: f.cache,
+      }),
+    ),
+  );
+
+  f.mem.beforeGet = undefined;
+  await f.must(['restore', snapshot.id, '--to', target, '--config-dir', f.conf, '--cache-dir', f.cache]);
+  const folders = await readdir(target);
+  assert.equal(folders.length, 1);
+  assert.equal(await readFile(path.join(target, folders[0], path.basename(f.src), 'todo.txt'), 'utf8'), 'buy milk');
 });
 
 // A checkout saves its key before setup ends, so closing setup afterwards says so. A failed checkout

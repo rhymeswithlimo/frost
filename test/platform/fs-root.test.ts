@@ -6,9 +6,30 @@ import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { openRoot, readAll, trustedAncestorLink } from '../../src/platform/fs-root.js';
+import { directory, openRoot, readAll, trustedAncestorLink } from '../../src/platform/fs-root.js';
 
 const posix = process.platform === 'linux' || process.platform === 'darwin';
+
+test('POSIX native names keep literal backslashes in files and folders', { skip: !posix }, async t => {
+  const base = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'frost-backslash-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = await openRoot(base);
+  t.after(() => root.close());
+  const nested = directory(root, 'dir\\name/child\\folder', { create: true });
+  try {
+    const file = nested.open('file\\name.txt', { write: true, create: true, exclusive: true });
+    try {
+      file.writeFile('literal backslash');
+    } finally {
+      file.close();
+    }
+  } finally {
+    nested.close();
+  }
+  assert.equal(fs.readFileSync(path.join(base, 'dir\\name/child\\folder/file\\name.txt'), 'utf8'), 'literal backslash');
+  assert.equal(fs.existsSync(path.join(base, 'dir')), false);
+  assert.throws(() => directory(root, 'dir\\name/../outside', { create: true }), /escapes the target/);
+});
 
 // The current user is uid 1000. A parent writable by group or others is only safe with the sticky
 // bit (0o1000), which stops other users renaming the link. An unknown uid trusts only root.

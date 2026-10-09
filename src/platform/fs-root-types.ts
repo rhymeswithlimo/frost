@@ -59,8 +59,8 @@ export function leaf(name: string): void {
     !name ||
     name === '.' ||
     name === '..' ||
-    /[\\/\0]/u.test(name) ||
-    (process.platform === 'win32' && /[:?*<>|]/u.test(name))
+    /[/\0]/u.test(name) ||
+    (process.platform === 'win32' && /[\\:?*<>|]/u.test(name))
   ) {
     throw new Error('unsafe filesystem component');
   }

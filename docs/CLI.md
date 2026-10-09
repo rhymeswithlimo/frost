@@ -59,11 +59,11 @@ Picking Permafrost asks whether you have an access key. If you don't, frost open
 
 Saving writes `config.toml` and the key file and installs the scheduled job. Run `frost init` again any time to review or change your settings.
 
-The full-screen setup doesn't ask for a Permafrost server or a folder inside an S3 bucket, and keeps whatever's already set. Use `frost config set storage.permafrost.url` or `storage.s3.prefix` for those.
+The full-screen setup doesn't ask for a Permafrost server or a folder inside an S3 bucket, and keeps whatever's already set. Use `frost config edit` for a new server or prefix, accept its warning, save and run `frost init` again. `frost config set` requires an existing repository at the new location. For a fresh custom-server setup, prepare `config.toml` as described in the [Permafrost help](https://getfro.st/docs#permafrost).
 
 With piped input, `init` asks plain questions, one per line. It offers a generic S3 option instead of the provider presets and asks for the folder inside the bucket. Getting a Permafrost key works there too.
 
-If Permafrost ever rejects your access key, every command stops with an error that says so. Run `frost init` again to set up a working one.
+If Permafrost rejects your access key, commands that access your backups stop with an error that says so. Run `frost init` again to set up a working one.
 
 ### Storage compatibility
 
@@ -170,6 +170,8 @@ Originals that already match the snapshot are checked and skipped, so they aren'
 
 If a restore stops (a lost connection, Ctrl+C, the machine sleeping), frost prints the command that carries on. It's the same restore with the snapshot's full ID in place of `latest` or a time, so a backup in between doesn't change which snapshot it means.
 
+On Windows, paths with shell expansion characters get a PowerShell command; the message says when to use PowerShell.
+
 The new run carries on in the same folder. Files already there are checked and skipped, and the file it was writing continues from its last good chunk. Until the restore finishes, the folder holds a `.frost-restore` marker and the unfinished file's `.frost-partial-...`. `--overwrite` carries on the same way.
 
 ## `frost status`
@@ -225,7 +227,7 @@ It can't update in these cases:
 
 ### Automatic updates
 
-After a scheduled backup, frost checks for a new release at most once a day and installs it the same way. The check runs whether or not the backup worked, and a failed check or install never fails the backup. The result shows in `frost status` and the browser's settings, and in the [scheduled run log](#files) where there is one.
+After a scheduled backup, frost checks for a new release at most once every 20 hours and installs it the same way. The check runs whether or not the backup worked, and a failed check or install never fails the backup. The result shows in `frost status` and the browser's settings, and in the [scheduled run log](#files) where there is one.
 
 With `update.auto` set to `false`, the check still runs and `frost status` says when a release is out, but nothing is installed until you run `frost update`. Without scheduled backups there's no background check at all.
 
@@ -257,7 +259,7 @@ Changing `schedule.enabled` or `schedule.every`, with `set` or `edit`, updates t
 | `storage.s3.prefix` | `frost` | The folder inside the bucket that holds everything. Empty for the top level |
 | `storage.s3.access_key_id` | | |
 | `storage.s3.secret_access_key` | | |
-| `storage.s3.insecure` | `false` | Use plain HTTP. Only for local testing |
+| `storage.s3.insecure` | `false` | Use plain HTTP when the endpoint has no scheme. Only for local testing |
 | `storage.permafrost.url` | | Blank for the default server. Otherwise an `https://` URL (`http://` only for localhost) |
 | `storage.permafrost.token` | | |
 
@@ -269,7 +271,7 @@ Changing `schedule.enabled` or `schedule.every`, with `set` or `edit`, updates t
 | Start a separate set of backups somewhere else | Run `frost init` and point it at the empty location. The old backups stay where they are, but frost only shows the new ones |
 | Go back to backups you moved away from | Set the old location again |
 
-Moving only `frost.repo` doesn't move your backups. `frost config set` checks a new location before saving it, and refuses one with no backups, backups made with another key, or a `frost.repo` without its snapshots. `frost config edit` shows them as warnings before you save, so it can still make a change `set` refuses. If frost can't find your backups, the error and `frost status` say where they were last opened and how to get back to them.
+Moving only `frost.repo` doesn't move your backups. `frost config set` checks a new location before saving it, and refuses one with no frost repository or a different key. It also refuses a copy with no snapshots when the old location still has snapshots for the same repository. `frost config edit` shows them as warnings before you save, so it can still make a change `set` refuses. If frost can't find your backups, the error and `frost status` say where they were last opened and how to get back to them.
 
 ### Environment variables
 
@@ -315,11 +317,11 @@ The manifest is disposable. Removing it rebuilds the cache from storage and rere
 | Linux without systemd | cron | A line in your crontab tagged `# frost-backup` |
 | Windows | Task Scheduler | A task named `frost backup` |
 
-The job invokes the bundled runtime and launcher to run `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for. launchd, cron and Task Scheduler run daily backups at 03:17 and weekly ones on Sundays at 03:17.
+The job invokes the bundled runtime and launcher to run `frost backup --scheduled`, which logs plain lines instead of a progress bar and then checks for [updates](#automatic-updates). launchd and the systemd timer catch up, so a laptop that was closed runs the missed backup when it wakes. Cron and Task Scheduler skip runs the machine was off or asleep for. launchd, cron and Task Scheduler run daily backups at 03:17 and weekly ones on Sundays at 03:17. The Windows task runs only while you're signed in, doesn't start on battery and stops if the computer is unplugged.
 
 macOS lists the job under System Settings > General > Login Items & Extensions as Node.js Foundation, the publisher of the bundled runtime. Switching it off there stops scheduled backups, and `frost status` says the job is missing. frost loads the job again whenever it reinstalls it, after a schedule change for example, even though the switch still shows off. To stop scheduled backups, run `frost config set schedule.enabled false`.
 
-With systemd, frost turns on lingering for your user (`loginctl enable-linger`), so the timer runs while you're logged out too. It turns lingering off again when it removes the timer, unless it was already on before frost.
+With systemd, frost tries to turn on lingering for your user (`loginctl enable-linger`) if it can confirm lingering is off. Lingering lets the timer run while you're logged out too. If frost can't enable it, backups may stop after logout. When removing the timer, frost turns lingering off only if it recorded enabling it.
 
 Jobs keep the config and cache directories used when they're installed, including environment overrides. Run `frost init` again after changing those directories, or to update an older job that didn't keep them.
 

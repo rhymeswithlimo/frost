@@ -10,7 +10,7 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **frost can store backups on Permafrost.** Connecting takes one access key, with no bucket, region or endpoint to set up. You can also point frost at your own Permafrost server.
 
-- **`frost init` can get you a Permafrost key.** If you don't have one yet, it opens a page in your browser, and the key comes back to frost and is saved straight away. If Permafrost rejects a key later, every command says so and points you to `frost init`.
+- **`frost init` can get you a Permafrost key.** If you don't have one yet, it opens a page in your browser, and the key comes back to frost and is saved straight away. If Permafrost rejects a key later, commands that access backups say so and point you to `frost init`.
 
 - **`frost init` walks you through setup.** In a terminal it opens a full-screen setup that asks one thing at a time and says where to find each answer, with presets for Amazon S3 and Cloudflare R2 and unverified presets for Backblaze B2 and Wasabi. If connecting fails, it says why in plain words and goes back to the answer that caused it.
 
@@ -66,7 +66,7 @@ Notable changes to frost, newest release first. Each release lists what was adde
 
 - **Windows scheduled runs have a log.** Backup output, failures and update results go to `frost.log` in the cache folder, and logs over 1 MiB are trimmed before the next run.
 
-- **frost updates itself.** `frost update` installs the latest release, and scheduled backups do it on their own at most once a day. Each release is checked against a signing key built into frost before anything is replaced, and setting `update.auto` to `false` only tells you about new ones.
+- **frost updates itself.** `frost update` installs the latest release, and scheduled backups do it on their own at most once every 20 hours. Each release is checked against a signing key built into frost before anything is replaced, and setting `update.auto` to `false` only tells you about new ones.
 
 - **`frost key` manages your recovery phrase.** It shows the phrase behind a confirmation, checks a phrase against your backups, or imports one on a new machine.
 

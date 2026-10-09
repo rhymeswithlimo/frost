@@ -612,6 +612,43 @@ test('setup checkout cleanup ignores old results, empty results, and missing lis
   assert.equal(m.signal!.aborted, true);
 });
 
+test('setup retains a received checkout key when saving it fails and ignores a stale failed save', async () => {
+  const received = 'received-secret-key';
+  const failure = Object.assign(new Error("got your access key but couldn't save it yet"), { token: received });
+  const m = new SetupModel(
+    setupDeps({
+      checkout: async () => ({
+        page: 'page',
+        wait: async () => {
+          throw failure;
+        },
+      }),
+    }),
+    defaultConfig(),
+  );
+  m.resize(80, 24);
+  m.step = 'checkout';
+  m.startCheckout();
+  await turn();
+  assert.equal(m.step, 'details');
+  assert.equal(m.details.values()[0], received);
+  assert.match(m.note, /couldn't save/);
+  assert.ok(!strip(m.view()).includes(received));
+  await m.onKey('enter');
+  assert.equal(m.cfg.storage.permafrost.token, received);
+
+  let fail!: (error: Error) => void;
+  m.deps.checkout = async () => ({ page: 'page', wait: () => new Promise((_, reject) => (fail = reject)) });
+  m.step = 'checkout';
+  m.startCheckout();
+  await turn();
+  m.pasteKey('manual-key');
+  fail(failure);
+  await turn();
+  assert.equal(m.details.values()[0], 'manual-key');
+  m.close();
+});
+
 test('setup quit confirmation is separate from typing and changes are saved only by s', async () => {
   let saves = 0;
   const m = new SetupModel(

@@ -763,7 +763,13 @@ export class SetupModel {
       } catch (e) {
         if (id === this.co.id) {
           this.co.waiting = false;
-          this.co.failed = controller.signal.aborted ? '' : message(e);
+          const token = (e as { token?: unknown } | undefined)?.token;
+          if (!controller.signal.aborted && typeof token === 'string' && token) {
+            // Checkout received a key but couldn't save it immediately. Keep it covered in the form
+            // so finishing setup can save it, as the plain setup prompts do.
+            this.pasteKey(token);
+            this.note = message(e);
+          } else this.co.failed = controller.signal.aborted ? '' : message(e);
         }
       } finally {
         controller.abort();

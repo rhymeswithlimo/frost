@@ -118,7 +118,7 @@ export function directory(
   options: { create?: boolean; mode?: number } = {},
 ): RootDirectory {
   if (path.isAbsolute(relative)) throw new Error('restore path escapes the target');
-  const parts = relative.split(/[\\/]/u).filter(value => value && value !== '.');
+  const parts = relative.split(process.platform === 'win32' ? /[\\/]/u : /\//u).filter(value => value && value !== '.');
   if (parts.some(value => value === '..')) throw new Error('restore path escapes the target');
   if (!parts.length) return root;
 

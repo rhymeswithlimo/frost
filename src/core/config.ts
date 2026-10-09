@@ -248,7 +248,7 @@ every = ${q(c.schedule.every)}
 sample = ${c.verify.sample}
 
 [update]
-# Install new frost releases after a scheduled backup, at most once a day.
+# Install new frost releases after a scheduled backup, at most every 20 hours.
 # false only tells you about them in frost status. Either way, frost update
 # installs one now.
 auto = ${c.update.auto}
@@ -265,7 +265,7 @@ prefix = ${q(c.storage.s3.prefix)}
 # Can also come from FROST_S3_ACCESS_KEY_ID / FROST_S3_SECRET_ACCESS_KEY.
 access_key_id = ${q(c.storage.s3.access_key_id)}
 secret_access_key = ${q(c.storage.s3.secret_access_key)}
-# true to use plain http (local testing only).
+# true to use plain http when the endpoint has no scheme (local testing only).
 insecure = ${c.storage.s3.insecure}
 
 [storage.permafrost]

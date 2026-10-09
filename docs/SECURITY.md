@@ -60,7 +60,7 @@ frost protects against:
 
 - A storage provider or Permafrost operator reading your data.
 - An attacker who gets a copy of the bucket.
-- Someone on the network between you and the storage. Connections use TLS, and every object is authenticated anyway. TLS is off only when you ask for plain HTTP, with `storage.s3.insecure`, an `http://` S3 endpoint, or an `http://` Permafrost URL on localhost.
+- Someone on the network between you and the storage. Connections use TLS, and every object is authenticated anyway. TLS is off for an `http://` S3 endpoint, an S3 endpoint without a scheme when `storage.s3.insecure` is enabled, or an `http://` Permafrost URL on localhost. An explicit S3 scheme takes precedence over `storage.s3.insecure`.
 - Tampering, truncation or swapping of stored objects, which frost detects and never silently accepts.
 - A restore escaping its target through `..` paths or symlinked parents. Restores retain native directory handles and check every path first.
 - An in-place restore being redirected through another user's link. POSIX ancestor links and their parents must belong to root or you, with protected parent permissions. Windows refuses ancestor links and junctions.
@@ -123,13 +123,17 @@ Restore replaces files one at a time, after checking their data and size. If a l
 The install script does this for you. To check an archive yourself, download it with `checksums.txt` and `checksums.txt.sig` from the same release, and [`install/release-signing.pub`](../install/release-signing.pub) from the repository. Set `archive` to the downloaded filename, then run:
 
 ```sh
-archive='frost_X.Y.Z_linux_amd64.tar.gz'
-printf 'frost-release %s\n' "$(cat release-signing.pub)" > allowed_signers
-ssh-keygen -Y verify -f allowed_signers -I frost-release -n file -s checksums.txt.sig < checksums.txt
-awk -v archive="$archive" '$2 == archive { print }' checksums.txt | shasum -a 256 -c -
+(
+  set -e
+  archive='frost_X.Y.Z_linux_amd64.tar.gz'
+  printf 'frost-release %s\n' "$(cat release-signing.pub)" > allowed_signers
+  ssh-keygen -Y verify -f allowed_signers -I frost-release -n file -s checksums.txt.sig < checksums.txt
+  selected_checksum=$(awk -v archive="$archive" '$2 == archive { line = $0; count++ } END { if (count != 1) exit 1; print line }' checksums.txt)
+  printf '%s\n' "$selected_checksum" | shasum -a 256 -c -
+)
 ```
 
-The first check should print `Good "file" signature`, and the second `OK` for your archive.
+The commands stop if the signature is wrong or the signed list doesn't contain exactly one entry for your archive. The first check should print `Good "file" signature`, and the second `OK` for your archive.
 
 ## Recommendations
 

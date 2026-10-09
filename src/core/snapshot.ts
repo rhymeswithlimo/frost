@@ -122,7 +122,9 @@ export function shortOf(ids: Map<string, string>, id: string): string {
 // rejects `..`, NUL and empty paths, and on Windows also stream names, reserved device names,
 // names ending in a dot or space, and anything still absolute.
 export function safeRel(source: string, platform: NodeJS.Platform = process.platform): string {
-  let value = source;
+  // Backslashes in POSIX filenames become separators on Windows. Canonicalise them before
+  // restore compares destinations, so aliases can't pass as two different files.
+  let value = platform === 'win32' ? source.replaceAll('\\', '/') : source;
   if (/^[a-z]:\//i.test(value)) value = value[0] + value.slice(2);
   value = value.replace(/^\/+/, '');
   if (value.split(platform === 'win32' ? /[/\\]/ : /\//).includes('..'))

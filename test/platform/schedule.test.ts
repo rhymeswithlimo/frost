@@ -43,6 +43,7 @@ test('scheduler definitions preserve interval, quoting, and logging', () => {
   // Only frost's own line is removed, never a line that merely mentions the marker.
   assert.equal(stripCron('0 1 * * * other\n' + cronLine(job) + '\n'), '0 1 * * * other\n');
   assert.equal(stripCron("* * * * * echo '# frost-backup'\n"), "* * * * * echo '# frost-backup'\n");
+  assert.equal(stripCron('# See # frost-backup\n'), '# See # frost-backup\n');
   assert.equal(stripCron(cronLine(job) + '\n'), '');
 
   for (const [every, calendar, cron] of [
@@ -154,6 +155,106 @@ test('scheduler tests never run the real scheduler', async t => {
 
   await assert.rejects(scheduler.install({ ...job, binary: 'bad\npath' }), /line breaks/);
   await assert.rejects(scheduler.install({ ...job, every: 1 }), /at least an hour/);
+});
+
+test('lingering ownership requires a confirmed disabled state', async () => {
+  for (const reply of [
+    { code: 0, stdout: 'yes\n', stderr: '' },
+    { code: 1, stdout: 'no\n', stderr: 'permission denied' },
+    { code: 0, stdout: '', stderr: '' },
+    { code: 0, stdout: 'unknown\n', stderr: '' },
+  ]) {
+    const calls: string[][] = [];
+    const runner: Runner = async (_cmd, args) => {
+      calls.push(args);
+      return reply;
+    };
+    const scheduler = new Scheduler({ platform: 'linux', runner });
+    assert.deepEqual(await scheduler.claimLinger(''), { ours: false, enabled: false });
+    assert.equal(calls.length, 1);
+    assert.ok(!calls[0].includes('enable-linger'));
+  }
+});
+
+test('failed systemd registration clears a rolled-back lingering claim before retry', async t => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'frost-systemd-rollback-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  let fails = true;
+  const calls: string[][] = [];
+  const runner: Runner = async (_cmd, args) => {
+    calls.push(args);
+    return {
+      code: fails && args.includes('daemon-reload') ? 1 : 0,
+      stdout: args.includes('--property=Linger') ? 'no\n' : '',
+      stderr: 'registration failed',
+    };
+  };
+  const scheduler = new Scheduler({ platform: 'linux', home, env: {}, runner });
+  await assert.rejects(scheduler.install(job), /registration failed/);
+  const timer = path.join(home, '.config', 'systemd', 'user', 'frost-backup.timer');
+  assert.ok(calls.some(args => args.includes('disable-linger')));
+  assert.ok(!(await readFile(timer, 'utf8')).includes(lingerMarker));
+
+  fails = false;
+  await scheduler.install(job);
+  assert.equal(calls.filter(args => args.includes('enable-linger')).length, 2);
+  assert.ok((await readFile(timer, 'utf8')).includes(lingerMarker));
+});
+
+test('a systemd timer counts as installed only while it is active', async t => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'frost-systemd-test-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  let active = true;
+  const calls: string[][] = [];
+  const runner: Runner = async (_cmd, args) => {
+    calls.push(args);
+    return {
+      code: args.includes('is-active') && !active ? 3 : 0,
+      stdout: args.includes('--property=Linger') ? 'yes\n' : '',
+      stderr: '',
+    };
+  };
+  const scheduler = new Scheduler({ platform: 'linux', home, env: {}, runner });
+  assert.equal(await scheduler.installed(), false);
+  await scheduler.install(job);
+  assert.equal(await scheduler.installed(), true);
+  assert.deepEqual(calls.at(-1), ['--user', 'is-active', '--quiet', 'frost-backup.timer']);
+  active = false;
+  assert.equal(await scheduler.installed(), false);
+});
+
+test('a crontab mention of frost is not an installed job', async () => {
+  for (const [text, installed] of [
+    ["* * * * * echo '# frost-backup'\n", false],
+    ['# See # frost-backup in the documentation\n', false],
+    ['# See # frost-backup\n', false],
+    ['  # See # frost-backup  \n', false],
+    [cronLine(job) + '\n', true],
+  ] as const) {
+    const runner: Runner = async (cmd, _args) => ({ code: cmd === 'systemctl' ? 1 : 0, stdout: text, stderr: '' });
+    assert.equal(await new Scheduler({ platform: 'linux', runner }).installed(), installed);
+  }
+});
+
+test("cron install and removal preserve comments that end with frost's marker", async () => {
+  const comment = '# See # frost-backup\n';
+  let crontab = comment;
+  const runner: Runner = async (cmd, args, input) => {
+    if (cmd === 'systemctl') return { code: 1, stdout: '', stderr: '' };
+    assert.equal(cmd, 'crontab');
+    if (args[0] === '-') crontab = String(input);
+    return { code: 0, stdout: args[0] === '-l' ? crontab : '', stderr: '' };
+  };
+  const scheduler = new Scheduler({ platform: 'linux', runner });
+  assert.equal(await scheduler.installed(), false);
+  await scheduler.install(job);
+  assert.equal(crontab, comment + cronLine(job) + '\n');
+  assert.equal(await scheduler.installed(), true);
+  await scheduler.install(job);
+  assert.equal(crontab, comment + cronLine(job) + '\n');
+  await scheduler.remove();
+  assert.equal(crontab, comment);
+  assert.equal(await scheduler.installed(), false);
 });
 
 // Switching frost off under Login Items unloads the launchd job and leaves its plist behind, so an

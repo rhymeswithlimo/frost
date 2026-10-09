@@ -3,9 +3,11 @@
 
 import path from 'node:path';
 import { stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import * as config from '../core/config.js';
 import { resolve, restoreBase, shorten, shortOf } from '../core/snapshot.js';
 import { besideFolder, newRestoreFolder, canOverwrite, RestoreError } from '../engine/index.js';
+import { slash } from '../engine/exclude.js';
 import { Context } from './context.js';
 import { ago, when, tildify, humanCount, humanBytes, printable, statusLine } from './format.js';
 import { requireConfirmation } from './prompt.js';
@@ -15,28 +17,38 @@ interface RestoreFlags {
   to: string;
   overwrite: boolean;
   yes: boolean;
+  configDir?: string;
+  cacheDir?: string;
 }
 
-// The command that carries on an interrupted restore. Arguments are quoted for a POSIX shell, or on
-// Windows in double quotes, which cmd and PowerShell both accept. Windows paths can't contain a
-// double quote, so nothing inside needs escaping.
+// The command that carries on an interrupted restore. Ordinary Windows paths work in cmd and PowerShell.
+// Paths containing shell expansion characters use PowerShell literals and the runtime directly, avoiding
+// frost.cmd's extra round of argument expansion.
 export function rerunCommand(
   id: string,
   paths: string[],
   flags: RestoreFlags,
   platform: NodeJS.Platform = process.platform,
 ): string {
+  const args = [
+    'restore',
+    id,
+    ...paths.map(p => (platform === 'win32' ? p.replaceAll('/', '\\') : p)),
+    ...(flags.beside ? ['--beside'] : flags.to ? ['--to', flags.to] : flags.overwrite ? ['--overwrite'] : []),
+    ...(flags.configDir ? ['--config-dir', flags.configDir] : []),
+    ...(flags.cacheDir ? ['--cache-dir', flags.cacheDir] : []),
+  ];
+  if (platform === 'win32' && args.some(s => /[$`%!]/.test(s))) {
+    const script = process.env.FROST_APP_ROOT
+      ? path.join(process.env.FROST_APP_ROOT, 'launch.mjs')
+      : fileURLToPath(new URL('./main.js', import.meta.url));
+    return '& ' + [process.execPath, script, ...args].map(s => "'" + s.replaceAll("'", "''") + "'").join(' ');
+  }
   const quote =
     platform === 'win32'
       ? (s: string) => (/^[\w.:\\/-]+$/.test(s) ? s : '"' + s + '"')
-      : (s: string) => (/[ \t'"$&;|<>()*?\[\]#~`]/.test(s) ? "'" + s.replaceAll("'", "'\\''") + "'" : s);
-  return [
-    'frost',
-    'restore',
-    id,
-    ...paths.map(p => quote(platform === 'win32' ? p.replaceAll('/', '\\') : p)),
-    ...(flags.beside ? ['--beside'] : flags.to ? ['--to', quote(flags.to)] : flags.overwrite ? ['--overwrite'] : []),
-  ].join(' ');
+      : (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : "'" + s.replaceAll("'", "'\\''") + "'");
+  return ['frost', ...args.map(quote)].join(' ');
 }
 
 export async function runRestore(ctx: Context, args: string[], flags: RestoreFlags): Promise<void> {
@@ -63,8 +75,12 @@ export async function runRestore(ctx: Context, args: string[], flags: RestoreFla
     // the snapshot's own folders, and --overwrite restores everything in place.
     const snaps = await a.engine.repo.snapshots(a.engine.manifest!.snapshots(), ctx.signal);
     const snap = resolve(snaps, args[0]);
-    const rerunInclude = args.slice(1).map(p => path.resolve(config.expand(p)).replaceAll('\\', '/'));
-    const rerun = rerunCommand(snap.id, rerunInclude, flags);
+    const rerunInclude = args.slice(1).map(p => slash(path.resolve(config.expand(p))));
+    const rerun = rerunCommand(snap.id, rerunInclude, {
+      ...flags,
+      ...(process.env.FROST_CONFIG_DIR ? { configDir: path.resolve(config.dir()) } : {}),
+      ...(process.env.FROST_CACHE_DIR ? { cacheDir: path.resolve(config.cacheDir()) } : {}),
+    });
     const include = rerunInclude.length || flags.overwrite ? rerunInclude : snap.paths;
 
     // Check the destination before showing anything. A new folder may pick up an unfinished restore of the
@@ -146,7 +162,11 @@ export async function runRestore(ctx: Context, args: string[], flags: RestoreFla
       if (ctx.outputTTY && ctx.ansiOK) ctx.fmt.write('\r\x1b[K');
       if (err instanceof RestoreError && err.result.unfinished)
         throw new Error(
-          err.message + "\n\nWhat's restored so far was kept. To carry on from there, run:\n\n  " + rerun,
+          err.message +
+            "\n\nWhat's restored so far was kept. To carry on from there, run" +
+            (rerun.startsWith('& ') ? ' in PowerShell' : '') +
+            ':\n\n  ' +
+            rerun,
         );
       throw err;
     }
