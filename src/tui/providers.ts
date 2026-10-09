@@ -56,6 +56,17 @@ function hostOf(v: string): string {
   }
 }
 
+// Tells whether an endpoint's host name is domain or one of its subdomains. A bare host is read as https.
+// The domain appearing anywhere else in the address doesn't count.
+function onDomain(endpoint: string, domain: string): boolean {
+  try {
+    const host = new URL(endpoint.includes('://') ? endpoint : 'https://' + endpoint).hostname;
+    return host === domain || host.endsWith('.' + domain);
+  } catch {
+    return false;
+  }
+}
+
 function checkB2Endpoint(v: string): string {
   return (
     checkEndpoint(v) ||
@@ -153,7 +164,7 @@ export const providers: Provider[] = [
     ],
     read: s => [s.s3.endpoint, ...readKeys(s)],
     apply: (v, s) => s3(s, v[0], regionFromEndpoint(v[0]), v[1], v[2], v[3]),
-    match: s => s.backend === 's3' && s.s3.endpoint.includes('backblazeb2.com'),
+    match: s => s.backend === 's3' && onDomain(s.s3.endpoint, 'backblazeb2.com'),
   },
   {
     name: 'Amazon S3',
@@ -182,7 +193,7 @@ export const providers: Provider[] = [
     ],
     read: s => [s.s3.region, ...readKeys(s)],
     apply: (v, s) => s3(s, 's3.' + v[0] + '.amazonaws.com', v[0], v[1], v[2], v[3]),
-    match: s => s.backend === 's3' && s.s3.endpoint.includes('amazonaws.com'),
+    match: s => s.backend === 's3' && onDomain(s.s3.endpoint, 'amazonaws.com'),
   },
   {
     name: 'Cloudflare R2',
@@ -211,7 +222,7 @@ export const providers: Provider[] = [
     ],
     read: s => [hostOf(s.s3.endpoint).replace(/\.r2\.cloudflarestorage\.com$/, ''), ...readKeys(s)],
     apply: (v, s) => s3(s, v[0] + '.r2.cloudflarestorage.com', 'auto', v[1], v[2], v[3]),
-    match: s => s.backend === 's3' && s.s3.endpoint.includes('r2.cloudflarestorage.com'),
+    match: s => s.backend === 's3' && onDomain(s.s3.endpoint, 'r2.cloudflarestorage.com'),
   },
   {
     name: 'Wasabi',
@@ -229,7 +240,7 @@ export const providers: Provider[] = [
     ],
     read: s => [s.s3.region, ...readKeys(s)],
     apply: (v, s) => s3(s, 's3.' + v[0] + '.wasabisys.com', v[0], v[1], v[2], v[3]),
-    match: s => s.backend === 's3' && s.s3.endpoint.includes('wasabisys.com'),
+    match: s => s.backend === 's3' && onDomain(s.s3.endpoint, 'wasabisys.com'),
   },
   {
     name: 'Other S3-compatible',

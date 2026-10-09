@@ -11,6 +11,7 @@ import { BrowserModel, dateLabel, type BrowserDeps } from '../../src/tui/browser
 import { FileTree } from '../../src/tui/tree.js';
 import { RestoreError } from '../../src/engine/restore.js';
 import { SetupModel, RepoState, ConnectError, type SetupDeps } from '../../src/tui/setup.js';
+import { providers, matchProvider } from '../../src/tui/providers.js';
 import { Form, inputText } from '../../src/tui/input.js';
 import { InputDecoder, runTerminal } from '../../src/tui/terminal.js';
 import { Arcade, Canvas } from '../../src/tui/arcade.js';
@@ -539,6 +540,30 @@ test('setup resumes local keys, retries wrong phrases, keeps secrets covered, an
   await n.onKey({ key: 'text', text: key.phrase() });
   await n.onKey('enter');
   assert.equal(n.step, 'review');
+});
+
+test('setup recognises a storage provider only by its endpoint host name', () => {
+  const provider = (endpoint: string) => {
+    const s = defaultConfig().storage;
+    s.backend = 's3';
+    s.s3.endpoint = endpoint;
+    return providers[matchProvider(s)].name;
+  };
+  assert.equal(provider('s3.us-west-004.backblazeb2.com'), 'Backblaze B2');
+  assert.equal(provider('https://S3.US-WEST-004.BACKBLAZEB2.COM:443/'), 'Backblaze B2');
+  assert.equal(provider('s3.us-east-1.amazonaws.com'), 'Amazon S3');
+  assert.equal(provider('0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com'), 'Cloudflare R2');
+  assert.equal(provider('http://s3.eu-central-1.wasabisys.com'), 'Wasabi');
+
+  // A provider's domain elsewhere in the address leaves the endpoint as a generic S3 server.
+  for (const endpoint of [
+    'backblazeb2.com.example.net',
+    'evilamazonaws.com',
+    'https://minio.example.net/r2.cloudflarestorage.com',
+    'wasabisys.com@minio.example.net',
+    'not a host',
+  ])
+    assert.equal(provider(endpoint), 'Other S3-compatible', endpoint);
 });
 
 test('setup cannot skip viewing the phrase and paging keeps it covered', async () => {
