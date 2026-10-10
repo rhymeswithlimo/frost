@@ -1,3 +1,7 @@
+<div align="center">
+<img src="assets/Icon_PNG_v1.0__frost.png" alt="frost" width="128" height="128" />
+</div>
+
 <h3 align="center">frost</h3>
 
 <p align="center">Encrypted, incremental backups to storage you choose.</p>
